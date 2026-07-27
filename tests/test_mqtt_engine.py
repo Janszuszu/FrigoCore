@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 
+import paho.mqtt.client as mqtt
 import pytest
 
+from app.config import Settings
 from app.mqtt.client import MQTTEngine
 
 
@@ -45,3 +47,31 @@ def test_parse_payload_temperature_not_numeric() -> None:
     payload = json.dumps({"temperature": "cold"}).encode()
     with pytest.raises(ValueError, match="Invalid temperature value"):
         MQTTEngine._parse_payload(payload)
+
+
+# ---------------------------------------------------------------------------
+# Callback API version
+# ---------------------------------------------------------------------------
+
+def test_client_uses_fixed_arity_callback_api() -> None:
+    """paho-mqtt defaults to CallbackAPIVersion.VERSION1, whose on_disconnect
+    dispatch has variable arity depending on protocol/packet source — it
+    passes only 4 positional args on an unsolicited disconnect over MQTTv5,
+    which crashes _on_disconnect's fixed 5-arg signature and kills the
+    background network thread permanently. VERSION2 has fixed arity for
+    every callback, so the engine must request it explicitly.
+    """
+    engine = MQTTEngine(Settings(), session_factory=lambda: None)
+    assert engine._client._callback_api_version == mqtt.CallbackAPIVersion.VERSION2
+
+
+def test_on_disconnect_accepts_unsolicited_disconnect_signature() -> None:
+    """Simulates the exact call paho makes for a client-detected (non-broker)
+    disconnect under CallbackAPIVersion.VERSION2 — must not raise."""
+    engine = MQTTEngine(Settings(), session_factory=lambda: None)
+    disconnect_flags = mqtt.DisconnectFlags(is_disconnect_packet_from_server=False)
+    reason_code = mqtt.ReasonCode(mqtt.PacketTypes.DISCONNECT, "Unspecified error")
+    properties = mqtt.Properties(mqtt.PacketTypes.DISCONNECT)
+    engine._on_disconnect(
+        engine._client, None, disconnect_flags, reason_code, properties
+    )

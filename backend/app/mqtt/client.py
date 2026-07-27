@@ -56,6 +56,7 @@ class MQTTEngine:
         self.session_factory = session_factory
 
         self._client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id="frigocore-backend",
             protocol=mqtt.MQTTv5,
         )
