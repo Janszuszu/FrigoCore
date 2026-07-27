@@ -27,7 +27,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.enums import AlarmStatus, AlarmType
 from app.models.alarm import Alarm
 from app.models.alarm_config import AlarmConfig
+from app.models.notification_profile import NotificationProfile
 from app.models.sensor import Sensor
+from app.services.notification_engine import NotificationEngine
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +214,9 @@ class AlarmEngine:
                     alarm.trigger_value,
                 )
 
+                # --- Send notification ---
+                await _send_triggered_notification(session, alarm)
+
     # ------------------------------------------------------------------
     # Step 3 — Auto-resolve alarms
     # ------------------------------------------------------------------
@@ -280,3 +285,33 @@ def _build_description(alarm_type: AlarmType, value: float | None) -> str:
     if alarm_type == AlarmType.OFFLINE:
         return f"Sensor offline — no message received for {value:.0f}s"
     return f"Alarm type: {alarm_type}"
+
+
+async def _send_triggered_notification(session: AsyncSession, alarm: Alarm) -> None:
+    """Load the object's notification endpoints and dispatch the alarm."""
+    from sqlalchemy import select as _select
+    from app.models.object import Object  # noqa: PLC0415
+
+    # Fetch the object with its notification profile and endpoints
+    stmt = (
+        _select(Object)
+        .where(Object.id == alarm.object_id)
+    )
+    result = await session.execute(stmt)
+    obj = result.scalar_one_or_none()
+
+    if obj is None:
+        logger.warning("Object not found for alarm notification — object_id=%s", alarm.object_id)
+        return
+
+    await session.refresh(obj, attribute_names=["notification_profile"])
+    profile = obj.notification_profile
+
+    if profile is None:
+        logger.info("No notification profile for object=%s", obj.slug)
+        return
+
+    await session.refresh(profile, attribute_names=["endpoints"])
+    endpoints = profile.endpoints
+
+    await NotificationEngine.send_alarm_notification(alarm, endpoints)
