@@ -154,9 +154,9 @@ watch(selectedObjectId,pickObject);
 @media(max-width:767px){
  .temperature-panel{padding:18px}
  .panel-grid{grid-template-columns:1fr;grid-template-areas:"temp" "trio" "updated";gap:16px}
- .stat-trio{display:grid;grid-area:trio;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:12px}
+ .stat-trio{display:grid;grid-area:trio;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:10px}
  .stat-trio>.stat-card{grid-area:auto}
- .stat-card{background:#0b1c2c;border:1px solid #1d344a;border-radius:10px;padding:14px 16px}
+ .stat-card{background:#0b1c2c;border:1px solid #1d344a;border-radius:10px;padding:12px 12px}
  .stat-min,.stat-max{border-right:0}
  .stat-primary{align-items:center;text-align:center;padding:22px 16px}
  .temp-row{justify-content:center}
