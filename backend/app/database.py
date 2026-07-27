@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
+from app.models import *  # noqa: F403 — ensure all models are registered on Base.metadata
 from app.models.base import Base
 
 
