@@ -1,0 +1,153 @@
+version: "3.9"
+
+# ============================================
+# FrigoCore - Docker Compose
+# Development environment
+# ============================================
+
+services:
+  # ------------------------------------------
+  # PostgreSQL - Primary Database
+  # ------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: frigocore-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: frigocore
+      POSTGRES_PASSWORD: frigocore_dev
+      POSTGRES_DB: frigocore
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U frigocore"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - frigocore-network
+
+  # ------------------------------------------
+  # Redis - Cache & Message Broker
+  # ------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: frigocore-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass frigocore_redis_dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - frigocore-network
+
+  # ------------------------------------------
+  # EMQX - MQTT Broker for IoT
+  # ------------------------------------------
+  emqx:
+    image: emqx/emqx:5.7.0
+    container_name: frigocore-emqx
+    restart: unless-stopped
+    environment:
+      EMQX_NAME: frigocore-emqx
+      EMQX_HOST: emqx
+      EMQX_NODE_NAME: emqx@node.emqx.io
+      EMQX_CLUSTER__DISCOVERY_STRATEGY: static
+      EMQX_DASHBOARD__DEFAULT_USERNAME: admin
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: frigocore_admin_dev
+    ports:
+      - "1883:1883"   # MQTT TCP
+      - "8883:8883"   # MQTT SSL
+      - "8083:8083"   # MQTT WebSocket
+      - "8084:8084"   # MQTT WebSocket SSL
+      - "18083:18083" # Dashboard HTTP
+    volumes:
+      - emqx_data:/opt/emqx/data
+      - emqx_log:/opt/emqx/log
+    healthcheck:
+      test: ["CMD", "emqx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - frigocore-network
+
+  # ------------------------------------------
+  # Backend - FastAPI Application
+  # ------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend.Dockerfile
+    container_name: frigocore-backend
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://frigocore:frigocore_dev@postgres:5432/frigocore
+      REDIS_URL: redis://:frigocore_redis_dev@redis:6379/0
+      EMQX_HOST: emqx
+      EMQX_PORT: 1883
+      ENVIRONMENT: development
+      DEBUG: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+    networks:
+      - frigocore-network
+
+  # ------------------------------------------
+  # Frontend - Vue 3 SPA
+  # ------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend.Dockerfile
+    container_name: frigocore-frontend
+    restart: unless-stopped
+    command: npm run dev -- --host 0.0.0.0
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+      VITE_WS_URL: ws://localhost:8083
+    depends_on:
+      - backend
+    networks:
+      - frigocore-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  emqx_data:
+    driver: local
+  emqx_log:
+    driver: local
+  frontend_node_modules:
+    driver: local
+
+networks:
+  frigocore-network:
+    driver: bridge
+    name: frigocore-network

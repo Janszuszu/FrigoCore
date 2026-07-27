@@ -1,0 +1,106 @@
+# ============================================
+# FrigoCore - Git Ignore
+# Python + Vue + Docker
+# ============================================
+
+# --------------------------------------------
+# Python
+# --------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+sdist/
+*.whl
+.eggs/
+*.manifest
+*.spec
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+env/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+*.log
+
+# --------------------------------------------
+# Vue / Node / Frontend
+# --------------------------------------------
+node_modules/
+.DS_Store
+dist-ssr/
+*.local
+dist/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.tsbuildinfo
+
+# Env files for frontend
+frontend/.env.local
+frontend/.env.*.local
+
+# --------------------------------------------
+# Docker
+# --------------------------------------------
+docker-compose.override.yml
+docker/.env
+*.tar
+*.tar.gz
+
+# --------------------------------------------
+# OS generated files
+# --------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# --------------------------------------------
+# IDE / Editors
+# --------------------------------------------
+.idea/
+*.iml
+.project
+.classpath
+.settings/
+*.sublime-*
+.vscode/
+.code-workspace
+
+# --------------------------------------------
+# Misc
+# --------------------------------------------
+*.bak
+*.tmp
+*.temp
+*~
+\#*\#
+.\#*
