@@ -8,6 +8,7 @@ from app.models.notification_endpoint import NotificationEndpoint
 from app.models.notification_profile import NotificationProfile
 from app.models.object import Object
 from app.models.sensor import Sensor
+from app.models.sensor_alarm_config import SensorAlarmConfig
 from app.models.user import User
 
 __all__ = [

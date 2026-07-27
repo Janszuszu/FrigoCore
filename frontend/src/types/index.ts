@@ -79,6 +79,34 @@ export interface SensorUpdate {
   is_active?: boolean;
 }
 
+export interface SensorAlarmConfigItem {
+  id: string;
+  sensor_id: string;
+  high_enabled: boolean;
+  high_temperature: number | null;
+  high_delay: number;
+  low_enabled: boolean;
+  low_temperature: number | null;
+  low_delay: number;
+  offline_enabled: boolean;
+  offline_timeout: number;
+  offline_delay: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SensorAlarmConfigUpdate {
+  high_enabled?: boolean;
+  high_temperature?: number | null;
+  high_delay?: number;
+  low_enabled?: boolean;
+  low_temperature?: number | null;
+  low_delay?: number;
+  offline_enabled?: boolean;
+  offline_timeout?: number;
+  offline_delay?: number;
+}
+
 export interface WsEvent {
   event: string;
   data: Record<string, unknown>;

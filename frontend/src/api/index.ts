@@ -3,6 +3,8 @@ import type {
   ObjectCreate,
   ObjectItem,
   ObjectUpdate,
+  SensorAlarmConfigItem,
+  SensorAlarmConfigUpdate,
   SensorCreate,
   SensorItem,
   SensorUpdate,
@@ -76,6 +78,18 @@ export const apiMeasurements = {
 };
 
 // ─── Alarms ────────────────────────────────────────────────────────
+
+// ─── Sensor Alarm Config ──────────────────────────────────────────
+
+export const apiSensorAlarmConfig = {
+  get: (sensorId: string) =>
+    request<SensorAlarmConfigItem>(`/sensors/${sensorId}/alarm-config`),
+  update: (sensorId: string, data: SensorAlarmConfigUpdate) =>
+    request<SensorAlarmConfigItem>(`/sensors/${sensorId}/alarm-config`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+};
 
 export const apiAlarms = {
   list: (objectId?: string, status?: string) => {

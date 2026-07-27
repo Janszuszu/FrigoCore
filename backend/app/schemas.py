@@ -67,7 +67,7 @@ class SensorResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# AlarmConfig
+# AlarmConfig (legacy, normalized)
 # ---------------------------------------------------------------------------
 
 class AlarmConfigCreate(BaseModel):
@@ -94,6 +94,44 @@ class AlarmConfigResponse(BaseModel):
     sensor_id: UUID
     created_at: datetime
     updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# SensorAlarmConfig (flat, one row per sensor)
+# ---------------------------------------------------------------------------
+
+class SensorAlarmConfigResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    sensor_id: UUID
+
+    high_enabled: bool
+    high_temperature: float | None
+    high_delay: int
+
+    low_enabled: bool
+    low_temperature: float | None
+    low_delay: int
+
+    offline_enabled: bool
+    offline_timeout: int
+    offline_delay: int
+
+    created_at: datetime
+    updated_at: datetime
+
+
+class SensorAlarmConfigUpdate(BaseModel):
+    high_enabled: bool | None = None
+    high_temperature: float | None = None
+    high_delay: int | None = Field(None, ge=0, le=86400)
+    low_enabled: bool | None = None
+    low_temperature: float | None = None
+    low_delay: int | None = Field(None, ge=0, le=86400)
+    offline_enabled: bool | None = None
+    offline_timeout: int | None = Field(None, ge=10, le=3600)
+    offline_delay: int | None = Field(None, ge=0, le=86400)
 
 
 # ---------------------------------------------------------------------------
