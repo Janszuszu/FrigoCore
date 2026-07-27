@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import async_session_factory, init_db, get_db
+from app.mqtt.client import MQTTEngine
 from app.models.measurement import Measurement
 from app.models.sensor import Sensor
 from app.models.object import Object
@@ -30,6 +31,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 # Engines — instantiated once at module level, started/stopped in lifespan
 # ---------------------------------------------------------------------------
 alarm_engine = AlarmEngine(async_session_factory)
+mqtt_engine = MQTTEngine(settings, async_session_factory)
 
 
 # ---------------------------------------------------------------------------
@@ -104,11 +106,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if count is None:
             from setup_dev import main as setup_dev_main
             await setup_dev_main()
+    # Start MQTT engine first, then alarm engine
+    await mqtt_engine.start()
     await alarm_engine.start()
-    logger.info("FrigoCore backend is ready (SQLite + no MQTT broker)")
+    logger.info("FrigoCore backend is ready")
     yield
     # Shutdown
     await alarm_engine.stop()
+    await mqtt_engine.stop()
     logger.info("FrigoCore backend shut down")
 
 

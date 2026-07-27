@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, onMounted, onUnmounted } from "vue";
 import { useWebSocket } from "./composables/useWebSocket";
 import DashboardView from "./views/DashboardView.vue";
 import ObjectsView from "./views/ObjectsView.vue";
@@ -8,9 +8,23 @@ import AlarmsView from "./views/AlarmsView.vue";
 const { connected } = useWebSocket();
 const activeTab = ref<"dashboard" | "objects" | "alarms">("dashboard");
 const menuOpen = ref(false);
-const now = new Date();
-const time = computed(() => now.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
-const date = computed(() => now.toLocaleDateString("pl-PL"));
+const now = ref(new Date());
+let timer: ReturnType<typeof setInterval> | null = null;
+const time = computed(() => now.value.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+const date = computed(() => now.value.toLocaleDateString("pl-PL"));
+
+onMounted(() => {
+  timer = setInterval(() => {
+    now.value = new Date();
+  }, 1000);
+});
+
+onUnmounted(() => {
+  if (timer !== null) {
+    clearInterval(timer);
+    timer = null;
+  }
+});
 </script>
 
 <template>
