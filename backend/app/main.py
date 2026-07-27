@@ -63,6 +63,7 @@ from app.api.routes import (
     objects_router,
     sensors_router,
 )
+from app.api.websocket import ws_router
 
 # ---------------------------------------------------------------------------
 # Health check
@@ -84,3 +85,4 @@ app.include_router(alarm_configs_router, prefix="/api/v1/sensors", tags=["Alarm 
 app.include_router(alarms_router, prefix="/api/v1/alarms", tags=["Alarms"])
 app.include_router(measurements_router, prefix="/api/v1/sensors", tags=["Measurements"])
 app.include_router(notifications_router, prefix="/api/v1/objects", tags=["Notifications"])
+app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])

@@ -24,6 +24,8 @@ from app.config import Settings
 from app.models.measurement import Measurement
 from app.models.sensor import Sensor
 
+from app.api.websocket import manager as ws_manager
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -250,4 +252,24 @@ class MQTTEngine:
             object_slug,
             sensor_slug,
             temperature,
+        )
+
+        # Broadcast WebSocket events
+        await ws_manager.broadcast(
+            "measurement.created",
+            {
+                "id": str(measurement.id),
+                "sensor_id": str(sensor.id),
+                "temperature": temperature,
+                "received_at": now.isoformat(),
+            },
+        )
+        await ws_manager.broadcast(
+            "sensor.updated",
+            {
+                "id": str(sensor.id),
+                "slug": sensor.slug,
+                "current_temperature": temperature,
+                "last_message_at": now.isoformat(),
+            },
         )

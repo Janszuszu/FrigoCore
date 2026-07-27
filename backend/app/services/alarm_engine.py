@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.enums import AlarmStatus, AlarmType
 from app.models.alarm import Alarm
 from app.models.alarm_config import AlarmConfig
+from app.api.websocket import manager as ws_manager
 from app.models.notification_profile import NotificationProfile
 from app.models.sensor import Sensor
 from app.services.notification_engine import NotificationEngine
@@ -168,6 +169,18 @@ class AlarmEngine:
                         sensor.slug,
                         trigger_value,
                     )
+                    # Broadcast WebSocket event
+                    await ws_manager.broadcast(
+                        "alarm.pending",
+                        {
+                            "id": str(alarm.id),
+                            "alarm_type": alarm.alarm_type.value,
+                            "trigger_value": trigger_value,
+                            "detected_at": now.isoformat(),
+                            "object_id": str(alarm.object_id),
+                            "sensor_id": str(alarm.sensor_id),
+                        },
+                    )
 
     # ------------------------------------------------------------------
     # Step 2 — PENDING → TRIGGERED
@@ -212,6 +225,19 @@ class AlarmEngine:
                     alarm.alarm_type.value,
                     sensor.slug,
                     alarm.trigger_value,
+                )
+
+                # --- Broadcast WebSocket event ---
+                await ws_manager.broadcast(
+                    "alarm.triggered",
+                    {
+                        "id": str(alarm.id),
+                        "alarm_type": alarm.alarm_type.value,
+                        "trigger_value": alarm.trigger_value,
+                        "triggered_at": now.isoformat(),
+                        "object_id": str(alarm.object_id),
+                        "sensor_id": str(alarm.sensor_id),
+                    },
                 )
 
                 # --- Send notification ---
@@ -269,6 +295,17 @@ class AlarmEngine:
                     "Alarm RESOLVED — type=%s sensor=%s",
                     alarm.alarm_type.value,
                     sensor.slug,
+                )
+                # Broadcast WebSocket event
+                await ws_manager.broadcast(
+                    "alarm.resolved",
+                    {
+                        "id": str(alarm.id),
+                        "alarm_type": alarm.alarm_type.value,
+                        "resolved_at": now.isoformat(),
+                        "object_id": str(alarm.object_id),
+                        "sensor_id": str(alarm.sensor_id),
+                    },
                 )
 
 
