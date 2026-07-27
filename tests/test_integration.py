@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.api.routes import create_alarm_config
 from app.enums import AlarmStatus, AlarmType, NotificationChannel
 from app.models.alarm import Alarm
 from app.models.alarm_config import AlarmConfig
@@ -20,6 +21,7 @@ from app.models.measurement import Measurement
 from app.models.notification_endpoint import NotificationEndpoint
 from app.models.object import Object
 from app.models.sensor import Sensor
+from app.schemas import AlarmConfigCreate
 from app.services.alarm_engine import AlarmEngine, _build_description
 from app.services.notification_engine import NotificationEngine
 
@@ -331,6 +333,53 @@ async def test_no_duplicate_pending_alarm():
                 select(Alarm).where(Alarm.sensor_id == sensor.id, Alarm.alarm_type == AlarmType.HIGH_TEMPERATURE)
             )
             assert len(result.scalars().all()) == 1
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_alarm_config_set_via_ui_endpoint_is_evaluated_by_engine():
+    """Regression test for DEBT-1.
+
+    Before the fix, AlarmConfigModal.vue saved to a separate SensorAlarmConfig
+    model that AlarmEngine never read (it evaluates Sensor.alarm_configs, the
+    AlarmConfig model) — any threshold set through the real UI was silently
+    never evaluated. SensorAlarmConfig has been removed; the modal now calls
+    the same alarm-configs endpoint exercised here. This test configures a
+    HIGH_TEMPERATURE threshold through that real endpoint and confirms the
+    engine actually acts on it, so this exact class of bug can't regress
+    silently again.
+    """
+    factory, engine = await _fresh_session_factory()
+    try:
+        ae = AlarmEngine(factory)
+        async with factory() as session:
+            obj = await _seed_object(session)
+            sensor = await _seed_sensor(session, obj, initial_temp=9.0, last_message_offset_s=5)
+
+            # Exactly what AlarmConfigModal.vue's upsert() does on first save.
+            await create_alarm_config(
+                sensor.id,
+                AlarmConfigCreate(
+                    alarm_type=AlarmType.HIGH_TEMPERATURE,
+                    threshold_value=8.0,
+                    trigger_delay_seconds=0,
+                    is_enabled=True,
+                ),
+                db=session,
+            )
+
+        await ae._evaluate_all()
+
+        async with factory() as session:
+            result = await session.execute(
+                select(Alarm).where(Alarm.sensor_id == sensor.id, Alarm.alarm_type == AlarmType.HIGH_TEMPERATURE)
+            )
+            alarm = result.scalar_one_or_none()
+            assert alarm is not None, (
+                "No alarm was created after configuring a HIGH_TEMPERATURE threshold "
+                "through the real UI endpoint — DEBT-1 has regressed."
+            )
     finally:
         await engine.dispose()
 

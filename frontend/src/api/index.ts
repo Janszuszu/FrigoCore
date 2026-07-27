@@ -1,10 +1,11 @@
 import type {
+  AlarmConfigCreate,
+  AlarmConfigItem,
+  AlarmConfigUpdate,
   AlarmItem,
   ObjectCreate,
   ObjectItem,
   ObjectUpdate,
-  SensorAlarmConfigItem,
-  SensorAlarmConfigUpdate,
   SensorCreate,
   SensorItem,
   SensorUpdate,
@@ -79,14 +80,20 @@ export const apiMeasurements = {
 
 // ─── Alarms ────────────────────────────────────────────────────────
 
-// ─── Sensor Alarm Config ──────────────────────────────────────────
+// ─── Alarm Configs (per sensor, one row per alarm type — the model the
+// alarm engine actually evaluates) ─────────────────────────────────
 
-export const apiSensorAlarmConfig = {
-  get: (sensorId: string) =>
-    request<SensorAlarmConfigItem>(`/sensors/${sensorId}/alarm-config`),
-  update: (sensorId: string, data: SensorAlarmConfigUpdate) =>
-    request<SensorAlarmConfigItem>(`/sensors/${sensorId}/alarm-config`, {
-      method: "PUT",
+export const apiAlarmConfigs = {
+  list: (sensorId: string) =>
+    request<AlarmConfigItem[]>(`/sensors/${sensorId}/alarm-configs`),
+  create: (sensorId: string, data: AlarmConfigCreate) =>
+    request<AlarmConfigItem>(`/sensors/${sensorId}/alarm-configs`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (sensorId: string, configId: string, data: AlarmConfigUpdate) =>
+    request<AlarmConfigItem>(`/sensors/${sensorId}/alarm-configs/${configId}`, {
+      method: "PATCH",
       body: JSON.stringify(data),
     }),
 };

@@ -140,7 +140,6 @@ from app.api.routes import (
     measurements_router,
     notifications_router,
     objects_router,
-    sensor_alarm_configs_router,
     sensors_router,
 )
 from app.api.websocket import ws_router
@@ -161,8 +160,7 @@ async def health_check() -> dict:
 
 app.include_router(objects_router, prefix="/api/v1/objects", tags=["Objects"])
 app.include_router(sensors_router, prefix="/api/v1/objects", tags=["Sensors"])
-app.include_router(alarm_configs_router, prefix="/api/v1/sensors", tags=["Alarm Configs (Legacy)"])
-app.include_router(sensor_alarm_configs_router, prefix="/api/v1/sensors", tags=["Sensor Alarm Config"])
+app.include_router(alarm_configs_router, prefix="/api/v1/sensors", tags=["Alarm Configs"])
 app.include_router(alarms_router, prefix="/api/v1/alarms", tags=["Alarms"])
 app.include_router(measurements_router, prefix="/api/v1/sensors", tags=["Measurements"])
 app.include_router(notifications_router, prefix="/api/v1/objects", tags=["Notifications"])

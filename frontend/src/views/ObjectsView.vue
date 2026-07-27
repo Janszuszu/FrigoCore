@@ -171,10 +171,10 @@ async function removeSensors() {
 }
 
 // ─── Alarm config modal ───────────────────────────────────────────
-const alarmConfigTarget = ref<{ id: string; name: string } | null>(null);
+const alarmConfigTarget = ref<SensorItem | null>(null);
 
 function openAlarmConfig(sensor: SensorItem) {
-  alarmConfigTarget.value = { id: sensor.id, name: sensor.name };
+  alarmConfigTarget.value = sensor;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -350,8 +350,7 @@ onMounted(async () => {
     <!-- Alarm Config Modal -->
     <AlarmConfigModal
       v-if="alarmConfigTarget"
-      :sensorId="alarmConfigTarget.id"
-      :sensorName="alarmConfigTarget.name"
+      :sensor="alarmConfigTarget"
       @close="alarmConfigTarget = null"
       @saved="alarmConfigTarget = null"
     />

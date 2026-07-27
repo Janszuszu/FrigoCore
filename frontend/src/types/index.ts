@@ -55,6 +55,19 @@ export interface AlarmConfigItem {
   updated_at: string;
 }
 
+export interface AlarmConfigCreate {
+  alarm_type: "high_temperature" | "low_temperature" | "offline";
+  threshold_value: number | null;
+  trigger_delay_seconds: number;
+  is_enabled: boolean;
+}
+
+export interface AlarmConfigUpdate {
+  threshold_value?: number | null;
+  trigger_delay_seconds?: number;
+  is_enabled?: boolean;
+}
+
 export interface ObjectCreate {
   name: string;
   description?: string;
@@ -77,34 +90,6 @@ export interface SensorUpdate {
   mqtt_topic?: string;
   offline_timeout_seconds?: number;
   is_active?: boolean;
-}
-
-export interface SensorAlarmConfigItem {
-  id: string;
-  sensor_id: string;
-  high_enabled: boolean;
-  high_temperature: number | null;
-  high_delay: number;
-  low_enabled: boolean;
-  low_temperature: number | null;
-  low_delay: number;
-  offline_enabled: boolean;
-  offline_timeout: number;
-  offline_delay: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SensorAlarmConfigUpdate {
-  high_enabled?: boolean;
-  high_temperature?: number | null;
-  high_delay?: number;
-  low_enabled?: boolean;
-  low_temperature?: number | null;
-  low_delay?: number;
-  offline_enabled?: boolean;
-  offline_timeout?: number;
-  offline_delay?: number;
 }
 
 export interface WsEvent {

@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from app.models.alarm_config import AlarmConfig
     from app.models.measurement import Measurement
     from app.models.object import Object
-    from app.models.sensor_alarm_config import SensorAlarmConfig
 
 
 class Sensor(Base, UUIDMixin, TimestampMixin):
@@ -57,9 +56,6 @@ class Sensor(Base, UUIDMixin, TimestampMixin):
     )
     alarm_configs: Mapped[List["AlarmConfig"]] = relationship(
         "AlarmConfig", back_populates="sensor", cascade="all, delete-orphan"
-    )
-    alarm_config_flat: Mapped[Optional["SensorAlarmConfig"]] = relationship(
-        "SensorAlarmConfig", back_populates="sensor", uselist=False, cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

@@ -21,7 +21,6 @@ from app.models.notification_endpoint import NotificationEndpoint
 from app.models.notification_profile import NotificationProfile
 from app.models.object import Object
 from app.models.sensor import Sensor
-from app.models.sensor_alarm_config import SensorAlarmConfig
 from app.schemas import (
     AlarmAcknowledge,
     AlarmConfigCreate,
@@ -37,8 +36,6 @@ from app.schemas import (
     ObjectCreate,
     ObjectResponse,
     ObjectUpdate,
-    SensorAlarmConfigResponse,
-    SensorAlarmConfigUpdate,
     SensorCreate,
     SensorResponse,
     SensorUpdate,
@@ -51,7 +48,6 @@ from app.schemas import (
 objects_router = APIRouter()
 sensors_router = APIRouter()
 alarm_configs_router = APIRouter()
-sensor_alarm_configs_router = APIRouter()
 alarms_router = APIRouter()
 measurements_router = APIRouter()
 notifications_router = APIRouter()
@@ -258,51 +254,6 @@ async def delete_alarm_config(
     await db.delete(config)
     await db.commit()
     return {"status": "deleted"}
-
-
-# ===================================================================
-# Sensor Alarm Config (flat — one row per sensor)
-# ===================================================================
-
-@sensor_alarm_configs_router.get("/{sensor_id}/alarm-config", response_model=SensorAlarmConfigResponse)
-async def get_sensor_alarm_config(
-    sensor_id: UUID, db: AsyncSession = Depends(get_db)
-) -> SensorAlarmConfig:
-    sensor = await db.get(Sensor, sensor_id)
-    if sensor is None:
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    config = await db.scalar(
-        select(SensorAlarmConfig).where(SensorAlarmConfig.sensor_id == sensor_id)
-    )
-    if config is None:
-        config = SensorAlarmConfig(sensor_id=sensor_id)
-        db.add(config)
-        await db.commit()
-        await db.refresh(config)
-    return config
-
-
-@sensor_alarm_configs_router.put("/{sensor_id}/alarm-config", response_model=SensorAlarmConfigResponse)
-async def update_sensor_alarm_config(
-    sensor_id: UUID,
-    body: SensorAlarmConfigUpdate,
-    db: AsyncSession = Depends(get_db),
-) -> SensorAlarmConfig:
-    sensor = await db.get(Sensor, sensor_id)
-    if sensor is None:
-        raise HTTPException(status_code=404, detail="Sensor not found")
-    config = await db.scalar(
-        select(SensorAlarmConfig).where(SensorAlarmConfig.sensor_id == sensor_id)
-    )
-    if config is None:
-        config = SensorAlarmConfig(sensor_id=sensor_id)
-        db.add(config)
-        await db.flush()
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(config, field, value)
-    await db.commit()
-    await db.refresh(config)
-    return config
 
 
 # ===================================================================

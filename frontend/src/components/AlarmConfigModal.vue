@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { apiSensorAlarmConfig } from '@/api'
-import type { SensorAlarmConfigItem, SensorAlarmConfigUpdate } from '@/types'
+import { apiAlarmConfigs, apiSensors } from '@/api'
+import type { AlarmConfigItem, SensorItem } from '@/types'
 
 const props = defineProps<{
-  sensorId: string
-  sensorName: string
+  sensor: SensorItem
 }>()
 
 const emit = defineEmits<{
@@ -17,27 +16,48 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 
-const config = ref<SensorAlarmConfigItem>({
-  id: '',
-  sensor_id: '',
-  high_enabled: true,
+// The AlarmConfig row per type, if one already exists on the server —
+// null means "not created yet, use the form defaults below".
+const existing = ref<Record<'high_temperature' | 'low_temperature' | 'offline', AlarmConfigItem | null>>({
   high_temperature: null,
+  low_temperature: null,
+  offline: null,
+})
+
+const config = ref({
+  high_enabled: true,
+  high_temperature: null as number | null,
   high_delay: 300,
   low_enabled: true,
-  low_temperature: null,
+  low_temperature: null as number | null,
   low_delay: 300,
   offline_enabled: true,
   offline_timeout: 120,
   offline_delay: 300,
-  created_at: '',
-  updated_at: '',
 })
 
 onMounted(async () => {
   loading.value = true
   try {
-    const data = await apiSensorAlarmConfig.get(props.sensorId)
-    config.value = data
+    const rows = await apiAlarmConfigs.list(props.sensor.id)
+    for (const row of rows) {
+      if (row.alarm_type === 'high_temperature') {
+        existing.value.high_temperature = row
+        config.value.high_enabled = row.is_enabled
+        config.value.high_temperature = row.threshold_value
+        config.value.high_delay = row.trigger_delay_seconds
+      } else if (row.alarm_type === 'low_temperature') {
+        existing.value.low_temperature = row
+        config.value.low_enabled = row.is_enabled
+        config.value.low_temperature = row.threshold_value
+        config.value.low_delay = row.trigger_delay_seconds
+      } else if (row.alarm_type === 'offline') {
+        existing.value.offline = row
+        config.value.offline_enabled = row.is_enabled
+        config.value.offline_delay = row.trigger_delay_seconds
+      }
+    }
+    config.value.offline_timeout = props.sensor.offline_timeout_seconds
   } catch (e) {
     error.value = 'Nie udało się pobrać konfiguracji alarmów'
   } finally {
@@ -45,26 +65,46 @@ onMounted(async () => {
   }
 })
 
+async function upsert(
+  type: 'high_temperature' | 'low_temperature' | 'offline',
+  payload: { is_enabled: boolean; threshold_value: number | null; trigger_delay_seconds: number },
+) {
+  const current = existing.value[type]
+  if (current) {
+    await apiAlarmConfigs.update(props.sensor.id, current.id, payload)
+  } else {
+    await apiAlarmConfigs.create(props.sensor.id, { alarm_type: type, ...payload })
+  }
+}
+
 async function save() {
   saving.value = true
   error.value = ''
   try {
-    const update: SensorAlarmConfigUpdate = {
-      high_enabled: config.value.high_enabled,
-      high_temperature: config.value.high_temperature,
-      high_delay: config.value.high_delay,
-      low_enabled: config.value.low_enabled,
-      low_temperature: config.value.low_temperature,
-      low_delay: config.value.low_delay,
-      offline_enabled: config.value.offline_enabled,
-      offline_timeout: config.value.offline_timeout,
-      offline_delay: config.value.offline_delay,
-    }
-    await apiSensorAlarmConfig.update(props.sensorId, update)
+    await Promise.all([
+      upsert('high_temperature', {
+        is_enabled: config.value.high_enabled,
+        threshold_value: config.value.high_temperature,
+        trigger_delay_seconds: config.value.high_delay,
+      }),
+      upsert('low_temperature', {
+        is_enabled: config.value.low_enabled,
+        threshold_value: config.value.low_temperature,
+        trigger_delay_seconds: config.value.low_delay,
+      }),
+      upsert('offline', {
+        is_enabled: config.value.offline_enabled,
+        threshold_value: null,
+        trigger_delay_seconds: config.value.offline_delay,
+      }),
+      apiSensors.update(props.sensor.object_id, props.sensor.id, {
+        offline_timeout_seconds: config.value.offline_timeout,
+      }),
+    ])
     emit('saved')
     emit('close')
   } catch (e) {
-    error.value = 'Nie udało się zapisać konfiguracji'
+    error.value = e instanceof Error ? e.message : 'Nie udało się zapisać konfiguracji'
   } finally {
     saving.value = false
   }
@@ -92,7 +132,7 @@ const lowTempStr = computed({
     <div class="alarm-modal">
       <header>
         <h2>⚙ Konfiguracja alarmów</h2>
-        <p class="sensor-label">Sensor: <strong>{{ sensorName }}</strong></p>
+        <p class="sensor-label">Sensor: <strong>{{ sensor.name }}</strong></p>
       </header>
 
       <div v-if="loading" class="loading">Ładowanie...</div>
