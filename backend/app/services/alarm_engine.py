@@ -38,6 +38,18 @@ logger = logging.getLogger(__name__)
 EVALUATION_INTERVAL_SECONDS = 10
 
 
+def _alarm_type_str(alarm: Alarm) -> str:
+    """Return alarm_type as a plain string, regardless of SQL dialect storage."""
+    return alarm.alarm_type.value if hasattr(alarm.alarm_type, "value") else str(alarm.alarm_type)
+
+
+def _ensure_utc(dt: datetime) -> datetime:
+    """Ensure a datetime is timezone-aware UTC. SQLite stores naive UTC."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 class AlarmEngine:
     """Periodic background task that evaluates sensor alarms."""
 
@@ -45,17 +57,11 @@ class AlarmEngine:
         self._session_factory = session_factory
         self._task: asyncio.Task[None] | None = None
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
     async def start(self) -> None:
-        """Begin the periodic evaluation loop."""
         self._task = asyncio.create_task(self._run_loop())
         logger.info("Alarm engine started (interval=%ds)", EVALUATION_INTERVAL_SECONDS)
 
     async def stop(self) -> None:
-        """Cancel the evaluation loop."""
         if self._task is not None:
             self._task.cancel()
             try:
@@ -65,7 +71,6 @@ class AlarmEngine:
         logger.info("Alarm engine stopped")
 
     async def _run_loop(self) -> None:
-        """Main evaluation loop."""
         while True:
             try:
                 await self._evaluate_all()
@@ -73,42 +78,26 @@ class AlarmEngine:
                 logger.exception("Alarm engine evaluation failed")
             await asyncio.sleep(EVALUATION_INTERVAL_SECONDS)
 
-    # ------------------------------------------------------------------
-    # Core evaluation
-    # ------------------------------------------------------------------
-
     async def _evaluate_all(self) -> None:
-        """Evaluate all active sensors against their alarm configs."""
         async with self._session_factory() as session:
-            # 1. Process active sensors — create PENDING alarms if thresholds breached
             await self._process_sensors(session)
-
-            # 2. Transition PENDING alarms to TRIGGERED when delay has elapsed
             await self._transition_pending_to_triggered(session)
-
-            # 3. Auto-resolve alarms when condition has cleared
             await self._auto_resolve_alarms(session)
-
             await session.commit()
 
     # ------------------------------------------------------------------
     # Step 1 — Sensor evaluation
     # ------------------------------------------------------------------
-
     @staticmethod
     async def _process_sensors(session: AsyncSession) -> None:
-        """Iterate over active sensors and evaluate each alarm config."""
         stmt = select(Sensor).where(Sensor.is_active == True)
         result = await session.execute(stmt)
         sensors = result.scalars().all()
-
         now = datetime.now(timezone.utc)
 
         for sensor in sensors:
-            # Re-fetch sensor with its alarm_configs eagerly loaded
             await session.refresh(sensor, attribute_names=["alarm_configs", "object_id"])
             configs = sensor.alarm_configs
-
             if not configs:
                 continue
 
@@ -116,7 +105,6 @@ class AlarmEngine:
                 if not config.is_enabled:
                     continue
 
-                # Skip if a PENDING or TRIGGERED alarm already exists for this sensor+type
                 existing = await session.scalar(
                     select(Alarm).where(
                         Alarm.sensor_id == sensor.id,
@@ -127,7 +115,6 @@ class AlarmEngine:
                 if existing is not None:
                     continue
 
-                # Evaluate condition
                 breached = False
                 trigger_value = None
 
@@ -136,22 +123,19 @@ class AlarmEngine:
                         if sensor.current_temperature > config.threshold_value:
                             breached = True
                             trigger_value = sensor.current_temperature
-
                 elif config.alarm_type == AlarmType.LOW_TEMPERATURE:
                     if sensor.current_temperature is not None and config.threshold_value is not None:
                         if sensor.current_temperature < config.threshold_value:
                             breached = True
                             trigger_value = sensor.current_temperature
-
                 elif config.alarm_type == AlarmType.OFFLINE:
                     if sensor.last_message_at is not None:
-                        elapsed = (now - sensor.last_message_at).total_seconds()
+                        elapsed = (now - _ensure_utc(sensor.last_message_at)).total_seconds()
                         if elapsed > sensor.offline_timeout_seconds:
                             breached = True
                             trigger_value = elapsed
 
                 if breached:
-                    # Determine object_id from the sensor's parent
                     await session.refresh(sensor, attribute_names=["object_id"])
                     alarm = Alarm(
                         alarm_type=config.alarm_type,
@@ -165,16 +149,13 @@ class AlarmEngine:
                     session.add(alarm)
                     logger.info(
                         "Alarm PENDING — type=%s sensor=%s value=%s",
-                        config.alarm_type,
-                        sensor.slug,
-                        trigger_value,
+                        config.alarm_type, sensor.slug, trigger_value,
                     )
-                    # Broadcast WebSocket event
                     await ws_manager.broadcast(
                         "alarm.pending",
                         {
                             "id": str(alarm.id),
-                            "alarm_type": alarm.alarm_type.value,
+                            "alarm_type": _alarm_type_str(alarm),
                             "trigger_value": trigger_value,
                             "detected_at": now.isoformat(),
                             "object_id": str(alarm.object_id),
@@ -185,13 +166,9 @@ class AlarmEngine:
     # ------------------------------------------------------------------
     # Step 2 — PENDING → TRIGGERED
     # ------------------------------------------------------------------
-
     @staticmethod
     async def _transition_pending_to_triggered(session: AsyncSession) -> None:
-        """Transition PENDING alarms whose trigger delay has elapsed to TRIGGERED."""
         now = datetime.now(timezone.utc)
-
-        # Fetch all PENDING alarms with their sensor's alarm_config
         pending_alarms = await session.execute(
             select(Alarm).where(Alarm.status == AlarmStatus.PENDING)
         )
@@ -200,63 +177,47 @@ class AlarmEngine:
             sensor = alarm.sensor
             if sensor is None:
                 continue
-
             await session.refresh(sensor, attribute_names=["alarm_configs"])
-            # Find matching config
             config = next(
-                (c for c in sensor.alarm_configs if c.alarm_type == alarm.alarm_type),
-                None,
+                (c for c in sensor.alarm_configs if c.alarm_type == alarm.alarm_type), None
             )
             if config is None:
                 continue
 
-            # Compute required delay
             delay_seconds = config.trigger_delay_seconds
-            if alarm.alarm_type == AlarmType.OFFLINE:
+            # OFFLINE uses sum of offline_timeout + trigger_delay
+            alarm_type_str = _alarm_type_str(alarm)
+            if alarm_type_str == AlarmType.OFFLINE.value:
                 delay_seconds = sensor.offline_timeout_seconds + config.trigger_delay_seconds
 
-            elapsed = (now - alarm.detected_at).total_seconds()
+            elapsed = (now - _ensure_utc(alarm.detected_at)).total_seconds()
             if elapsed >= delay_seconds:
                 alarm.status = AlarmStatus.TRIGGERED
                 alarm.triggered_at = now
                 session.add(alarm)
                 logger.warning(
                     "Alarm TRIGGERED — type=%s sensor=%s value=%s",
-                    alarm.alarm_type.value,
-                    sensor.slug,
-                    alarm.trigger_value,
+                    alarm_type_str, sensor.slug, alarm.trigger_value,
                 )
-
-                # --- Broadcast WebSocket event ---
                 await ws_manager.broadcast(
                     "alarm.triggered",
                     {
                         "id": str(alarm.id),
-                        "alarm_type": alarm.alarm_type.value,
+                        "alarm_type": alarm_type_str,
                         "trigger_value": alarm.trigger_value,
                         "triggered_at": now.isoformat(),
                         "object_id": str(alarm.object_id),
                         "sensor_id": str(alarm.sensor_id),
                     },
                 )
-
-                # --- Send notification ---
                 await _send_triggered_notification(session, alarm)
 
     # ------------------------------------------------------------------
     # Step 3 — Auto-resolve alarms
     # ------------------------------------------------------------------
-
     @staticmethod
     async def _auto_resolve_alarms(session: AsyncSession) -> None:
-        """Resolve alarms whose condition has cleared.
-
-        For HIGH/LOW — temperature is back within bounds.
-        For OFFLINE — sensor received a message (last_message_at updated).
-        """
         now = datetime.now(timezone.utc)
-
-        # Only auto-resolve PENDING and TRIGGERED alarms
         alarms = await session.execute(
             select(Alarm).where(
                 Alarm.status.in_([AlarmStatus.PENDING, AlarmStatus.TRIGGERED]),
@@ -268,22 +229,26 @@ class AlarmEngine:
             if sensor is None:
                 continue
 
+            alarm_type_str = _alarm_type_str(alarm)
+            await session.refresh(sensor, attribute_names=["alarm_configs"])
+            config = next(
+                (c for c in sensor.alarm_configs if c.alarm_type == alarm.alarm_type), None
+            )
+            if config is None:
+                continue
+
             resolved = False
-
-            if alarm.alarm_type == AlarmType.HIGH_TEMPERATURE:
-                if sensor.current_temperature is not None and alarm.trigger_value is not None:
-                    # Resolve if temperature dropped below threshold (or equal)
-                    if sensor.current_temperature <= alarm.trigger_value:
+            if config.alarm_type == AlarmType.HIGH_TEMPERATURE:
+                if sensor.current_temperature is not None and config.threshold_value is not None:
+                    if sensor.current_temperature <= config.threshold_value:
                         resolved = True
-
-            elif alarm.alarm_type == AlarmType.LOW_TEMPERATURE:
-                if sensor.current_temperature is not None and alarm.trigger_value is not None:
-                    if sensor.current_temperature >= alarm.trigger_value:
+            elif config.alarm_type == AlarmType.LOW_TEMPERATURE:
+                if sensor.current_temperature is not None and config.threshold_value is not None:
+                    if sensor.current_temperature >= config.threshold_value:
                         resolved = True
-
-            elif alarm.alarm_type == AlarmType.OFFLINE:
+            elif config.alarm_type == AlarmType.OFFLINE:
                 if sensor.last_message_at is not None:
-                    elapsed = (now - sensor.last_message_at).total_seconds()
+                    elapsed = (now - _ensure_utc(sensor.last_message_at)).total_seconds()
                     if elapsed <= sensor.offline_timeout_seconds:
                         resolved = True
 
@@ -291,17 +256,12 @@ class AlarmEngine:
                 alarm.status = AlarmStatus.RESOLVED
                 alarm.resolved_at = now
                 session.add(alarm)
-                logger.info(
-                    "Alarm RESOLVED — type=%s sensor=%s",
-                    alarm.alarm_type.value,
-                    sensor.slug,
-                )
-                # Broadcast WebSocket event
+                logger.info("Alarm RESOLVED — type=%s sensor=%s", alarm_type_str, sensor.slug)
                 await ws_manager.broadcast(
                     "alarm.resolved",
                     {
                         "id": str(alarm.id),
-                        "alarm_type": alarm.alarm_type.value,
+                        "alarm_type": alarm_type_str,
                         "resolved_at": now.isoformat(),
                         "object_id": str(alarm.object_id),
                         "sensor_id": str(alarm.sensor_id),
@@ -309,12 +269,7 @@ class AlarmEngine:
                 )
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _build_description(alarm_type: AlarmType, value: float | None) -> str:
-    """Generate a human-readable description for the alarm."""
     if alarm_type == AlarmType.HIGH_TEMPERATURE:
         return f"High temperature alarm — current: {value}°C"
     if alarm_type == AlarmType.LOW_TEMPERATURE:
@@ -325,30 +280,19 @@ def _build_description(alarm_type: AlarmType, value: float | None) -> str:
 
 
 async def _send_triggered_notification(session: AsyncSession, alarm: Alarm) -> None:
-    """Load the object's notification endpoints and dispatch the alarm."""
-    from sqlalchemy import select as _select
     from app.models.object import Object  # noqa: PLC0415
 
-    # Fetch the object with its notification profile and endpoints
-    stmt = (
-        _select(Object)
-        .where(Object.id == alarm.object_id)
-    )
+    stmt = select(Object).where(Object.id == alarm.object_id)
     result = await session.execute(stmt)
     obj = result.scalar_one_or_none()
-
     if obj is None:
         logger.warning("Object not found for alarm notification — object_id=%s", alarm.object_id)
         return
-
     await session.refresh(obj, attribute_names=["notification_profile"])
     profile = obj.notification_profile
-
     if profile is None:
         logger.info("No notification profile for object=%s", obj.slug)
         return
-
     await session.refresh(profile, attribute_names=["endpoints"])
     endpoints = profile.endpoints
-
     await NotificationEngine.send_alarm_notification(alarm, endpoints)

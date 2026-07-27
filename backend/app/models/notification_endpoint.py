@@ -8,7 +8,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, ForeignKey, String
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.enums import NotificationChannel
@@ -37,7 +37,7 @@ class NotificationEndpoint(Base, UUIDMixin, TimestampMixin):
     #   Email    → {"to": ["ops@example.com"], "smtp_server": "smtp.example.com"}
     #   SMS      → {"phone_number": "+48123456789", "provider": "twilio"}
     #   Webhook  → {"url": "https://hooks.example.com/alerts", "secret": "..."}
-    config: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 

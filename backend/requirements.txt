@@ -30,3 +30,8 @@ aiohttp==3.11.11
 # Utilities
 python-dotenv==1.0.1
 loguru==0.7.3
+
+# Testing
+pytest==8.4.1
+pytest-asyncio==1.4.0
+aiosqlite==0.21.0
