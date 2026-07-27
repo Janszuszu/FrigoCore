@@ -1,8 +1,8 @@
 """FrigoCore — Sensor model.
 
 Every sensor belongs to exactly one Object.
-The MQTT topic is auto-generated:  {object.slug}/{sensor.slug}
-Both slugs are immutable — renaming the display name does NOT affect MQTT routing.
+The MQTT topic is set manually by the administrator and stored exactly as provided.
+It is used to map incoming MQTT messages to the correct sensor.
 """
 
 import uuid
@@ -26,9 +26,9 @@ class Sensor(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "sensors"
 
     name: Mapped[str] = mapped_column(String(256), nullable=False, comment="Human-readable display name")
-    slug: Mapped[str] = mapped_column(
-        String(128), nullable=False, index=True,
-        comment="Immutable topic suffix, e.g. 'komora-1'"
+    mqtt_topic: Mapped[str] = mapped_column(
+        String(512), nullable=False, index=True,
+        comment="MQTT topic exactly as entered by admin, e.g. 'frigo/intermarche/komora-a1'"
     )
 
     # Live telemetry (denormalized for fast reads)
@@ -59,4 +59,4 @@ class Sensor(Base, UUIDMixin, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<Sensor slug={self.slug!r} name={self.name!r}>"
+        return f"<Sensor mqtt_topic={self.mqtt_topic!r} name={self.name!r}>"

@@ -14,7 +14,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ObjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=256, description="Human-readable display name")
-    slug: str = Field(..., min_length=1, max_length=128, pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$", description="Immutable topic prefix")
     description: str = Field("", max_length=5000)
 
 
@@ -29,7 +28,6 @@ class ObjectResponse(BaseModel):
 
     id: UUID
     name: str
-    slug: str
     description: str
     is_active: bool
     created_at: datetime
@@ -42,12 +40,13 @@ class ObjectResponse(BaseModel):
 
 class SensorCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
-    slug: str = Field(..., min_length=1, max_length=128, pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$")
+    mqtt_topic: str = Field(..., min_length=1, max_length=512, description="MQTT topic exactly as configured by admin")
     offline_timeout_seconds: int = Field(120, ge=10, le=3600)
 
 
 class SensorUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=256)
+    mqtt_topic: str | None = Field(None, min_length=1, max_length=512)
     offline_timeout_seconds: int | None = Field(None, ge=10, le=3600)
     is_active: bool | None = None
 
@@ -57,7 +56,7 @@ class SensorResponse(BaseModel):
 
     id: UUID
     name: str
-    slug: str
+    mqtt_topic: str
     current_temperature: float | None
     last_message_at: datetime | None
     offline_timeout_seconds: int

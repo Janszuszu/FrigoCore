@@ -1,7 +1,6 @@
 export interface ObjectItem {
   id: string;
   name: string;
-  slug: string;
   description: string;
   is_active: boolean;
   created_at: string;
@@ -12,7 +11,7 @@ export interface ObjectItem {
 export interface SensorItem {
   id: string;
   name: string;
-  slug: string;
+  mqtt_topic: string;
   current_temperature: number | null;
   last_message_at: string | null;
   offline_timeout_seconds: number;
@@ -58,7 +57,6 @@ export interface AlarmConfigItem {
 
 export interface ObjectCreate {
   name: string;
-  slug: string;
   description?: string;
 }
 
@@ -70,12 +68,13 @@ export interface ObjectUpdate {
 
 export interface SensorCreate {
   name: string;
-  slug: string;
+  mqtt_topic: string;
   offline_timeout_seconds?: number;
 }
 
 export interface SensorUpdate {
   name?: string;
+  mqtt_topic?: string;
   offline_timeout_seconds?: number;
   is_active?: boolean;
 }

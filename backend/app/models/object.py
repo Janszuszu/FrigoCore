@@ -1,7 +1,6 @@
 """FrigoCore — Object model (monitored facility).
 
 An Object is the top-level entity that groups sensors.
-The MQTT topic prefix is derived from object.slug (immutable).
 """
 
 from typing import TYPE_CHECKING, List, Optional
@@ -19,20 +18,11 @@ if TYPE_CHECKING:
 
 
 class Object(Base, UUIDMixin, TimestampMixin):
-    """Monitored facility — groups sensors and is assigned to clients.
-
-    Two name fields:
-      - name (display_name) — can be changed by admin at any time.
-      - slug — immutable once created; forms the MQTT topic prefix.
-    """
+    """Monitored facility — groups sensors and is assigned to clients."""
 
     __tablename__ = "objects"
 
     name: Mapped[str] = mapped_column(String(256), nullable=False, comment="Human-readable display name")
-    slug: Mapped[str] = mapped_column(
-        String(128), unique=True, nullable=False, index=True,
-        comment="Immutable topic prefix, e.g. 'intermarche-szczytno'"
-    )
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
 
@@ -45,4 +35,4 @@ class Object(Base, UUIDMixin, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<Object slug={self.slug!r} name={self.name!r}>"
+        return f"<Object name={self.name!r}>"

@@ -3,43 +3,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 
 import pytest
 
 from app.mqtt.client import MQTTEngine
-
-
-# ---------------------------------------------------------------------------
-# Topic parsing
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize(
-    ("topic", "expected"),
-    [
-        ("object-slug/sensor-slug", ("object-slug", "sensor-slug")),
-        ("frigo/komora-1", ("frigo", "komora-1")),
-        ("intermarche-szczytno/komora-2", ("intermarche-szczytno", "komora-2")),
-        ("/leading-slash/sensor", ("leading-slash", "sensor")),
-        ("object/trailing-slash/", ("object", "trailing-slash")),
-    ],
-)
-def test_parse_topic_valid(topic: str, expected: tuple[str, str]) -> None:
-    result = MQTTEngine._parse_topic(topic)
-    assert result == expected
-
-
-@pytest.mark.parametrize(
-    "topic",
-    [
-        "",          # empty
-        "no-slash",  # single segment
-        "/",         # just a slash
-    ],
-)
-def test_parse_topic_invalid(topic: str) -> None:
-    with pytest.raises(ValueError, match="Invalid topic format"):
-        MQTTEngine._parse_topic(topic)
 
 
 # ---------------------------------------------------------------------------

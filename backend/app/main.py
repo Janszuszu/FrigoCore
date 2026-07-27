@@ -42,23 +42,18 @@ class SimulatePayload(BaseModel):
     temperature: float
 
 
-@sim_router.post("/simulate/{object_slug}/{sensor_slug}")
+@sim_router.post("/simulate/{mqtt_topic:path}")
 async def simulate_measurement(
-    object_slug: str,
-    sensor_slug: str,
+    mqtt_topic: str,
     body: SimulatePayload,
     db: AsyncSession = Depends(get_db),
 ):
     """Inject a simulated MQTT measurement — same logic as MQTT client."""
-    stmt = (
-        select(Sensor)
-        .join(Sensor.object)
-        .where(Object.slug == object_slug, Sensor.slug == sensor_slug)
-    )
+    stmt = select(Sensor).where(Sensor.mqtt_topic == mqtt_topic)
     result = await db.execute(stmt)
     sensor = result.scalar_one_or_none()
     if sensor is None:
-        return {"error": f"Unknown sensor: {object_slug}/{sensor_slug}"}
+        return {"error": f"Unknown sensor for MQTT topic: {mqtt_topic}"}
 
     now = datetime.now(timezone.utc)
     measurement = Measurement(
@@ -72,7 +67,7 @@ async def simulate_measurement(
     db.add(sensor)
     await db.commit()
 
-    logger.info("SIM measurement — %s/%s temp=%.2f", object_slug, sensor_slug, body.temperature)
+    logger.info("SIM measurement — topic=%s temp=%.2f", mqtt_topic, body.temperature)
 
     await ws_manager.broadcast(
         "measurement.created",
@@ -87,7 +82,7 @@ async def simulate_measurement(
         "sensor.updated",
         {
             "id": str(sensor.id),
-            "slug": sensor.slug,
+            "mqtt_topic": sensor.mqtt_topic,
             "current_temperature": body.temperature,
             "last_message_at": now.isoformat(),
         },

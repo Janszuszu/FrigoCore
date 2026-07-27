@@ -149,7 +149,7 @@ class AlarmEngine:
                     session.add(alarm)
                     logger.info(
                         "Alarm PENDING — type=%s sensor=%s value=%s",
-                        config.alarm_type, sensor.slug, trigger_value,
+                        config.alarm_type, sensor.name, trigger_value,
                     )
                     await ws_manager.broadcast(
                         "alarm.pending",
@@ -197,7 +197,7 @@ class AlarmEngine:
                 session.add(alarm)
                 logger.warning(
                     "Alarm TRIGGERED — type=%s sensor=%s value=%s",
-                    alarm_type_str, sensor.slug, alarm.trigger_value,
+                    alarm_type_str, sensor.name, alarm.trigger_value,
                 )
                 await ws_manager.broadcast(
                     "alarm.triggered",
@@ -256,7 +256,7 @@ class AlarmEngine:
                 alarm.status = AlarmStatus.RESOLVED
                 alarm.resolved_at = now
                 session.add(alarm)
-                logger.info("Alarm RESOLVED — type=%s sensor=%s", alarm_type_str, sensor.slug)
+                logger.info("Alarm RESOLVED — type=%s sensor=%s", alarm_type_str, sensor.name)
                 await ws_manager.broadcast(
                     "alarm.resolved",
                     {
@@ -291,7 +291,7 @@ async def _send_triggered_notification(session: AsyncSession, alarm: Alarm) -> N
     await session.refresh(obj, attribute_names=["notification_profile"])
     profile = obj.notification_profile
     if profile is None:
-        logger.info("No notification profile for object=%s", obj.slug)
+        logger.info("No notification profile for object=%s", obj.name)
         return
     await session.refresh(profile, attribute_names=["endpoints"])
     endpoints = profile.endpoints

@@ -22,40 +22,44 @@ import urllib.request as ur
 
 objects_list = json.loads(urllib.request.urlopen(f"{BASE}/objects").read())
 if len(objects_list) < 3:
-    obj1 = post("/objects", {"name":"Intermarche Szczytno","slug":"intermarche-szczytno","description":"Supermarket"})
-    obj2 = post("/objects", {"name":"Biedronka Olsztyn","slug":"biedronka-olsztyn","description":"Dyskont"})
-    obj3 = post("/objects", {"name":"Magazyn Centralny","slug":"magazyn-centralny","description":"Magazyn chlodniczy"})
+    obj1 = post("/objects", {"name":"Intermarche Szczytno","description":"Supermarket"})
+    obj2 = post("/objects", {"name":"Biedronka Olsztyn","description":"Dyskont"})
+    obj3 = post("/objects", {"name":"Magazyn Centralny","description":"Magazyn chlodniczy"})
 else:
-    objects_list.sort(key=lambda x: x['slug'])
+    objects_list.sort(key=lambda x: x['name'])
     obj1, obj2, obj3 = objects_list
     print(f"  Using existing objects")
 print(f"  {obj1['id']} {obj2['id']} {obj3['id']}")
 
 # ── Sensors ──
 print("Creating sensors...")
-sensors = [
-    post(f"/objects/{obj1['id']}/sensors", {"name":"Komora chlodnicza A1","slug":"komora-a1","offline_timeout_seconds":60}),
-    post(f"/objects/{obj1['id']}/sensors", {"name":"Mroznia B1","slug":"mroznia-b1","offline_timeout_seconds":60}),
-    post(f"/objects/{obj2['id']}/sensors", {"name":"Lada miesna","slug":"lada-miesna","offline_timeout_seconds":90}),
-    post(f"/objects/{obj2['id']}/sensors", {"name":"Lada nabialowa","slug":"lada-nabialowa","offline_timeout_seconds":90}),
-    post(f"/objects/{obj3['id']}/sensors", {"name":"Komora mroznicza G1","slug":"komora-g1","offline_timeout_seconds":120}),
-    post(f"/objects/{obj3['id']}/sensors", {"name":"Komora chlodnicza G2","slug":"komora-g2","offline_timeout_seconds":120}),
+sensor_data = [
+    (obj1, "Komora chlodnicza A1", "frigo/intermarche/komora-a1", 60),
+    (obj1, "Mroznia B1", "frigo/intermarche/mroznia-b1", 60),
+    (obj2, "Lada miesna", "frigo/biedronka/lada-miesna", 90),
+    (obj2, "Lada nabialowa", "frigo/biedronka/lada-nabialowa", 90),
+    (obj3, "Komora mroznicza G1", "frigo/magazyn/komora-g1", 120),
+    (obj3, "Komora chlodnicza G2", "frigo/magazyn/komora-g2", 120),
 ]
+sensors = []
+for obj, name, topic, timeout in sensor_data:
+    s = post(f"/objects/{obj['id']}/sensors", {"name": name, "mqtt_topic": topic, "offline_timeout_seconds": timeout})
+    sensors.append(s)
 for s in sensors:
-    print(f"  {s['slug']}: {s['id']}")
+    print(f"  {s['mqtt_topic']}: {s['id']}")
 
 # ── Alarm Configs ──
 print("Creating alarm configs...")
 for s in sensors:
     thresholds = {
-        "komora-a1": (10.0, 0.0),
-        "mroznia-b1": (8.0, -25.0),
-        "lada-miesna": (10.0, 0.0),
-        "lada-nabialowa": (10.0, 0.0),
-        "komora-g1": (8.0, -25.0),
-        "komora-g2": (10.0, 0.0),
+        "frigo/intermarche/komora-a1": (10.0, 0.0),
+        "frigo/intermarche/mroznia-b1": (8.0, -25.0),
+        "frigo/biedronka/lada-miesna": (10.0, 0.0),
+        "frigo/biedronka/lada-nabialowa": (10.0, 0.0),
+        "frigo/magazyn/komora-g1": (8.0, -25.0),
+        "frigo/magazyn/komora-g2": (10.0, 0.0),
     }
-    high_t, low_t = thresholds[s["slug"]]
+    high_t, low_t = thresholds[s["mqtt_topic"]]
     post(f"/sensors/{s['id']}/alarm-configs", {"alarm_type":"high_temperature","threshold_value":high_t,"trigger_delay_seconds":30,"is_enabled":True})
     post(f"/sensors/{s['id']}/alarm-configs", {"alarm_type":"low_temperature","threshold_value":low_t,"trigger_delay_seconds":30,"is_enabled":True})
     post(f"/sensors/{s['id']}/alarm-configs", {"alarm_type":"offline","threshold_value":None,"trigger_delay_seconds":30,"is_enabled":True})
@@ -64,29 +68,20 @@ print("  Done")
 # ── Simulate initial measurements ──
 print("Sending simulated MQTT measurements...")
 temps = {
-    "komora-a1": 3.8,
-    "mroznia-b1": -18.2,
-    "lada-miesna": 2.1,
-    "lada-nabialowa": 4.5,
-    "komora-g1": -22.0,
-    "komora-g2": 2.0,
-}
-objects_slug = {
-    "komora-a1": "intermarche-szczytno",
-    "mroznia-b1": "intermarche-szczytno",
-    "lada-miesna": "biedronka-olsztyn",
-    "lada-nabialowa": "biedronka-olsztyn",
-    "komora-g1": "magazyn-centralny",
-    "komora-g2": "magazyn-centralny",
+    "frigo/intermarche/komora-a1": 3.8,
+    "frigo/intermarche/mroznia-b1": -18.2,
+    "frigo/biedronka/lada-miesna": 2.1,
+    "frigo/biedronka/lada-nabialowa": 4.5,
+    "frigo/magazyn/komora-g1": -22.0,
+    "frigo/magazyn/komora-g2": 2.0,
 }
 for s in sensors:
-    slug = s["slug"]
-    obj_slug = objects_slug[slug]
-    t = temps[slug]
+    topic = s["mqtt_topic"]
+    t = temps[topic]
     # Send several measurements with variation
     import random
     for _ in range(8):
-        post(f"/sim/simulate/{obj_slug}/{slug}", {"temperature": round(t + random.uniform(-0.5, 0.5), 2)})
+        post(f"/sim/simulate/{topic}", {"temperature": round(t + random.uniform(-0.5, 0.5), 2)})
 print("  Done")
 
 print("\nSEED COMPLETE")

@@ -3,7 +3,7 @@
 Handles:
   - Connection to EMQX broker.
   - Topic subscription (wildcard #).
-  - Topic parsing: {object.slug}/{sensor.slug}.
+  - Mapping incoming MQTT topic directly to sensor.mqtt_topic.
   - Payload validation (JSON with temperature field).
   - Writing Measurement to the database.
   - Updating Sensor.current_temperature and Sensor.last_message_at.
@@ -151,18 +151,15 @@ class MQTTEngine:
     # ------------------------------------------------------------------
 
     async def _handle_message(self, topic: str, payload: bytes) -> None:
-        """Parse topic, validate payload, persist measurement."""
+        """Map MQTT topic to sensor, validate payload, persist measurement."""
         try:
-            # 1. Parse topic → {object_slug}/{sensor_slug}
-            object_slug, sensor_slug = self._parse_topic(topic)
-
-            # 2. Parse and validate payload
+            # 1. Parse and validate payload
             temperature = self._parse_payload(payload)
 
-            # 3. Resolve sensor via slugs
+            # 2. Resolve sensor by exact mqtt_topic match
             async with self.session_factory() as session:
                 await self._persist_measurement(
-                    session, object_slug, sensor_slug, temperature
+                    session, topic, temperature
                 )
                 await session.commit()
 
@@ -172,17 +169,6 @@ class MQTTEngine:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _parse_topic(topic: str) -> tuple[str, str]:
-        """Extract (object_slug, sensor_slug) from a topic string.
-
-        Expected format: "object-slug/sensor-slug"
-        """
-        parts = topic.strip("/").split("/", 1)
-        if len(parts) != 2:
-            raise ValueError(f"Invalid topic format, expected 'object/sensor': {topic!r}")
-        return parts[0], parts[1]
 
     @staticmethod
     def _parse_payload(payload: bytes) -> float:
@@ -207,28 +193,18 @@ class MQTTEngine:
     @staticmethod
     async def _persist_measurement(
         session: AsyncSession,
-        object_slug: str,
-        sensor_slug: str,
+        mqtt_topic: str,
         temperature: float,
     ) -> None:
-        """Look up the sensor by its slug and the object slug, then persist the measurement."""
-        # Import Object here to avoid circular imports at module level
-        from app.models.object import Object  # noqa: PLC0415
-
-        # Resolve object + sensor
-        stmt = (
-            select(Sensor)
-            .join(Sensor.object)
-            .where(Object.slug == object_slug, Sensor.slug == sensor_slug)
-        )
+        """Look up the sensor by its exact mqtt_topic, then persist the measurement."""
+        stmt = select(Sensor).where(Sensor.mqtt_topic == mqtt_topic)
         result = await session.execute(stmt)
         sensor = result.scalar_one_or_none()
 
         if sensor is None:
             logger.warning(
-                "Unknown topic — object_slug=%s sensor_slug=%s — ignoring message",
-                object_slug,
-                sensor_slug,
+                "Unknown MQTT topic — topic=%s — ignoring message",
+                mqtt_topic,
             )
             return
 
@@ -248,9 +224,8 @@ class MQTTEngine:
         session.add(sensor)
 
         logger.debug(
-            "Measurement saved — sensor=%s/%s temp=%.2f",
-            object_slug,
-            sensor_slug,
+            "Measurement saved — topic=%s temp=%.2f",
+            mqtt_topic,
             temperature,
         )
 
@@ -268,7 +243,7 @@ class MQTTEngine:
             "sensor.updated",
             {
                 "id": str(sensor.id),
-                "slug": sensor.slug,
+                "mqtt_topic": sensor.mqtt_topic,
                 "current_temperature": temperature,
                 "last_message_at": now.isoformat(),
             },

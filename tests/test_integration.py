@@ -36,8 +36,8 @@ async def _fresh_session_factory():
     return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False), engine
 
 
-async def _seed_object(session: AsyncSession, slug: str = "test-object") -> Object:
-    obj = Object(name="Test Object", slug=slug)
+async def _seed_object(session: AsyncSession) -> Object:
+    obj = Object(name="Test Object")
     session.add(obj)
     await session.commit()
     await session.refresh(obj)
@@ -47,14 +47,14 @@ async def _seed_object(session: AsyncSession, slug: str = "test-object") -> Obje
 async def _seed_sensor(
     session: AsyncSession,
     obj: Object,
-    slug: str = "sensor-1",
+    mqtt_topic: str = "test/sensor-1",
     offline_timeout: int = 120,
     initial_temp: float | None = None,
     last_message_offset_s: int | None = None,
 ) -> Sensor:
     lm = datetime.now(timezone.utc) - timedelta(seconds=last_message_offset_s) if last_message_offset_s else datetime.now(timezone.utc)
     sensor = Sensor(
-        name="Test Sensor", slug=slug, object_id=obj.id,
+        name="Test Sensor", mqtt_topic=mqtt_topic, object_id=obj.id,
         offline_timeout_seconds=offline_timeout,
         current_temperature=initial_temp,
         last_message_at=lm,

@@ -21,7 +21,6 @@ from app.models.notification_endpoint import NotificationEndpoint
 from app.models.notification_profile import NotificationProfile
 from app.models.object import Object
 from app.models.sensor import Sensor
-from app.models.user import User
 from app.schemas import (
     AlarmAcknowledge,
     AlarmConfigCreate,
@@ -72,9 +71,6 @@ async def list_objects(
 
 @objects_router.post("", response_model=ObjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_object(body: ObjectCreate, db: AsyncSession = Depends(get_db)) -> Object:
-    existing = await db.scalar(select(Object).where(Object.slug == body.slug))
-    if existing:
-        raise HTTPException(status_code=409, detail="Object with this slug already exists")
     obj = Object(**body.model_dump())
     db.add(obj)
     await db.commit()
@@ -145,12 +141,6 @@ async def create_sensor(
     obj = await db.get(Object, object_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="Object not found")
-    # Check slug uniqueness within the object
-    existing = await db.scalar(
-        select(Sensor).where(Sensor.object_id == object_id, Sensor.slug == body.slug)
-    )
-    if existing:
-        raise HTTPException(status_code=409, detail="Sensor with this slug already exists in this object")
     sensor = Sensor(object_id=object_id, **body.model_dump())
     db.add(sensor)
     await db.commit()

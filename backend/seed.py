@@ -29,21 +29,18 @@ async def seed() -> None:
             Object(
                 id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
                 name="Intermarche Szczytno",
-                slug="intermarche-szczytno",
                 description="Supermarket — regały chłodnicze, mroźnie",
                 is_active=True,
             ),
             Object(
                 id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
                 name="Biedronka Olsztyn",
-                slug="biedronka-olsztyn",
                 description="Dyskont spożywczy — lady chłodnicze",
                 is_active=True,
             ),
             Object(
                 id=uuid.UUID("33333333-3333-3333-3333-333333333333"),
                 name="Magazyn Centralny",
-                slug="magazyn-centralny",
                 description="Magazyn chłodniczy — duże komory mroźnicze",
                 is_active=True,
             ),
@@ -54,23 +51,23 @@ async def seed() -> None:
         # ── Sensors ────────────────────────────────────────────
         sensors_data = [
             # Intermarche Szczytno
-            ("11111111-aaaa-1111-aaaa-111111111111", objects[0].id, "Komora chłodnicza A1", "komora-a1", 3.8, 60),
-            ("11111111-bbbb-1111-bbbb-111111111111", objects[0].id, "Mroźnia B1", "mroznia-b1", -18.2, 60),
+            ("11111111-aaaa-1111-aaaa-111111111111", objects[0].id, "Komora chłodnicza A1", "frigo/intermarche/komora-a1", 3.8, 60),
+            ("11111111-bbbb-1111-bbbb-111111111111", objects[0].id, "Mroźnia B1", "frigo/intermarche/mroznia-b1", -18.2, 60),
             # Biedronka Olsztyn
-            ("22222222-aaaa-2222-aaaa-222222222222", objects[1].id, "Lada mięsna", "lada-miesna", 2.1, 90),
-            ("22222222-bbbb-2222-bbbb-222222222222", objects[1].id, "Lada nabiałowa", "lada-nabialowa", 4.5, 90),
+            ("22222222-aaaa-2222-aaaa-222222222222", objects[1].id, "Lada mięsna", "frigo/biedronka/lada-miesna", 2.1, 90),
+            ("22222222-bbbb-2222-bbbb-222222222222", objects[1].id, "Lada nabiałowa", "frigo/biedronka/lada-nabialowa", 4.5, 90),
             # Magazyn Centralny
-            ("33333333-aaaa-3333-aaaa-333333333333", objects[2].id, "Komora mroźnicza G1", "komora-g1", -22.0, 120),
-            ("33333333-bbbb-3333-bbbb-333333333333", objects[2].id, "Komora chłodnicza G2", "komora-g2", 2.0, 120),
+            ("33333333-aaaa-3333-aaaa-333333333333", objects[2].id, "Komora mroźnicza G1", "frigo/magazyn/komora-g1", -22.0, 120),
+            ("33333333-bbbb-3333-bbbb-333333333333", objects[2].id, "Komora chłodnicza G2", "frigo/magazyn/komora-g2", 2.0, 120),
         ]
 
         sensors = []
         now = datetime.now(timezone.utc)
-        for sid, oid, name, slug, temp, timeout in sensors_data:
+        for sid, oid, name, mqtt_topic, temp, timeout in sensors_data:
             s = Sensor(
                 id=uuid.UUID(sid),
                 name=name,
-                slug=slug,
+                mqtt_topic=mqtt_topic,
                 current_temperature=temp,
                 last_message_at=now,
                 offline_timeout_seconds=timeout,
@@ -86,14 +83,14 @@ async def seed() -> None:
             configs = [
                 AlarmConfig(
                     alarm_type=AlarmType.HIGH_TEMPERATURE,
-                    threshold_value=8.0 if "mroź" in s.name.lower() or "mroź" in s.slug else 10.0,
+                    threshold_value=8.0 if "mroź" in s.name.lower() else 10.0,
                     trigger_delay_seconds=30,  # short for demo
                     is_enabled=True,
                     sensor_id=s.id,
                 ),
                 AlarmConfig(
                     alarm_type=AlarmType.LOW_TEMPERATURE,
-                    threshold_value=-25.0 if "mroź" in s.name.lower() or "mroź" in s.slug else 0.0,
+                    threshold_value=-25.0 if "mroź" in s.name.lower() else 0.0,
                     trigger_delay_seconds=30,
                     is_enabled=True,
                     sensor_id=s.id,
