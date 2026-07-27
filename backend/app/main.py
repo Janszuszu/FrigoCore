@@ -12,13 +12,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import async_session_factory, init_db
 from app.mqtt.client import MQTTEngine
+from app.services.alarm_engine import AlarmEngine
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# MQTT engine — instantiated once at module level, started/stopped in lifespan
+# Engines — instantiated once at module level, started/stopped in lifespan
 # ---------------------------------------------------------------------------
 mqtt_engine = MQTTEngine(settings, async_session_factory)
+alarm_engine = AlarmEngine(async_session_factory)
 
 
 @asynccontextmanager
@@ -27,9 +29,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     await init_db()
     await mqtt_engine.start()
+    await alarm_engine.start()
     logger.info("FrigoCore backend is ready")
     yield
     # Shutdown
+    await alarm_engine.stop()
     await mqtt_engine.stop()
     logger.info("FrigoCore backend shut down")
 
