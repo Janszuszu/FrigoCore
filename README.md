@@ -59,6 +59,11 @@ FrigoCore/
 git clone https://github.com/Janszuszu/FrigoCore.git
 cd FrigoCore
 
+# Provide secrets (never commit .env — see .env.example for the full list)
+cp .env.example .env
+# edit .env and fill in POSTGRES_PASSWORD, REDIS_PASSWORD, EMQX_NODE_COOKIE,
+# EMQX_DASHBOARD_PASSWORD, MQTT_BACKEND_PASSWORD, MQTT_ESP_PASSWORD
+
 # Start all services
 docker compose up -d
 ```

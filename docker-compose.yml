@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: frigocore
-      POSTGRES_PASSWORD: frigocore_dev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: frigocore
     ports:
       - "5432:5432"
@@ -37,7 +37,7 @@ services:
     image: redis:7-alpine
     container_name: frigocore-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --requirepass frigocore_redis_dev
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
     ports:
       - "6379:6379"
     volumes:
@@ -60,16 +60,18 @@ services:
     environment:
       EMQX_NAME: frigocore-emqx
       EMQX_HOST: emqx
-      EMQX_NODE__COOKIE: frigocore-emqx-secure-cookie
+      EMQX_NODE__COOKIE: ${EMQX_NODE_COOKIE:?Set EMQX_NODE_COOKIE in .env}
       EMQX_CLUSTER__DISCOVERY_STRATEGY: static
 
       # Dashboard
       EMQX_DASHBOARD__DEFAULT_USERNAME: admin
-      EMQX_DASHBOARD__DEFAULT_PASSWORD: frigocore_admin_dev
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:?Set EMQX_DASHBOARD_PASSWORD in .env}
 
       # --- File-based Authentication ---
+      # auth.conf is rendered at startup by emqx-config-init from MQTT_* secrets
+      # (never committed to git — see docker/emqx/render-auth-conf.sh)
       EMQX_AUTHN__1__BACKEND: file
-      EMQX_AUTHN__1__FILE__PATH: /opt/emqx/etc/auth.conf
+      EMQX_AUTHN__1__FILE__PATH: /opt/emqx/etc-generated/auth.conf
 
       # --- File-based Authorization (ACL) ---
       EMQX_AUTHORIZATION__SOURCES__1__TYPE: file
@@ -82,8 +84,8 @@ services:
       - "8084:8084"   # MQTT WebSocket SSL
       - "18083:18083" # Dashboard HTTP
     volumes:
-      - ./docker/emqx/auth.conf:/opt/emqx/etc/auth.conf:ro
       - ./docker/emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
+      - emqx_auth_conf:/opt/emqx/etc-generated
       - emqx_data:/opt/emqx/data
       - emqx_log:/opt/emqx/log
     healthcheck:
@@ -92,6 +94,26 @@ services:
       timeout: 10s
       retries: 15
       start_period: 60s
+    depends_on:
+      emqx-config-init:
+        condition: service_completed_successfully
+    networks:
+      - frigocore-network
+
+  # ------------------------------------------
+  # EMQX config init - renders auth.conf from secrets at startup
+  # (keeps MQTT credentials out of git; see docker/emqx/render-auth-conf.sh)
+  # ------------------------------------------
+  emqx-config-init:
+    image: alpine:3.20
+    container_name: frigocore-emqx-config-init
+    environment:
+      MQTT_BACKEND_PASSWORD: ${MQTT_BACKEND_PASSWORD:?Set MQTT_BACKEND_PASSWORD in .env}
+      MQTT_ESP_PASSWORD: ${MQTT_ESP_PASSWORD:?Set MQTT_ESP_PASSWORD in .env}
+    volumes:
+      - ./docker/emqx/render-auth-conf.sh:/render-auth-conf.sh:ro
+      - emqx_auth_conf:/rendered
+    command: ["/bin/sh", "/render-auth-conf.sh"]
     networks:
       - frigocore-network
 
@@ -110,12 +132,12 @@ services:
     volumes:
       - ./backend:/app
     environment:
-      DATABASE_URL: postgresql+asyncpg://frigocore:frigocore_dev@postgres:5432/frigocore
-      REDIS_URL: redis://:frigocore_redis_dev@redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://frigocore:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/frigocore
+      REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}@redis:6379/0
       EMQX_HOST: emqx
       EMQX_PORT: 1883
       MQTT_USER: frigocore-backend
-      MQTT_PASSWORD: frigocore_backend_mqtt
+      MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD:?Set MQTT_BACKEND_PASSWORD in .env}
       ENVIRONMENT: development
       DEBUG: "true"
     depends_on:
@@ -159,6 +181,8 @@ volumes:
   emqx_data:
     driver: local
   emqx_log:
+    driver: local
+  emqx_auth_conf:
     driver: local
   frontend_node_modules:
     driver: local
