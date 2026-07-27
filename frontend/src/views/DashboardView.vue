@@ -145,6 +145,7 @@ watch(selectedObjectId,pickObject);
 @media(min-width:768px) and (max-width:1279px){
  .panel-grid{grid-template-columns:1fr;grid-template-areas:"temp" "trio" "updated"}
  .stat-trio{display:grid;grid-area:trio;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:22px}
+ .stat-trio>.stat-card{grid-area:auto}
  .stat-primary{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px 28px}
  .sensor-name,.temp-row{flex:none}
 }
@@ -154,6 +155,7 @@ watch(selectedObjectId,pickObject);
  .temperature-panel{padding:18px}
  .panel-grid{grid-template-columns:1fr;grid-template-areas:"temp" "trio" "updated";gap:16px}
  .stat-trio{display:grid;grid-area:trio;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:12px}
+ .stat-trio>.stat-card{grid-area:auto}
  .stat-card{background:#0b1c2c;border:1px solid #1d344a;border-radius:10px;padding:14px 16px}
  .stat-min,.stat-max{border-right:0}
  .stat-primary{align-items:center;text-align:center;padding:22px 16px}
