@@ -55,6 +55,15 @@ app.add_middleware(
 )
 
 
+from app.api.routes import (
+    alarm_configs_router,
+    alarms_router,
+    measurements_router,
+    notifications_router,
+    objects_router,
+    sensors_router,
+)
+
 # ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
@@ -66,11 +75,12 @@ async def health_check() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Placeholder routers (to be implemented in subsequent iterations)
+# REST API routers
 # ---------------------------------------------------------------------------
-# app.include_router(objects.router, prefix="/api/v1/objects", tags=["objects"])
-# app.include_router(sensors.router, prefix="/api/v1/sensors", tags=["sensors"])
-# app.include_router(alarms.router, prefix="/api/v1/alarms", tags=["alarms"])
-# app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
-# app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
-# app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+
+app.include_router(objects_router, prefix="/api/v1/objects", tags=["Objects"])
+app.include_router(sensors_router, prefix="/api/v1/objects", tags=["Sensors"])
+app.include_router(alarm_configs_router, prefix="/api/v1/sensors", tags=["Alarm Configs"])
+app.include_router(alarms_router, prefix="/api/v1/alarms", tags=["Alarms"])
+app.include_router(measurements_router, prefix="/api/v1/sensors", tags=["Measurements"])
+app.include_router(notifications_router, prefix="/api/v1/objects", tags=["Notifications"])
