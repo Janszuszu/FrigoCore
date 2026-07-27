@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     # EMQX / MQTT
     EMQX_HOST: str = "localhost"
     EMQX_PORT: int = 1883
+    MQTT_USER: str = ""
+    MQTT_PASSWORD: str = ""
     MQTT_WS_URL: str = "ws://localhost:8083"
 
     # Security
