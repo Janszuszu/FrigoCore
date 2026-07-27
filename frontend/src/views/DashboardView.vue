@@ -1,282 +1,30 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useSensorsStore } from "@/stores/sensors";
-import { useAlarmsStore } from "@/stores/alarms";
-import { apiAlarms } from "@/api";
-import type { AlarmItem, MeasurementItem } from "@/types";
-
-const objectsStore = useObjectsStore();
-const sensorsStore = useSensorsStore();
-const alarmsStore = useAlarmsStore();
-
-const selectedObjectId = ref<string>("");
-const dashboardAlarms = ref<AlarmItem[]>([]);
-
-const currentTemp = computed(() =>
-  sensorsStore.selectedSensor?.current_temperature ?? null
-);
-
-const tempStats = computed(() => {
-  const m = sensorsStore.measurements;
-  if (m.length === 0) return { min: null, max: null, avg: null };
-  const temps = m.map((x: MeasurementItem) => x.temperature);
-  return {
-    min: Math.min(...temps).toFixed(1),
-    max: Math.max(...temps).toFixed(1),
-    avg: (temps.reduce((a: number, b: number) => a + b, 0) / temps.length).toFixed(1),
-  };
-});
-
-const isOnline = computed(() => {
-  const s = sensorsStore.selectedSensor;
-  if (!s || !s.last_message_at) return false;
-  const last = new Date(s.last_message_at).getTime();
-  const now = Date.now();
-  return (now - last) < s.offline_timeout_seconds * 1000;
-});
-
-const chartPath = computed(() => {
-  const m = sensorsStore.measurements;
-  if (m.length < 2) return "";
-  const reversed = [...m].reverse();
-  const maxT = Math.max(...reversed.map((x: MeasurementItem) => x.temperature));
-  const minT = Math.min(...reversed.map((x: MeasurementItem) => x.temperature));
-  const range = maxT - minT || 1;
-  const w = 100 / (reversed.length - 1);
-  let d = `M 0,${100 - ((reversed[0].temperature - minT) / range) * 80 - 10}`;
-  for (let i = 1; i < reversed.length; i++) {
-    const x = i * w;
-    const y = 100 - ((reversed[i].temperature - minT) / range) * 80 - 10;
-    d += ` L ${x},${y}`;
-  }
-  return d;
-});
-
-function loadDashboard() {
-  if (!selectedObjectId.value) return;
-  sensorsStore.fetchSensors(selectedObjectId.value);
-  loadAlarms();
-}
-
-function onSensorSelect(sensorId: string) {
-  const s = sensorsStore.sensors.find((x) => x.id === sensorId) ?? null;
-  sensorsStore.selectSensor(s);
-}
-
-async function loadAlarms() {
-  if (!selectedObjectId.value) return;
-  try {
-    dashboardAlarms.value = await apiAlarms.list(selectedObjectId.value);
-  } catch {
-    dashboardAlarms.value = [];
-  }
-}
-
-function formatDate(d: string | null) {
-  if (!d) return "—";
-  return new Date(d).toLocaleString("pl-PL");
-}
-
-function formatTemp(v: number | null) {
-  if (v === null || v === undefined) return "—";
-  return v.toFixed(1) + " °C";
-}
-
-function alarmBadgeClass(status: string) {
-  switch (status) {
-    case "triggered":
-      return "bg-red-600 text-white";
-    case "pending":
-      return "bg-yellow-500 text-black";
-    case "acknowledged":
-      return "bg-blue-500 text-white";
-    case "resolved":
-      return "bg-green-600 text-white";
-    default:
-      return "bg-gray-600 text-white";
-  }
-}
-
-watch(selectedObjectId, () => {
-  sensorsStore.selectSensor(null);
-  loadDashboard();
-});
-
-onMounted(() => {
-  objectsStore.fetchObjects();
-  alarmsStore.fetchAlarms();
-});
+import type { MeasurementItem } from "@/types";
+const objectsStore=useObjectsStore(), sensorsStore=useSensorsStore();
+const selectedObjectId=ref(""), selectedSensorId=ref(""), range=ref("30D");
+const sensor=computed(()=>sensorsStore.selectedSensor);
+const readings=computed(()=>[...sensorsStore.measurements].reverse());
+const stats=computed(()=>{const n=readings.value.map(x=>x.temperature);return n.length?{min:Math.min(...n),max:Math.max(...n),avg:n.reduce((a,b)=>a+b,0)/n.length}:{min:null,max:null,avg:null}});
+const chartPath=computed(()=>{const d=readings.value;if(d.length<2)return "";const hi=Math.max(...d.map(x=>x.temperature)),lo=Math.min(...d.map(x=>x.temperature)),span=hi-lo||1;return d.map((x,i)=>`${i?"L":"M"}${(i/(d.length-1))*100},${91-((x.temperature-lo)/span)*76}`).join(" ")});
+const selectedObject=computed(()=>objectsStore.objects.find(x=>x.id===selectedObjectId.value));
+function temperature(value:number|null|undefined){return value==null?"—":`${value.toFixed(1)} °C`}; function date(value:string|null|undefined){return value?new Date(value).toLocaleString("pl-PL"):"—"}
+function online(){const last=sensor.value?.last_message_at;if(!last||!sensor.value)return false;return Date.now()-new Date(last).getTime()<sensor.value.offline_timeout_seconds*1000}
+async function pickObject(){selectedSensorId.value="";sensorsStore.selectSensor(null);if(selectedObjectId.value)await sensorsStore.fetchSensors(selectedObjectId.value);if(sensorsStore.sensors[0]){selectedSensorId.value=sensorsStore.sensors[0].id;pickSensor()}}
+function pickSensor(){sensorsStore.selectSensor(sensorsStore.sensors.find(x=>x.id===selectedSensorId.value)||null)}
+onMounted(async()=>{await objectsStore.fetchObjects();if(objectsStore.activeObjects[0]){selectedObjectId.value=objectsStore.activeObjects[0].id;pickObject()}}); watch(selectedObjectId,pickObject);
 </script>
-
 <template>
-  <div class="space-y-6">
-    <!-- Top bar: object + sensor selectors -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <label class="block text-sm text-gray-400 mb-1">Obiekt</label>
-        <select
-          v-model="selectedObjectId"
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-gray-200 focus:outline-none focus:border-cyan-500"
-        >
-          <option value="">— Wybierz obiekt —</option>
-          <option
-            v-for="obj in objectsStore.activeObjects"
-            :key="obj.id"
-            :value="obj.id"
-          >
-            {{ obj.name }}
-          </option>
-        </select>
-      </div>
-      <div>
-        <label class="block text-sm text-gray-400 mb-1">Sensor</label>
-        <select
-          v-model="sensorsStore.selectedSensor"
-          @change="onSensorSelect(($event.target as HTMLSelectElement).value)"
-          :disabled="!selectedObjectId || sensorsStore.loading"
-          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-gray-200 focus:outline-none focus:border-cyan-500 disabled:opacity-50"
-        >
-          <option :value="null">— Wybierz sensor —</option>
-          <option
-            v-for="s in sensorsStore.sensors"
-            :key="s.id"
-            :value="s"
-          >
-            {{ s.name }} ({{ s.slug }})
-          </option>
-        </select>
-      </div>
-    </div>
-
-    <div v-if="!sensorsStore.selectedSensor" class="text-center text-gray-500 py-20">
-      Wybierz obiekt i sensor, aby zobaczyć dane.
-    </div>
-
-    <!-- Temperature cards -->
-    <div
-      v-if="sensorsStore.selectedSensor"
-      class="grid grid-cols-2 md:grid-cols-4 gap-4"
-    >
-      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
-        <div class="text-xs text-gray-500 uppercase mb-1">Aktualna</div>
-        <div class="text-3xl font-bold text-cyan-400">
-          {{ formatTemp(currentTemp) }}
-        </div>
-      </div>
-      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
-        <div class="text-xs text-gray-500 uppercase mb-1">Minimum</div>
-        <div class="text-3xl font-bold text-blue-400">
-          {{ tempStats.min ? tempStats.min + " °C" : "—" }}
-        </div>
-      </div>
-      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
-        <div class="text-xs text-gray-500 uppercase mb-1">Maksimum</div>
-        <div class="text-3xl font-bold text-red-400">
-          {{ tempStats.max ? tempStats.max + " °C" : "—" }}
-        </div>
-      </div>
-      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
-        <div class="text-xs text-gray-500 uppercase mb-1">Średnia</div>
-        <div class="text-3xl font-bold text-yellow-400">
-          {{ tempStats.avg ? tempStats.avg + " °C" : "—" }}
-        </div>
-      </div>
-    </div>
-
-    <!-- Status + Chart row -->
-    <div
-      v-if="sensorsStore.selectedSensor"
-      class="grid grid-cols-1 lg:grid-cols-3 gap-6"
-    >
-      <!-- Status -->
-      <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <div class="text-sm text-gray-400 mb-3">Status</div>
-        <div class="flex items-center gap-3">
-          <span
-            :class="isOnline ? 'bg-green-500' : 'bg-red-500'"
-            class="w-3 h-3 rounded-full animate-pulse"
-          />
-          <span
-            :class="isOnline ? 'text-green-400' : 'text-red-400'"
-            class="text-xl font-bold uppercase"
-          >
-            {{ isOnline ? "ONLINE" : "OFFLINE" }}
-          </span>
-        </div>
-        <div class="text-xs text-gray-500 mt-2">
-          Ostatnia wiadomość: {{ formatDate(sensorsStore.selectedSensor.last_message_at) }}
-        </div>
-      </div>
-
-      <!-- Chart -->
-      <div class="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <div class="text-sm text-gray-400 mb-2">Wykres temperatury</div>
-        <div v-if="sensorsStore.measurements.length < 2" class="text-gray-600 text-sm py-10 text-center">
-          Za mało danych do wykresu
-        </div>
-        <svg
-          v-else
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          class="w-full h-48"
-        >
-          <path
-            :d="chartPath"
-            fill="none"
-            stroke="#22d3ee"
-            stroke-width="1.5"
-            vector-effect="non-scaling-stroke"
-          />
-        </svg>
-      </div>
-    </div>
-
-    <!-- Alarms for selected object -->
-    <div
-      v-if="selectedObjectId"
-      class="bg-gray-900 border border-gray-800 rounded-xl p-4"
-    >
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm text-gray-400">Alarmy dla obiektu</h3>
-        <button
-          @click="loadAlarms"
-          class="text-xs text-cyan-400 hover:text-cyan-300 cursor-pointer bg-transparent border-none"
-        >
-          Odśwież
-        </button>
-      </div>
-      <div v-if="dashboardAlarms.length === 0" class="text-gray-600 text-sm text-center py-4">
-        Brak alarmów
-      </div>
-      <div v-else class="space-y-2 max-h-64 overflow-y-auto">
-        <div
-          v-for="alarm in dashboardAlarms"
-          :key="alarm.id"
-          class="flex items-center gap-3 p-3 bg-gray-800 rounded-lg"
-        >
-          <span
-            :class="alarmBadgeClass(alarm.status)"
-            class="text-xs px-2 py-0.5 rounded-full font-medium uppercase"
-          >
-            {{ alarm.status }}
-          </span>
-          <span class="text-sm text-gray-300 flex-1">
-            {{ alarm.alarm_type === "high_temperature" ? "Wysoka temp." : alarm.alarm_type === "low_temperature" ? "Niska temp." : "Offline" }}
-            <span v-if="alarm.trigger_value !== null" class="text-gray-500 ml-1">
-              ({{ formatTemp(alarm.trigger_value) }})
-            </span>
-          </span>
-          <span class="text-xs text-gray-500">{{ formatDate(alarm.detected_at) }}</span>
-          <button
-            v-if="alarm.status === 'triggered'"
-            @click="alarmsStore.acknowledgeAlarm(alarm.id); loadAlarms()"
-            class="text-xs px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded cursor-pointer border-none"
-          >
-            ACK
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
+ <section class="dashboard">
+  <div class="selectors"><label>WYBÓR OBIEKTU<select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select></label><label>WYBÓR SENSORĄ<select v-model="selectedSensorId" @change="pickSensor" :disabled="!selectedObjectId"><option value="">Wybierz sensor</option><option v-for="item in sensorsStore.sensors" :key="item.id" :value="item.id">{{item.name}}</option></select></label><button class="expand" aria-label="Powiększ">↗</button></div>
+  <template v-if="sensor">
+   <article class="temperature-panel"><div class="sensor-name"><span>{{sensor.name}}</span><strong>{{selectedObject?.name}}</strong><em :class="{off:!online()}">{{online()?"ONLINE":"OFFLINE"}}</em></div><div class="temperature">{{temperature(sensor.current_temperature)}} <small>↓ 0.3°</small></div><div class="stats"><div><label>MIN</label><b>{{temperature(stats.min)}}</b><span>{{date(readings[0]?.received_at)}}</span></div><div><label>MAX</label><b>{{temperature(stats.max)}}</b><span>{{date(readings[readings.length-1]?.received_at)}}</span></div><div><label>AVERAGE</label><b>{{temperature(stats.avg)}}</b></div></div><div class="last-update">OSTATNIA AKTUALIZACJA　 {{date(sensor.last_message_at)}}</div></article>
+   <article class="chart-panel"><div class="chart-title">HISTORICAL RANGE <span>{{sensor.name}} ({{selectedObject?.name}})</span><button>↗</button></div><div class="ranges"><button v-for="item in ['LIVE','1H','6H','24H','7D','30D','CUSTOM']" :key="item" :class="{active:range===item}" @click="range=item">{{item}}</button></div><div v-if="readings.length<2" class="no-chart">Za mało danych do wykresu</div><div v-else class="chart"><div class="grid"><i v-for="n in 7" :key="n"></i></div><span v-for="n in 7" :key="`l${n}`" class="axis" :style="{top:`${(n-1)*16.66}%`}">{{(Math.max(...readings.map((x:MeasurementItem)=>x.temperature))-(n-1)*(Math.max(...readings.map((x:MeasurementItem)=>x.temperature))-Math.min(...readings.map((x:MeasurementItem)=>x.temperature))/6)).toFixed(0)}}°C</span><svg viewBox="0 0 100 100" preserveAspectRatio="none"><path :d="chartPath"/></svg></div><footer>Scroll: zoom　|　Drag: pan　|　Pinch: zoom</footer></article>
+  </template><div v-else class="empty">Wybierz obiekt i sensor, aby zobaczyć dane.</div>
+ </section>
 </template>
+<style scoped>
+.dashboard{padding:21px 25px 10px;max-width:1280px;margin:auto}.selectors{display:grid;grid-template-columns:405px 388px 1fr;gap:25px;align-items:end;margin-bottom:21px}.selectors label{font-size:14px;color:#aab9cf;display:grid;gap:8px}.selectors select{appearance:none;height:48px;border:1px solid #2b4b67;border-radius:7px;background:#081421 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23b8c9e8' stroke-width='2'/%3E%3C/svg%3E") no-repeat calc(100% - 17px) center;color:#e8effa;font-size:17px;padding:0 48px 0 18px}.expand{justify-self:end;width:50px;height:48px;background:#081421;border:1px solid #29455e;border-radius:8px;color:#b9c9e6;font-size:24px}.temperature-panel,.chart-panel{background:radial-gradient(circle at 45% 30%,#0d1d2d,#07121e 70%);border:1px solid #172d42}.temperature-panel{height:225px;padding:22px;position:relative}.sensor-name{display:flex;flex-direction:column;gap:7px}.sensor-name span{color:#00dcea;font-size:14px;font-weight:600;text-transform:uppercase}.sensor-name strong{font-size:18px}.sensor-name em{position:absolute;left:166px;top:44px;font-style:normal;color:#00f184;border:1px solid #007c47;border-radius:4px;padding:4px 12px;font-size:12px}.sensor-name em.off{color:#ff6875;border-color:#8d2637}.temperature{position:absolute;left:22px;bottom:42px;color:#07c9f3;font-size:92px;font-weight:700;letter-spacing:-5px}.temperature small{font-size:20px;letter-spacing:0;color:#00d6ee;margin-left:18px}.stats{position:absolute;left:33%;right:25px;bottom:70px;display:grid;grid-template-columns:repeat(3,1fr)}.stats div{border-right:1px solid #1d344a;padding-left:25px;display:flex;flex-direction:column;gap:7px}.stats label,.last-update{font-size:13px;color:#99aac3}.stats b{font-size:20px}.stats span{font-size:14px;color:#9aabc5}.last-update{position:absolute;right:190px;top:33px}.chart-panel{height:584px;margin-top:8px;border-radius:12px;padding:22px}.chart-title{font-size:20px}.chart-title span{font-size:14px;color:#8fa1ba;margin-left:28px}.chart-title button{float:right;background:#081421;border:1px solid #29455e;border-radius:7px;color:#b9c9e6;width:34px;height:34px;font-size:17px}.ranges{display:flex;gap:8px;margin-top:20px}.ranges button{background:#091725;border:1px solid #263e56;border-radius:5px;color:#afc0dc;font-size:14px;padding:9px 16px}.ranges .active{border-color:#00cce3;color:#00e5ef;background:#063142}.chart{position:relative;height:390px;margin-top:29px;padding-left:48px}.grid{position:absolute;inset:0 0 0 48px;display:flex;flex-direction:column;justify-content:space-between}.grid i{border-top:1px solid #14293c}.axis{position:absolute;left:6px;color:#9cadc7;font-size:14px;transform:translateY(-50%)}.chart svg{position:absolute;left:48px;top:0;width:calc(100% - 48px);height:100%}.chart path{fill:none;stroke:#0edbe5;stroke-width:.38;vector-effect:non-scaling-stroke}.chart-panel footer{text-align:center;color:#8fa1ba;font-size:15px}.no-chart,.empty{text-align:center;padding:100px;color:#8fa1ba}@media(max-width:800px){.dashboard{padding:16px}.selectors{grid-template-columns:1fr;gap:12px}.expand{display:none}.temperature-panel{height:390px}.stats{left:15px;right:15px;bottom:18px}.temperature{font-size:64px;bottom:150px}.last-update{display:none}.chart-panel{height:500px}.chart-title span{display:block;margin:8px 0}.ranges{overflow:auto}.ranges button{padding:7px 10px}.chart{height:300px}}
+</style>
