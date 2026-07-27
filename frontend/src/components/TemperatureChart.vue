@@ -468,16 +468,29 @@ function fmtTime(v: string | null | undefined): string {
   return v ? new Date(v).toLocaleTimeString('pl-PL') : '—'
 }
 
-const tooltipStyle = computed(() => {
+// Converts a point in SVG viewBox units to a CSS position (px) relative to
+// the chart container, clamped so the tooltip can never push the layout
+// wider than the container (would otherwise cause horizontal overflow on
+// narrow viewports).
+function positionFromViewBox(vbX: number, vbY: number, boxWidth = 220): { left: string; top: string } {
   const el = svgEl.value
-  if (!el) return {}
+  if (!el) return { left: '0px', top: '0px' }
   const rect = el.getBoundingClientRect()
   const pxPerVbX = rect.width / VB_W
   const pxPerVbY = rect.height / VB_H
-  let left = tooltipPos.value.x * pxPerVbX + 14
-  const top = Math.max(0, tooltipPos.value.y * pxPerVbY - 10)
-  if (left > rect.width - 220) left = tooltipPos.value.x * pxPerVbX - 234
+  let left = vbX * pxPerVbX + 14
+  if (left + boxWidth > rect.width) left = Math.max(0, vbX * pxPerVbX - boxWidth - 14)
+  left = Math.min(left, Math.max(0, rect.width - boxWidth))
+  const top = Math.max(0, Math.min(vbY * pxPerVbY - 10, rect.height - 140))
   return { left: `${left}px`, top: `${top}px` }
+}
+
+const tooltipStyle = computed(() => positionFromViewBox(tooltipPos.value.x, tooltipPos.value.y))
+
+const markerTooltipStyle = computed(() => {
+  const m = hoveredMarker.value
+  if (!m) return {}
+  return positionFromViewBox(m.x1, STRIP_Y)
 })
 </script>
 
@@ -643,7 +656,7 @@ const tooltipStyle = computed(() => {
       </div>
 
       <!-- Alarm marker tooltip -->
-      <div v-if="hoveredMarker" class="tooltip marker-tooltip">
+      <div v-if="hoveredMarker" class="tooltip marker-tooltip" :style="markerTooltipStyle">
         <div class="tooltip-title" :class="hoveredMarker.cls">{{ alarmTypeLabel(hoveredMarker.alarm.alarm_type) }}</div>
         <dl>
           <dt>Start</dt><dd>{{ fmtDate(hoveredMarker.alarm.triggered_at ?? hoveredMarker.alarm.detected_at) }} {{ fmtTime(hoveredMarker.alarm.triggered_at ?? hoveredMarker.alarm.detected_at) }}</dd>
@@ -731,6 +744,7 @@ const tooltipStyle = computed(() => {
   flex: 1;
   min-height: 0;
   margin-top: 14px;
+  overflow: hidden;
 }
 
 .chart-svg {
@@ -786,6 +800,8 @@ const tooltipStyle = computed(() => {
   position: absolute;
   z-index: 4;
   min-width: 200px;
+  max-width: calc(100% - 12px);
+  box-sizing: border-box;
   background: #0a1827;
   border: 1px solid #26516b;
   border-radius: 8px;
