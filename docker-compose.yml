@@ -72,8 +72,8 @@ services:
       EMQX_AUTHN__1__FILE__PATH: /opt/emqx/etc/auth.conf
 
       # --- File-based Authorization (ACL) ---
-      EMQX_AUTHORIZATION__SOURCES: file
-      EMQX_AUTHORIZATION__FILE__PATH: /opt/emqx/etc/acl.conf
+      EMQX_AUTHORIZATION__SOURCES__1__TYPE: file
+      EMQX_AUTHORIZATION__SOURCES__1__PATH: /opt/emqx/etc/acl.conf
       EMQX_AUTHORIZATION__NO_MATCH: deny
     ports:
       - "1883:1883"   # MQTT TCP
