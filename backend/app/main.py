@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -9,18 +10,28 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import init_db
+from app.database import async_session_factory, init_db
+from app.mqtt.client import MQTTEngine
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# MQTT engine — instantiated once at module level, started/stopped in lifespan
+# ---------------------------------------------------------------------------
+mqtt_engine = MQTTEngine(settings, async_session_factory)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup / shutdown lifecycle."""
-    # Startup: create tables
+    # Startup
     await init_db()
-    # TODO: Start MQTT listener
+    await mqtt_engine.start()
+    logger.info("FrigoCore backend is ready")
     yield
-    # Shutdown: cleanup
-    # TODO: Stop MQTT listener
+    # Shutdown
+    await mqtt_engine.stop()
+    logger.info("FrigoCore backend shut down")
 
 
 app = FastAPI(
