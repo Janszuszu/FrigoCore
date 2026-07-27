@@ -19,10 +19,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
 
-    # Database
-    DATABASE_URL: str = (
-        "postgresql+asyncpg://frigocore:frigocore_dev@localhost:5432/frigocore"
-    )
+    # Database — SQLite for native development (no Docker required)
+    DATABASE_URL: str = "sqlite+aiosqlite:///c:/Projekty/FrigoCore/backend/frigocore.db"
 
     # Redis
     REDIS_URL: str = "redis://:frigocore_redis_dev@localhost:6379/0"

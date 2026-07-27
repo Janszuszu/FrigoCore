@@ -104,13 +104,14 @@ async def update_object(
     return obj
 
 
-@objects_router.delete("/{object_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_object(object_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
+@objects_router.delete("/{object_id}")
+async def delete_object(object_id: UUID, db: AsyncSession = Depends(get_db)) -> dict:
     obj = await db.get(Object, object_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="Object not found")
     await db.delete(obj)
     await db.commit()
+    return {"status": "deleted"}
 
 
 # ===================================================================
@@ -184,15 +185,16 @@ async def update_sensor(
     return sensor
 
 
-@sensors_router.delete("/{object_id}/sensors/{sensor_id}", status_code=status.HTTP_204_NO_CONTENT)
+@sensors_router.delete("/{object_id}/sensors/{sensor_id}")
 async def delete_sensor(
     object_id: UUID, sensor_id: UUID, db: AsyncSession = Depends(get_db)
-) -> None:
+) -> dict:
     sensor = await db.get(Sensor, sensor_id)
     if sensor is None or sensor.object_id != object_id:
         raise HTTPException(status_code=404, detail="Sensor not found")
     await db.delete(sensor)
     await db.commit()
+    return {"status": "deleted"}
 
 
 # ===================================================================
@@ -252,15 +254,16 @@ async def update_alarm_config(
     return config
 
 
-@alarm_configs_router.delete("/{sensor_id}/alarm-configs/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
+@alarm_configs_router.delete("/{sensor_id}/alarm-configs/{config_id}")
 async def delete_alarm_config(
     sensor_id: UUID, config_id: UUID, db: AsyncSession = Depends(get_db)
-) -> None:
+) -> dict:
     config = await db.get(AlarmConfig, config_id)
     if config is None or config.sensor_id != sensor_id:
         raise HTTPException(status_code=404, detail="AlarmConfig not found")
     await db.delete(config)
     await db.commit()
+    return {"status": "deleted"}
 
 
 # ===================================================================
@@ -430,10 +433,10 @@ async def update_notification_endpoint(
     return endpoint
 
 
-@notifications_router.delete("/{object_id}/notification-endpoints/{endpoint_id}", status_code=status.HTTP_204_NO_CONTENT)
+@notifications_router.delete("/{object_id}/notification-endpoints/{endpoint_id}")
 async def delete_notification_endpoint(
     object_id: UUID, endpoint_id: UUID, db: AsyncSession = Depends(get_db)
-) -> None:
+) -> dict:
     endpoint = await db.get(NotificationEndpoint, endpoint_id)
     if endpoint is None:
         raise HTTPException(status_code=404, detail="Notification endpoint not found")
@@ -444,3 +447,4 @@ async def delete_notification_endpoint(
         raise HTTPException(status_code=404, detail="Notification endpoint not found")
     await db.delete(endpoint)
     await db.commit()
+    return {"status": "deleted"}

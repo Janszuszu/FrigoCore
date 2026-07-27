@@ -2,25 +2,97 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import async_session_factory, init_db
-from app.mqtt.client import MQTTEngine
+from app.database import async_session_factory, init_db, get_db
+from app.models.measurement import Measurement
+from app.models.sensor import Sensor
+from app.models.object import Object
 from app.services.alarm_engine import AlarmEngine
+from app.api.websocket import manager as ws_manager
 
 logger = logging.getLogger(__name__)
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 # ---------------------------------------------------------------------------
 # Engines — instantiated once at module level, started/stopped in lifespan
 # ---------------------------------------------------------------------------
-mqtt_engine = MQTTEngine(settings, async_session_factory)
 alarm_engine = AlarmEngine(async_session_factory)
+
+
+# ---------------------------------------------------------------------------
+# Simulation endpoint (replaces MQTT broker for native dev)
+# ---------------------------------------------------------------------------
+sim_router = APIRouter()
+
+
+class SimulatePayload(BaseModel):
+    temperature: float
+
+
+@sim_router.post("/simulate/{object_slug}/{sensor_slug}")
+async def simulate_measurement(
+    object_slug: str,
+    sensor_slug: str,
+    body: SimulatePayload,
+    db: AsyncSession = Depends(get_db),
+):
+    """Inject a simulated MQTT measurement — same logic as MQTT client."""
+    stmt = (
+        select(Sensor)
+        .join(Sensor.object)
+        .where(Object.slug == object_slug, Sensor.slug == sensor_slug)
+    )
+    result = await db.execute(stmt)
+    sensor = result.scalar_one_or_none()
+    if sensor is None:
+        return {"error": f"Unknown sensor: {object_slug}/{sensor_slug}"}
+
+    now = datetime.now(timezone.utc)
+    measurement = Measurement(
+        sensor_id=sensor.id,
+        temperature=body.temperature,
+        received_at=now,
+    )
+    db.add(measurement)
+    sensor.current_temperature = body.temperature
+    sensor.last_message_at = now
+    db.add(sensor)
+    await db.commit()
+
+    logger.info("SIM measurement — %s/%s temp=%.2f", object_slug, sensor_slug, body.temperature)
+
+    await ws_manager.broadcast(
+        "measurement.created",
+        {
+            "id": str(measurement.id),
+            "sensor_id": str(sensor.id),
+            "temperature": body.temperature,
+            "received_at": now.isoformat(),
+        },
+    )
+    await ws_manager.broadcast(
+        "sensor.updated",
+        {
+            "id": str(sensor.id),
+            "slug": sensor.slug,
+            "current_temperature": body.temperature,
+            "last_message_at": now.isoformat(),
+        },
+    )
+    return {"status": "ok", "temperature": body.temperature, "at": now.isoformat()}
 
 
 @asynccontextmanager
@@ -28,13 +100,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup / shutdown lifecycle."""
     # Startup
     await init_db()
-    await mqtt_engine.start()
+    # Auto-seed demo data if DB is empty
+    from app.database import async_session_factory
+    from sqlalchemy import select
+    from app.models.object import Object as ObjModel
+    async with async_session_factory() as session:
+        count = await session.scalar(select(ObjModel).limit(1))
+        if count is None:
+            from setup_dev import main as setup_dev_main
+            await setup_dev_main()
     await alarm_engine.start()
-    logger.info("FrigoCore backend is ready")
+    logger.info("FrigoCore backend is ready (SQLite + no MQTT broker)")
     yield
     # Shutdown
     await alarm_engine.stop()
-    await mqtt_engine.stop()
     logger.info("FrigoCore backend shut down")
 
 
@@ -48,7 +127,7 @@ app = FastAPI(
 # CORS — allow frontend dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -86,3 +165,4 @@ app.include_router(alarms_router, prefix="/api/v1/alarms", tags=["Alarms"])
 app.include_router(measurements_router, prefix="/api/v1/sensors", tags=["Measurements"])
 app.include_router(notifications_router, prefix="/api/v1/objects", tags=["Notifications"])
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
+app.include_router(sim_router, prefix="/api/v1/sim", tags=["Simulation"])
