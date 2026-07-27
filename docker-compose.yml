@@ -87,7 +87,7 @@ services:
       - emqx_data:/opt/emqx/data
       - emqx_log:/opt/emqx/log
     healthcheck:
-      test: ["CMD-SHELL", "emqx_ctl status 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:18083/status &> /dev/null || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 15
