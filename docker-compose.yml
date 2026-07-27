@@ -62,8 +62,19 @@ services:
       EMQX_HOST: emqx
       EMQX_NODE__COOKIE: frigocore-emqx-secure-cookie
       EMQX_CLUSTER__DISCOVERY_STRATEGY: static
+
+      # Dashboard
       EMQX_DASHBOARD__DEFAULT_USERNAME: admin
       EMQX_DASHBOARD__DEFAULT_PASSWORD: frigocore_admin_dev
+
+      # --- File-based Authentication ---
+      EMQX_AUTHN__1__BACKEND: file
+      EMQX_AUTHN__1__FILE__PATH: /opt/emqx/etc/auth.conf
+
+      # --- File-based Authorization (ACL) ---
+      EMQX_AUTHORIZATION__SOURCES: file
+      EMQX_AUTHORIZATION__FILE__PATH: /opt/emqx/etc/acl.conf
+      EMQX_AUTHORIZATION__NO_MATCH: deny
     ports:
       - "1883:1883"   # MQTT TCP
       - "8883:8883"   # MQTT SSL
@@ -71,6 +82,8 @@ services:
       - "8084:8084"   # MQTT WebSocket SSL
       - "18083:18083" # Dashboard HTTP
     volumes:
+      - ./docker/emqx/auth.conf:/opt/emqx/etc/auth.conf:ro
+      - ./docker/emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
       - emqx_data:/opt/emqx/data
       - emqx_log:/opt/emqx/log
     healthcheck:
@@ -100,6 +113,8 @@ services:
       REDIS_URL: redis://:frigocore_redis_dev@redis:6379/0
       EMQX_HOST: emqx
       EMQX_PORT: 1883
+      MQTT_USER: frigocore-backend
+      MQTT_PASSWORD: frigocore_backend_mqtt
       ENVIRONMENT: development
       DEBUG: "true"
     depends_on:
