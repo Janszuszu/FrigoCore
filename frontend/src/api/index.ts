@@ -72,9 +72,9 @@ export const apiSensors = {
 // ─── Measurements ──────────────────────────────────────────────────
 
 export const apiMeasurements = {
-  list: (sensorId: string, limit = 50) =>
+  list: (sensorId: string, limit = 50, skip = 0) =>
     request<MeasurementItem[]>(
-      `/sensors/${sensorId}/measurements?limit=${limit}`
+      `/sensors/${sensorId}/measurements?limit=${limit}&skip=${skip}`
     ),
 };
 
@@ -99,10 +99,11 @@ export const apiAlarmConfigs = {
 };
 
 export const apiAlarms = {
-  list: (objectId?: string, status?: string) => {
+  list: (objectId?: string, status?: string, limit?: number) => {
     const params = new URLSearchParams();
     if (objectId) params.set("object_id", objectId);
     if (status) params.set("status", status);
+    if (limit) params.set("limit", String(limit));
     const qs = params.toString();
     return request<AlarmItem[]>(`/alarms${qs ? `?${qs}` : ""}`);
   },

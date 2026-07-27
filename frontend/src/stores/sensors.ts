@@ -1,14 +1,31 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { apiSensors, apiMeasurements } from "@/api";
-import type { SensorItem, MeasurementItem, SensorCreate, SensorUpdate } from "@/types";
+import type { ChartRange, SensorItem, MeasurementItem, SensorCreate, SensorUpdate } from "@/types";
+
+// How far back each preset range reaches. CUSTOM is handled separately.
+const RANGE_DURATION_MS: Record<Exclude<ChartRange, "CUSTOM">, number> = {
+  LIVE: 15 * 60 * 1000,
+  "1H": 60 * 60 * 1000,
+  "6H": 6 * 60 * 60 * 1000,
+  "24H": 24 * 60 * 60 * 1000,
+  "7D": 7 * 24 * 60 * 60 * 1000,
+};
+
+// Safety cap so a wide range (e.g. 7D on a fast-publishing sensor) can't
+// trigger unbounded pagination against the API.
+const PAGE_SIZE = 500;
+const MAX_PAGES = 8;
+const LIVE_CAP = 200;
 
 export const useSensorsStore = defineStore("sensors", () => {
   const sensors = ref<SensorItem[]>([]);
   const selectedSensor = ref<SensorItem | null>(null);
   const measurements = ref<MeasurementItem[]>([]);
   const loading = ref(false);
+  const rangeLoading = ref(false);
   const error = ref<string | null>(null);
+  const currentRange = ref<ChartRange>("LIVE");
 
   async function fetchSensors(objectId: string) {
     loading.value = true;
@@ -25,17 +42,65 @@ export const useSensorsStore = defineStore("sensors", () => {
   function selectSensor(sensor: SensorItem | null) {
     selectedSensor.value = sensor;
     if (sensor) {
-      fetchMeasurements(sensor.id);
+      fetchMeasurementsForRange("LIVE");
     } else {
       measurements.value = [];
     }
   }
 
-  async function fetchMeasurements(sensorId: string) {
+  /**
+   * Fetch measurements covering [since, until] by paginating the existing
+   * /measurements endpoint (skip/limit, already supported server-side) —
+   * no backend changes. Pages until the range is covered or MAX_PAGES is
+   * hit, whichever comes first.
+   */
+  async function fetchMeasurementsSince(
+    sensorId: string,
+    sinceMs: number,
+    untilMs: number,
+  ): Promise<MeasurementItem[]> {
+    const collected: MeasurementItem[] = [];
+    let skip = 0;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const batch = await apiMeasurements.list(sensorId, PAGE_SIZE, skip);
+      if (!batch.length) break;
+      collected.push(...batch);
+      const oldest = batch[batch.length - 1];
+      const oldestMs = new Date(oldest.received_at).getTime();
+      if (oldestMs <= sinceMs || batch.length < PAGE_SIZE) break;
+      skip += PAGE_SIZE;
+    }
+    return collected.filter((m) => {
+      const t = new Date(m.received_at).getTime();
+      return t >= sinceMs && t <= untilMs;
+    });
+  }
+
+  async function fetchMeasurementsForRange(
+    range: ChartRange,
+    customStart?: Date,
+    customEnd?: Date,
+  ) {
+    const sensor = selectedSensor.value;
+    if (!sensor) return;
+    currentRange.value = range;
+    rangeLoading.value = true;
     try {
-      measurements.value = await apiMeasurements.list(sensorId, 50);
+      if (range === "LIVE") {
+        measurements.value = await apiMeasurements.list(sensor.id, LIVE_CAP);
+        return;
+      }
+      const now = Date.now();
+      const untilMs = range === "CUSTOM" && customEnd ? customEnd.getTime() : now;
+      const sinceMs =
+        range === "CUSTOM"
+          ? (customStart?.getTime() ?? now - RANGE_DURATION_MS["24H"])
+          : now - RANGE_DURATION_MS[range];
+      measurements.value = await fetchMeasurementsSince(sensor.id, sinceMs, untilMs);
     } catch {
       measurements.value = [];
+    } finally {
+      rangeLoading.value = false;
     }
   }
 
@@ -74,9 +139,9 @@ export const useSensorsStore = defineStore("sensors", () => {
   }
 
   function addMeasurementFromWs(measurement: MeasurementItem) {
-    if (selectedSensor.value?.id === measurement.sensor_id) {
+    if (selectedSensor.value?.id === measurement.sensor_id && currentRange.value === "LIVE") {
       measurements.value.unshift(measurement);
-      if (measurements.value.length > 50) measurements.value.pop();
+      if (measurements.value.length > LIVE_CAP) measurements.value.pop();
     }
   }
 
@@ -85,10 +150,12 @@ export const useSensorsStore = defineStore("sensors", () => {
     selectedSensor,
     measurements,
     loading,
+    rangeLoading,
     error,
+    currentRange,
     fetchSensors,
     selectSensor,
-    fetchMeasurements,
+    fetchMeasurementsForRange,
     createSensor,
     updateSensor,
     deleteSensor,

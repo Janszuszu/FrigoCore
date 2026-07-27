@@ -96,3 +96,5 @@ export interface WsEvent {
   event: string;
   data: Record<string, unknown>;
 }
+
+export type ChartRange = "LIVE" | "1H" | "6H" | "24H" | "7D" | "CUSTOM";
