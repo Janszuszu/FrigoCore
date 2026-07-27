@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AlarmItem, MeasurementItem, SensorItem } from '@/types'
 
 const props = defineProps<{
@@ -11,6 +11,10 @@ const props = defineProps<{
   activeAlarmLabel: string | null
   online: boolean
   loading: boolean
+}>()
+
+const emit = defineEmits<{
+  'update:fullscreen': [value: boolean]
 }>()
 
 // ─── Layout constants (internal SVG coordinate space) ──────────────
@@ -40,6 +44,7 @@ watch(
   () => {
     zoomStart.value = 0
     zoomEnd.value = 1
+    clearSelection()
   },
 )
 
@@ -52,6 +57,27 @@ const visible = computed(() => {
 })
 
 const isZoomed = computed(() => zoomStart.value > 0.001 || zoomEnd.value < 0.999)
+
+// ─── Fullscreen ─────────────────────────────────────────────────
+// Zoom/pan state (zoomStart/zoomEnd) lives above and is never reset by
+// fullscreen entry/exit, so it's preserved automatically.
+const rootEl = ref<HTMLElement | null>(null)
+const isFullscreen = ref(false)
+
+function onFullscreenChange() {
+  isFullscreen.value = document.fullscreenElement === rootEl.value
+  emit('update:fullscreen', isFullscreen.value)
+}
+
+async function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    await document.exitFullscreen()
+  } else {
+    await rootEl.value?.requestFullscreen()
+  }
+}
+
+defineExpose({ toggleFullscreen })
 
 // ─── Trend (based on the most recent points in the full series) ───
 const trend = computed<{ dir: 'up' | 'down' | 'flat'; label: string; glyph: string }>(() => {
@@ -267,10 +293,20 @@ function alarmTypeLabel(type: string): string {
 }
 
 // ─── Hover / crosshair / tooltip ─────────────────────────────────
+// hoverIndex is the point currently shown in the tooltip — set either by
+// live mouse hover (desktop, transient) or by a touch tap (mobile,
+// "locked" until something explicitly clears it: another tap, a tap
+// outside the chart, or the chart's data changing).
 const svgEl = ref<SVGSVGElement | null>(null)
 const hoverIndex = ref<number | null>(null)
+const isPointLocked = ref(false)
 const hoveredMarker = ref<(typeof markers.value)[number] | null>(null)
 const tooltipPos = ref({ x: 0, y: 0 })
+
+function clearSelection() {
+  hoverIndex.value = null
+  isPointLocked.value = false
+}
 
 function svgPoint(clientX: number, clientY: number): { x: number; y: number } | null {
   const el = svgEl.value
@@ -299,57 +335,106 @@ function nearestIndex(svgX: number): number | null {
   return best
 }
 
-// ─── Drag to pan ──────────────────────────────────────────────────
+// ─── Drag to pan (mouse) / tap-to-select then pan (touch) ──────────
+// Mouse: unchanged from before — press-drag pans immediately, plain
+// hover (no button down) shows the live tooltip.
+// Touch: the first contact always selects the nearest point first (per
+// spec). Only once the finger moves past PAN_THRESHOLD_PX does the
+// gesture turn into a pan — at which point the selection is dropped so
+// panning doesn't fight with a stale locked tooltip. A touch that never
+// crosses the threshold (a tap, or a long press that merely trembles)
+// leaves the point selected and locked.
+const PAN_THRESHOLD_PX = 10
+
 const dragging = ref(false)
 const dragStartX = ref(0)
 const dragStartZoom = ref({ start: 0, end: 1 })
+const touchOrigin = ref({ x: 0, y: 0 })
+const touchIsPanning = ref(false)
+
+function applyPanFraction(dxFraction: number) {
+  const windowSize = dragStartZoom.value.end - dragStartZoom.value.start
+  let newStart = dragStartZoom.value.start - dxFraction * windowSize
+  let newEnd = dragStartZoom.value.end - dxFraction * windowSize
+  if (newStart < 0) {
+    newEnd -= newStart
+    newStart = 0
+  }
+  if (newEnd > 1) {
+    newStart -= newEnd - 1
+    newEnd = 1
+  }
+  zoomStart.value = Math.max(0, newStart)
+  zoomEnd.value = Math.min(1, newEnd)
+}
+
+function selectAt(pt: { x: number; y: number }, locked: boolean) {
+  if (pt.x < MARGIN.left || pt.x > VB_W - MARGIN.right) {
+    clearSelection()
+    return
+  }
+  hoverIndex.value = nearestIndex(pt.x)
+  isPointLocked.value = locked
+  tooltipPos.value = pt
+}
 
 function onPointerDown(e: PointerEvent) {
   hoveredMarker.value = null
-  dragging.value = true
-  dragStartX.value = e.clientX
   dragStartZoom.value = { start: zoomStart.value, end: zoomEnd.value }
   ;(e.target as Element).setPointerCapture?.(e.pointerId)
+
+  if (e.pointerType === 'mouse') {
+    dragging.value = true
+    dragStartX.value = e.clientX
+    return
+  }
+
+  // Touch / pen: select immediately (tap-first), decide pan-vs-tap on move.
+  touchOrigin.value = { x: e.clientX, y: e.clientY }
+  touchIsPanning.value = false
+  const pt = svgPoint(e.clientX, e.clientY)
+  if (pt) selectAt(pt, true)
 }
 
 function onPointerMove(e: PointerEvent) {
   const pt = svgPoint(e.clientX, e.clientY)
   if (!pt) return
 
-  if (dragging.value) {
-    hoverIndex.value = null
-    const dxFraction = (e.clientX - dragStartX.value) / (svgEl.value?.getBoundingClientRect().width || 1)
-    const windowSize = dragStartZoom.value.end - dragStartZoom.value.start
-    let newStart = dragStartZoom.value.start - dxFraction * windowSize
-    let newEnd = dragStartZoom.value.end - dxFraction * windowSize
-    if (newStart < 0) {
-      newEnd -= newStart
-      newStart = 0
+  if (e.pointerType === 'mouse') {
+    if (dragging.value) {
+      hoverIndex.value = null
+      const width = svgEl.value?.getBoundingClientRect().width || 1
+      applyPanFraction((e.clientX - dragStartX.value) / width)
+      return
     }
-    if (newEnd > 1) {
-      newStart -= newEnd - 1
-      newEnd = 1
-    }
-    zoomStart.value = Math.max(0, newStart)
-    zoomEnd.value = Math.min(1, newEnd)
+    selectAt(pt, false)
     return
   }
 
-  if (pt.x < MARGIN.left || pt.x > VB_W - MARGIN.right) {
-    hoverIndex.value = null
-    return
+  // Touch / pen
+  if (!touchIsPanning.value) {
+    const dist = Math.hypot(e.clientX - touchOrigin.value.x, e.clientY - touchOrigin.value.y)
+    if (dist > PAN_THRESHOLD_PX) {
+      touchIsPanning.value = true
+      clearSelection()
+    } else {
+      // still within the tap threshold — keep the selection tracking the finger
+      selectAt(pt, true)
+      return
+    }
   }
-  hoverIndex.value = nearestIndex(pt.x)
-  tooltipPos.value = pt
+  const width = svgEl.value?.getBoundingClientRect().width || 1
+  applyPanFraction((e.clientX - touchOrigin.value.x) / width)
 }
 
 function onPointerUp(e: PointerEvent) {
   dragging.value = false
+  touchIsPanning.value = false
   ;(e.target as Element).releasePointerCapture?.(e.pointerId)
 }
 
-function onPointerLeave() {
-  if (!dragging.value) hoverIndex.value = null
+function onPointerLeave(e: PointerEvent) {
+  if (e.pointerType === 'mouse' && !dragging.value) clearSelection()
 }
 
 function onWheel(e: WheelEvent) {
@@ -381,10 +466,14 @@ function resetZoom() {
   zoomEnd.value = 1
 }
 
-// ─── Touch: one-finger pan, two-finger pinch zoom ─────────────────
+// ─── Touch: two-finger pinch zoom ──────────────────────────────────
+// Single-finger tap/pan is handled entirely by the pointer handlers
+// above (Pointer Events unify mouse/touch/pen); this only needs to
+// cover the one gesture Pointer Events can't express cleanly — a
+// two-finger pinch, which requires reading both active touch points at
+// once from the native TouchList.
 let touchStartDist = 0
 let touchStartZoom = { start: 0, end: 1 }
-let touchStartX = 0
 
 function touchDist(t: TouchList): number {
   const [a, b] = [t[0], t[1]]
@@ -393,54 +482,34 @@ function touchDist(t: TouchList): number {
 
 function onTouchStart(e: TouchEvent) {
   if (e.touches.length === 2) {
+    hoveredMarker.value = null
+    clearSelection()
     touchStartDist = touchDist(e.touches)
-    touchStartZoom = { start: zoomStart.value, end: zoomEnd.value }
-  } else if (e.touches.length === 1) {
-    touchStartX = e.touches[0].clientX
     touchStartZoom = { start: zoomStart.value, end: zoomEnd.value }
   }
 }
 
 function onTouchMove(e: TouchEvent) {
-  if (e.touches.length === 2) {
-    e.preventDefault()
-    const dist = touchDist(e.touches)
-    if (!touchStartDist) return
-    const factor = touchStartDist / dist
-    const window = touchStartZoom.end - touchStartZoom.start
-    const center = (touchStartZoom.start + touchStartZoom.end) / 2
-    let newWindow = Math.min(1, Math.max(0.02, window * factor))
-    let newStart = center - newWindow / 2
-    let newEnd = center + newWindow / 2
-    if (newStart < 0) {
-      newEnd -= newStart
-      newStart = 0
-    }
-    if (newEnd > 1) {
-      newStart -= newEnd - 1
-      newEnd = 1
-    }
-    zoomStart.value = Math.max(0, newStart)
-    zoomEnd.value = Math.min(1, newEnd)
-  } else if (e.touches.length === 1) {
-    e.preventDefault()
-    const rect = svgEl.value?.getBoundingClientRect()
-    if (!rect) return
-    const dxFraction = (e.touches[0].clientX - touchStartX) / rect.width
-    const window = touchStartZoom.end - touchStartZoom.start
-    let newStart = touchStartZoom.start - dxFraction * window
-    let newEnd = touchStartZoom.end - dxFraction * window
-    if (newStart < 0) {
-      newEnd -= newStart
-      newStart = 0
-    }
-    if (newEnd > 1) {
-      newStart -= newEnd - 1
-      newEnd = 1
-    }
-    zoomStart.value = Math.max(0, newStart)
-    zoomEnd.value = Math.min(1, newEnd)
+  if (e.touches.length !== 2) return
+  e.preventDefault()
+  const dist = touchDist(e.touches)
+  if (!touchStartDist) return
+  const factor = touchStartDist / dist
+  const window = touchStartZoom.end - touchStartZoom.start
+  const center = (touchStartZoom.start + touchStartZoom.end) / 2
+  let newWindow = Math.min(1, Math.max(0.02, window * factor))
+  let newStart = center - newWindow / 2
+  let newEnd = center + newWindow / 2
+  if (newStart < 0) {
+    newEnd -= newStart
+    newStart = 0
   }
+  if (newEnd > 1) {
+    newStart -= newEnd - 1
+    newEnd = 1
+  }
+  zoomStart.value = Math.max(0, newStart)
+  zoomEnd.value = Math.min(1, newEnd)
 }
 
 // ─── Tooltip content ──────────────────────────────────────────────
@@ -492,10 +561,27 @@ const markerTooltipStyle = computed(() => {
   if (!m) return {}
   return positionFromViewBox(m.x1, STRIP_Y)
 })
+
+// A locked (touch-selected) tooltip only closes on: another selection
+// (handled in selectAt), the chart's data changing (handled in the
+// readings watcher), or a tap outside the chart — handled here.
+function onDocumentPointerDown(e: PointerEvent) {
+  if (!isPointLocked.value) return
+  if (rootEl.value && !rootEl.value.contains(e.target as Node)) clearSelection()
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocumentPointerDown, true)
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+})
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+})
 </script>
 
 <template>
-  <div class="temp-chart">
+  <div ref="rootEl" class="temp-chart" :class="{ fullscreen: isFullscreen }">
     <div class="chart-toolbar">
       <span class="trend" :class="`trend-${trend.dir}`">
         Trend <b>{{ trend.glyph }} {{ trend.label }}</b>
@@ -537,6 +623,14 @@ const markerTooltipStyle = computed(() => {
             <stop offset="0%" stop-color="#0edbe5" stop-opacity="0.28" />
             <stop offset="100%" stop-color="#0edbe5" stop-opacity="0" />
           </linearGradient>
+          <filter id="point-glow" x="-150%" y="-150%" width="400%" height="400%">
+            <feGaussianBlur stdDeviation="3.2" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
         </defs>
 
         <!-- Background zones -->
@@ -632,12 +726,24 @@ const markerTooltipStyle = computed(() => {
             :y1="MARGIN.top"
             :y2="MARGIN.top + PLOT_H"
             class="crosshair"
+            :class="{ locked: isPointLocked }"
+          />
+          <!-- Painted after line-path/area-fill in DOM order, so it always
+               sits on top (SVG has no z-index; paint order = source order). -->
+          <circle
+            v-if="isPointLocked"
+            :cx="xScale(hoveredReading.received_at)"
+            :cy="yScale(hoveredReading.temperature)"
+            r="8"
+            class="selected-dot"
+            filter="url(#point-glow)"
           />
           <circle
             :cx="xScale(hoveredReading.received_at)"
             :cy="yScale(hoveredReading.temperature)"
-            r="4.5"
+            :r="isPointLocked ? 6 : 4.5"
             class="hover-dot"
+            :class="{ locked: isPointLocked }"
           />
         </template>
       </svg>
@@ -676,6 +782,17 @@ const markerTooltipStyle = computed(() => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+}
+
+/* Browser Fullscreen API target. The :fullscreen pseudo-class covers the
+   native trigger; the .fullscreen class mirrors the same reactive state
+   from JS so styling stays correct even if a UA has pseudo-class quirks. */
+.temp-chart:fullscreen,
+.temp-chart.fullscreen {
+  width: 100vw;
+  height: 100vh;
+  padding: 20px 24px;
+  background: #07121e;
 }
 
 .chart-toolbar {
@@ -794,7 +911,10 @@ const markerTooltipStyle = computed(() => {
 .marker-offline, .marker-offline.marker-span { fill: #8fa1ba; stroke: #8fa1ba; }
 
 .crosshair { stroke: #8fa1ba; stroke-width: 1; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; opacity: 0.6; }
+.crosshair.locked { stroke: #0edbe5; opacity: 0.85; }
 .hover-dot { fill: #0edbe5; stroke: #071620; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.hover-dot.locked { stroke: #eafeff; stroke-width: 2.5; }
+.selected-dot { fill: #0edbe5; opacity: 0.35; }
 
 .tooltip {
   position: absolute;

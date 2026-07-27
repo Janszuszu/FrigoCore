@@ -11,6 +11,8 @@ const objectsStore=useObjectsStore(), sensorsStore=useSensorsStore(), alarmsStor
 const selectedObjectId=ref(""), selectedSensorId=ref(""), range=ref<ChartRange>("LIVE");
 const customStart=ref(""), customEnd=ref("");
 const alarmConfigs=ref<AlarmConfigItem[]>([]);
+const chartRef=ref<InstanceType<typeof TemperatureChart> | null>(null);
+const isChartFullscreen=ref(false);
 
 const sensor=computed(()=>sensorsStore.selectedSensor);
 const readings=computed(()=>[...sensorsStore.measurements].reverse());
@@ -64,14 +66,13 @@ watch(selectedObjectId,pickObject);
 </script>
 <template>
  <section class="dashboard">
-  <div class="selectors"><label>WYBÓR OBIEKTU<select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select></label><label>WYBÓR SENSORĄ<select v-model="selectedSensorId" @change="pickSensor" :disabled="!selectedObjectId"><option value="">Wybierz sensor</option><option v-for="item in sensorsStore.sensors" :key="item.id" :value="item.id">{{item.name}}</option></select></label><button class="expand" aria-label="Powiększ">↗</button></div>
+  <div class="selectors"><label>WYBÓR OBIEKTU<select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select></label><label>WYBÓR SENSORĄ<select v-model="selectedSensorId" @change="pickSensor" :disabled="!selectedObjectId"><option value="">Wybierz sensor</option><option v-for="item in sensorsStore.sensors" :key="item.id" :value="item.id">{{item.name}}</option></select></label></div>
   <template v-if="sensor">
    <article class="temperature-panel">
     <div class="panel-grid">
      <div class="stat-card stat-primary">
       <div class="sensor-name"><span>{{sensor.name}}</span><strong>{{selectedObject?.name}}</strong></div>
       <div class="temp-row"><span class="temp-value">{{temperature(sensor.current_temperature)}}</span><small class="temp-delta">↓ 0.3°</small></div>
-      <em class="status-badge" :class="{off:!online()}">{{online()?"ONLINE":"OFFLINE"}}</em>
      </div>
      <div class="stat-trio">
       <div class="stat-card stat-min"><label>MIN</label><b>{{temperature(stats.min)}}</b><span>{{date(readings[0]?.received_at)}}</span></div>
@@ -82,9 +83,15 @@ watch(selectedObjectId,pickObject);
     </div>
    </article>
    <article class="chart-panel">
-    <div class="chart-title">HISTORICAL RANGE <span>{{sensor.name}} ({{selectedObject?.name}})</span><button>↗</button></div>
+    <div class="chart-title">HISTORICAL RANGE <span>{{sensor.name}} ({{selectedObject?.name}})</span></div>
     <div class="ranges">
-     <button v-for="item in (['LIVE','1H','6H','24H','7D','CUSTOM'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
+     <div class="range-buttons">
+      <button v-for="item in (['LIVE','1H','6H','24H','7D','CUSTOM'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
+     </div>
+     <button class="fullscreen-btn" type="button" :aria-label="isChartFullscreen ? 'Exit fullscreen' : 'Fullscreen'" @click="chartRef?.toggleFullscreen()">
+      <svg viewBox="0 0 24 24"><path v-if="!isChartFullscreen" d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" /><path v-else d="M3 8V3h5M21 8V3h-5M3 16v5h5M21 16v5h-5" /></svg>
+      <span>{{isChartFullscreen ? "Exit" : "Fullscreen"}}</span>
+     </button>
     </div>
     <div v-if="range==='CUSTOM'" class="custom-range">
      <input type="datetime-local" v-model="customStart" />
@@ -94,6 +101,7 @@ watch(selectedObjectId,pickObject);
     </div>
     <TemperatureChart
       v-if="sensor"
+      ref="chartRef"
       :sensor="sensor"
       :readings="readings"
       :high-threshold="highThreshold"
@@ -102,13 +110,14 @@ watch(selectedObjectId,pickObject);
       :active-alarm-label="activeAlarmLabel"
       :online="online()"
       :loading="sensorsStore.rangeLoading"
+      @update:fullscreen="v => isChartFullscreen = v"
     />
    </article>
   </template><div v-else class="empty">Wybierz obiekt i sensor, aby zobaczyć dane.</div>
  </section>
 </template>
 <style scoped>
-.dashboard{padding:21px 25px 10px;max-width:1280px;margin:auto}.selectors{display:grid;grid-template-columns:405px 388px 1fr;gap:25px;align-items:end;margin-bottom:21px}.selectors label{font-size:14px;color:#aab9cf;display:grid;gap:8px}.selectors select{appearance:none;height:48px;border:1px solid #2b4b67;border-radius:7px;background:#081421 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23b8c9e8' stroke-width='2'/%3E%3C/svg%3E") no-repeat calc(100% - 17px) center;color:#e8effa;font-size:17px;padding:0 48px 0 18px}.expand{justify-self:end;width:50px;height:48px;background:#081421;border:1px solid #29455e;border-radius:8px;color:#b9c9e6;font-size:24px}.temperature-panel,.chart-panel{background:radial-gradient(circle at 45% 30%,#0d1d2d,#07121e 70%);border:1px solid #172d42}
+.dashboard{padding:21px 25px 10px;max-width:1280px;margin:auto}.selectors{display:grid;grid-template-columns:405px 388px 1fr;gap:25px;align-items:end;margin-bottom:21px}.selectors label{font-size:14px;color:#aab9cf;display:grid;gap:8px}.selectors select{appearance:none;height:48px;border:1px solid #2b4b67;border-radius:7px;background:#081421 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23b8c9e8' stroke-width='2'/%3E%3C/svg%3E") no-repeat calc(100% - 17px) center;color:#e8effa;font-size:17px;padding:0 48px 0 18px}.temperature-panel,.chart-panel{background:radial-gradient(circle at 45% 30%,#0d1d2d,#07121e 70%);border:1px solid #172d42}
 
 /* ---------- Summary panel (Current temp | Min | Max | Average | Last update) ---------- */
 .temperature-panel{padding:26px 28px}
@@ -126,8 +135,6 @@ watch(selectedObjectId,pickObject);
 .temp-row{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
 .temp-value{font-size:clamp(46px,6vw,92px);font-weight:700;letter-spacing:-3px;color:#07c9f3;line-height:1}
 .temp-delta{font-size:clamp(14px,1.3vw,20px);color:#00d6ee}
-.status-badge{align-self:flex-start;font-style:normal;color:#00f184;border:1px solid #007c47;border-radius:4px;padding:4px 12px;font-size:12px}
-.status-badge.off{color:#ff6875;border-color:#8d2637}
 
 .stat-trio{display:contents}
 
@@ -163,10 +170,15 @@ watch(selectedObjectId,pickObject);
 }
 
 .chart-panel{height:clamp(460px,66vh,640px);margin-top:8px;border-radius:12px;padding:22px;display:flex;flex-direction:column}
-.chart-title{font-size:20px;flex:none}.chart-title span{font-size:14px;color:#8fa1ba;margin-left:28px}.chart-title button{float:right;background:#081421;border:1px solid #29455e;border-radius:7px;color:#b9c9e6;width:34px;height:34px;font-size:17px}
-.ranges{display:flex;gap:8px;margin-top:20px;flex:none}.ranges button{background:#091725;border:1px solid #263e56;border-radius:5px;color:#afc0dc;font-size:14px;padding:9px 16px}.ranges .active{border-color:#00cce3;color:#00e5ef;background:#063142}
+.chart-title{font-size:20px;flex:none}.chart-title span{font-size:14px;color:#8fa1ba;margin-left:28px}
+.ranges{display:flex;align-items:center;gap:8px;margin-top:20px;flex:none}
+.range-buttons{display:flex;gap:8px;overflow-x:auto}
+.ranges button{background:#091725;border:1px solid #263e56;border-radius:5px;color:#afc0dc;font-size:14px;padding:9px 16px;flex:none;white-space:nowrap}.ranges .active{border-color:#00cce3;color:#00e5ef;background:#063142}
+.fullscreen-btn{display:flex;align-items:center;gap:7px;margin-left:auto;color:#b9c9e6}
+.fullscreen-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.fullscreen-btn:hover{border-color:#00cce3;color:#00e5ef}
 .custom-range{display:flex;align-items:center;gap:10px;margin-top:12px;flex:none}.custom-range span{color:#8fa1ba}.custom-range input{background:#07121f;border:1px solid #294b68;border-radius:5px;color:#e8effa;padding:7px 10px;font-size:13px}.custom-range .apply{background:#063142;border:1px solid #00cce3;color:#00e5ef;border-radius:5px;padding:7px 14px;font-size:13px}.custom-range .apply:disabled{opacity:.4}
 .no-chart,.empty{text-align:center;padding:100px;color:#8fa1ba}
 @media(max-width:1100px){.dashboard{max-width:100%}.chart-panel{height:clamp(420px,58vh,560px)}}
-@media(max-width:800px){.dashboard{padding:16px}.selectors{grid-template-columns:1fr;gap:12px}.expand{display:none}.chart-panel{height:480px;padding:16px}.chart-title span{display:block;margin:8px 0}.ranges{overflow:auto}.ranges button{padding:7px 10px}.custom-range{flex-wrap:wrap}}
+@media(max-width:800px){.dashboard{padding:16px}.selectors{grid-template-columns:1fr;gap:12px}.chart-panel{height:480px;padding:16px}.chart-title span{display:block;margin:8px 0}.fullscreen-btn{padding:9px 12px}.fullscreen-btn span{display:none}.custom-range{flex-wrap:wrap}}
 </style>
