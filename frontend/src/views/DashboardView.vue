@@ -44,10 +44,17 @@ function onFullscreenChange() {
 }
 
 async function toggleFullscreen() {
-  if (document.fullscreenElement) {
-    await document.exitFullscreen();
-  } else {
-    await fullscreenRoot.value?.requestFullscreen();
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else {
+      await fullscreenRoot.value?.requestFullscreen();
+    }
+  } catch {
+    // Fullscreen can be denied by a Permissions Policy (embedding context,
+    // browser/enterprise policy) — fail silently rather than surface an
+    // unhandled rejection; isChartFullscreen just stays in sync with
+    // reality via the fullscreenchange listener either way.
   }
 }
 
