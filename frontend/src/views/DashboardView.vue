@@ -219,7 +219,7 @@ watch(selectedObjectId,pickObject);
    point title+ranges+chart all go fullscreen together (the range
    selector must stay usable/visible while fullscreen). */
 .chart-fullscreen-root{display:flex;flex-direction:column;flex:1;min-height:0;position:relative}
-.chart-fullscreen-root.fullscreen{width:100vw;height:100vh;height:100dvh;padding:64px 24px 20px;background:#07121e}
+.chart-fullscreen-root.fullscreen{position:fixed;inset:0;flex:none;width:100vw;height:100vh;height:100dvh;padding:64px 24px 20px;background:#07121e;z-index:40}
 
 .exit-fullscreen-btn{position:fixed;top:14px;right:14px;z-index:50;display:flex;align-items:center;gap:8px;background:#0a1827;border:1px solid #29455e;border-radius:7px;color:#e8effa;font-size:13px;padding:10px 16px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.45)}
 .exit-fullscreen-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
