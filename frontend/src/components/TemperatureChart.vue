@@ -11,6 +11,7 @@ const props = defineProps<{
   activeAlarmLabel: string | null
   online: boolean
   loading: boolean
+  fullscreen?: boolean
 }>()
 
 // ─── Layout constants (internal SVG coordinate space) ──────────────
@@ -579,8 +580,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="rootEl" class="temp-chart">
-    <div class="chart-toolbar">
+  <div ref="rootEl" class="temp-chart" :class="{fullscreen}">
+    <div v-if="!fullscreen" class="chart-toolbar">
       <span class="trend" :class="`trend-${trend.dir}`">
         Trend <b>{{ trend.glyph }} {{ trend.label }}</b>
       </span>
@@ -732,14 +733,14 @@ onUnmounted(() => {
             v-if="isPointLocked"
             :cx="xScale(hoveredReading.received_at)"
             :cy="yScale(hoveredReading.temperature)"
-            r="8"
+            r="10"
             class="selected-dot"
             filter="url(#point-glow)"
           />
           <circle
             :cx="xScale(hoveredReading.received_at)"
             :cy="yScale(hoveredReading.temperature)"
-            :r="isPointLocked ? 6 : 4.5"
+            :r="isPointLocked ? 7 : 4.5"
             class="hover-dot"
             :class="{ locked: isPointLocked }"
           />
@@ -850,6 +851,10 @@ onUnmounted(() => {
   margin-top: 14px;
   overflow: hidden;
 }
+.temp-chart.fullscreen .chart-wrap { margin-top: 6px; }
+@media (max-height: 430px) {
+  .temp-chart.fullscreen .chart-wrap { margin-top: 3px; }
+}
 
 .chart-svg {
   width: 100%;
@@ -874,7 +879,7 @@ onUnmounted(() => {
 .threshold-high { stroke: #ff6875; }
 .threshold-low { stroke: #4ea8ff; }
 
-.axis-label { fill: #9cadc7; font-size: 15px; }
+.axis-label { fill: #9cadc7; font-size: 16.5px; }
 .y-label { text-anchor: end; dominant-baseline: middle; }
 .x-label { text-anchor: middle; }
 
@@ -882,7 +887,7 @@ onUnmounted(() => {
 .line-path {
   fill: none;
   stroke: #0edbe5;
-  stroke-width: 2.6;
+  stroke-width: 3.2;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
@@ -906,23 +911,23 @@ onUnmounted(() => {
 .tooltip {
   position: absolute;
   z-index: 4;
-  min-width: 200px;
+  min-width: 220px;
   max-width: calc(100% - 12px);
   box-sizing: border-box;
   background: #0a1827;
   border: 1px solid #26516b;
   border-radius: 8px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   pointer-events: none;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
-.tooltip-title { font-size: 13px; font-weight: 600; color: #00dde1; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.03em; }
+.tooltip-title { font-size: 14px; font-weight: 600; color: #00dde1; text-transform: uppercase; margin-bottom: 9px; letter-spacing: 0.03em; }
 .tooltip-title.marker-high { color: #ff6875; }
 .tooltip-title.marker-low { color: #4ea8ff; }
 .tooltip-title.marker-offline { color: #8fa1ba; }
-.tooltip dl { display: grid; grid-template-columns: auto auto; gap: 4px 14px; margin: 0; }
-.tooltip dt { font-size: 12px; color: #8fa1ba; }
-.tooltip dd { margin: 0; font-size: 12px; color: #e8effa; text-align: right; font-variant-numeric: tabular-nums; }
+.tooltip dl { display: grid; grid-template-columns: auto auto; gap: 5px 16px; margin: 0; }
+.tooltip dt { font-size: 13px; color: #8fa1ba; }
+.tooltip dd { margin: 0; font-size: 13px; color: #e8effa; text-align: right; font-variant-numeric: tabular-nums; }
 .tooltip dd.status-bad { color: #ff6875; }
 
 @media (max-width: 1100px) {
@@ -932,7 +937,7 @@ onUnmounted(() => {
 @media (max-width: 800px) {
   .chart-wrap { margin-top: 10px; }
   .axis-label { font-size: 20px; }
-  .tooltip { min-width: 170px; padding: 10px 12px; }
-  .tooltip dt, .tooltip dd { font-size: 11px; }
+  .tooltip { min-width: 190px; padding: 12px 14px; }
+  .tooltip dt, .tooltip dd { font-size: 12px; }
 }
 </style>

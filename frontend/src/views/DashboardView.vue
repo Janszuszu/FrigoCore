@@ -129,11 +129,7 @@ watch(selectedObjectId,pickObject);
    </article>
    <article class="chart-panel">
     <div ref="fullscreenRoot" class="chart-fullscreen-root" :class="{fullscreen:isChartFullscreen}">
-     <button v-if="isChartFullscreen" class="exit-fullscreen-btn" type="button" aria-label="Exit fullscreen" @click="toggleFullscreen">
-      <svg viewBox="0 0 24 24"><path d="M3 8V3h5M21 8V3h-5M3 16v5h5M21 16v5h-5" /></svg>
-      <span>Exit Fullscreen</span>
-     </button>
-     <div class="chart-title">HISTORICAL RANGE <span>{{sensor.name}} ({{selectedObject?.name}})</span></div>
+     <div v-if="!isChartFullscreen" class="chart-title">HISTORICAL RANGE <span>{{sensor.name}} ({{selectedObject?.name}})</span></div>
      <div class="ranges">
       <div class="range-buttons">
        <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
@@ -142,6 +138,12 @@ watch(selectedObjectId,pickObject);
        <svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" /></svg>
        <span>Fullscreen</span>
       </button>
+      <template v-else>
+       <span class="toolbar-spacer" aria-hidden="true"></span>
+       <button class="exit-fullscreen-btn" type="button" aria-label="Exit fullscreen" @click="toggleFullscreen">
+        <svg viewBox="0 0 24 24"><path d="M3 8V3h5M21 8V3h-5M3 16v5h5M21 16v5h-5" /></svg>
+       </button>
+      </template>
      </div>
      <TemperatureChart
        v-if="sensor"
@@ -153,6 +155,7 @@ watch(selectedObjectId,pickObject);
        :active-alarm-label="activeAlarmLabel"
        :online="online()"
        :loading="sensorsStore.rangeLoading"
+       :fullscreen="isChartFullscreen"
      />
     </div>
    </article>
@@ -219,11 +222,7 @@ watch(selectedObjectId,pickObject);
    point title+ranges+chart all go fullscreen together (the range
    selector must stay usable/visible while fullscreen). */
 .chart-fullscreen-root{display:flex;flex-direction:column;flex:1;min-height:0;position:relative}
-.chart-fullscreen-root.fullscreen{position:fixed;inset:0;flex:none;width:100vw;height:100vh;height:100dvh;padding:64px 24px 20px;background:#07121e;z-index:40}
-
-.exit-fullscreen-btn{position:fixed;top:14px;right:14px;z-index:50;display:flex;align-items:center;gap:8px;background:#0a1827;border:1px solid #29455e;border-radius:7px;color:#e8effa;font-size:13px;padding:10px 16px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.45)}
-.exit-fullscreen-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.exit-fullscreen-btn:hover{border-color:#ff6875;color:#ff8b93}
+.chart-fullscreen-root.fullscreen{position:fixed;inset:0;flex:none;width:100vw;height:100vh;height:100dvh;padding:6px 10px 6px;background:#07121e;z-index:40}
 
 /* "Control strip" (title + range selector) visually separated from the
    chart display below it, industrial-panel style. */
@@ -236,14 +235,44 @@ watch(selectedObjectId,pickObject);
 .fullscreen-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .fullscreen-btn:hover{border-color:#00cce3;color:#00e5ef}
 .no-chart,.empty{text-align:center;padding:100px;color:#8fa1ba}
+
+/* Fullscreen toolbar: ONE ~48px right-aligned row — range buttons, a fixed
+   spacer, then Exit Fullscreen pinned at the far right. Equal-size square
+   buttons for thumb reach; no title/labels eating vertical space. */
+.chart-fullscreen-root.fullscreen .chart-title{display:none}
+.chart-fullscreen-root.fullscreen .ranges{margin-top:0;height:48px;justify-content:flex-end;flex:none}
+.chart-fullscreen-root.fullscreen .toolbar-spacer{width:18px;flex:none}
+.chart-fullscreen-root.fullscreen .ranges button,
+.chart-fullscreen-root.fullscreen .exit-fullscreen-btn{
+  width:44px;height:44px;padding:0;display:flex;align-items:center;justify-content:center;flex:none;border-radius:8px;
+}
+.chart-fullscreen-root.fullscreen .exit-fullscreen-btn{
+  background:#091725;border:1px solid #263e56;border-radius:8px;color:#afc0dc;cursor:pointer;
+}
+.chart-fullscreen-root.fullscreen .exit-fullscreen-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.chart-fullscreen-root.fullscreen .exit-fullscreen-btn:hover{border-color:#ff6875;color:#ff8b93}
+
 @media(max-width:1100px){.dashboard{max-width:100%}.chart-panel{height:clamp(420px,58vh,560px)}}
 @media(max-width:800px){
  .dashboard{padding:16px}.selectors{grid-template-columns:1fr;gap:12px}.chart-panel{height:480px;padding:16px}
  .chart-title span{display:block;margin:6px 0 0}
  .fullscreen-btn{padding:9px 12px}.fullscreen-btn span{display:none}
- .exit-fullscreen-btn span{display:none}.exit-fullscreen-btn{padding:11px;top:10px;right:10px}
- /* Mobile fullscreen: only chart + range selector + exit button + tooltip stay visible */
- .chart-fullscreen-root.fullscreen .chart-title{display:none}
- .chart-fullscreen-root.fullscreen{padding:56px 12px 12px}
+ /* Mobile fullscreen: single right-aligned row, ~48px tall, no wrap, no scroll */
+ .chart-fullscreen-root.fullscreen{padding:6px 8px 6px}
+ .chart-fullscreen-root.fullscreen .ranges{gap:6px}
+ .chart-fullscreen-root.fullscreen .toolbar-spacer{width:14px}
+ .chart-fullscreen-root.fullscreen .range-buttons{gap:6px;overflow-x:visible}
+}
+
+/* Short landscape phones (~375-430px tall once rotated): the 48px toolbar
+   eats a much bigger slice of a short viewport, so trim it further to keep
+   the chart close to the 90-95% target without shrinking tap targets past
+   comfortable thumb use. */
+@media(max-height:430px){
+ .chart-fullscreen-root.fullscreen{padding:4px 8px 4px}
+ .chart-fullscreen-root.fullscreen .ranges{height:40px;gap:6px}
+ .chart-fullscreen-root.fullscreen .toolbar-spacer{width:12px}
+ .chart-fullscreen-root.fullscreen .ranges button,
+ .chart-fullscreen-root.fullscreen .exit-fullscreen-btn{width:40px;height:38px;border-radius:7px}
 }
 </style>
