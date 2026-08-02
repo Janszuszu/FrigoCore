@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useSensorsStore } from "@/stores/sensors";
 import { useAlarmsStore } from "@/stores/alarms";
@@ -9,10 +9,47 @@ import TemperatureChart from "@/components/TemperatureChart.vue";
 
 const objectsStore=useObjectsStore(), sensorsStore=useSensorsStore(), alarmsStore=useAlarmsStore();
 const selectedObjectId=ref(""), selectedSensorId=ref(""), range=ref<ChartRange>("LIVE");
-const customStart=ref(""), customEnd=ref("");
 const alarmConfigs=ref<AlarmConfigItem[]>([]);
-const chartRef=ref<InstanceType<typeof TemperatureChart> | null>(null);
 const isChartFullscreen=ref(false);
+
+// Fullscreen wraps chart-title + ranges + the chart itself (not just the
+// TemperatureChart component) because the range selector must stay
+// visible while fullscreen, per spec.
+const fullscreenRoot=ref<HTMLElement | null>(null);
+
+type OrientationLock = { lock?: (o: string) => Promise<void>; unlock?: () => void };
+function getOrientation(): OrientationLock | undefined {
+  return (screen as unknown as { orientation?: OrientationLock }).orientation;
+}
+async function requestLandscape() {
+  try {
+    await getOrientation()?.lock?.("landscape");
+  } catch {
+    // Not supported (e.g. iPhone Safari) or rejected by the browser — the
+    // spec calls for ignoring this gracefully, fullscreen itself still works.
+  }
+}
+function releaseOrientation() {
+  try {
+    getOrientation()?.unlock?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+function onFullscreenChange() {
+  isChartFullscreen.value = document.fullscreenElement === fullscreenRoot.value;
+  if (isChartFullscreen.value) requestLandscape();
+  else releaseOrientation();
+}
+
+async function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    await document.exitFullscreen();
+  } else {
+    await fullscreenRoot.value?.requestFullscreen();
+  }
+}
 
 const sensor=computed(()=>sensorsStore.selectedSensor);
 const readings=computed(()=>[...sensorsStore.measurements].reverse());
@@ -39,11 +76,7 @@ async function loadAlarmConfigs(sensorId:string){
 
 function applyRange(r:ChartRange){
   range.value=r;
-  if(r!=="CUSTOM") sensorsStore.fetchMeasurementsForRange(r);
-}
-function applyCustomRange(){
-  if(!customStart.value||!customEnd.value) return;
-  sensorsStore.fetchMeasurementsForRange("CUSTOM", new Date(customStart.value), new Date(customEnd.value));
+  sensorsStore.fetchMeasurementsForRange(r);
 }
 
 async function pickObject(){
@@ -61,7 +94,12 @@ function pickSensor(){
   if(selectedSensorId.value) loadAlarmConfigs(selectedSensorId.value);
 }
 
-onMounted(async()=>{await objectsStore.fetchObjects();if(objectsStore.activeObjects[0]){selectedObjectId.value=objectsStore.activeObjects[0].id;pickObject()}});
+onMounted(async()=>{
+  await objectsStore.fetchObjects();
+  if(objectsStore.activeObjects[0]){selectedObjectId.value=objectsStore.activeObjects[0].id;pickObject()}
+  document.addEventListener("fullscreenchange", onFullscreenChange);
+});
+onUnmounted(()=>{document.removeEventListener("fullscreenchange", onFullscreenChange)});
 watch(selectedObjectId,pickObject);
 </script>
 <template>
@@ -83,35 +121,33 @@ watch(selectedObjectId,pickObject);
     </div>
    </article>
    <article class="chart-panel">
-    <div class="chart-title">HISTORICAL RANGE <span>{{sensor.name}} ({{selectedObject?.name}})</span></div>
-    <div class="ranges">
-     <div class="range-buttons">
-      <button v-for="item in (['LIVE','1H','6H','24H','7D','CUSTOM'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
-     </div>
-     <button class="fullscreen-btn" type="button" :aria-label="isChartFullscreen ? 'Exit fullscreen' : 'Fullscreen'" @click="chartRef?.toggleFullscreen()">
-      <svg viewBox="0 0 24 24"><path v-if="!isChartFullscreen" d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" /><path v-else d="M3 8V3h5M21 8V3h-5M3 16v5h5M21 16v5h-5" /></svg>
-      <span>{{isChartFullscreen ? "Exit" : "Fullscreen"}}</span>
+    <div ref="fullscreenRoot" class="chart-fullscreen-root" :class="{fullscreen:isChartFullscreen}">
+     <button v-if="isChartFullscreen" class="exit-fullscreen-btn" type="button" aria-label="Exit fullscreen" @click="toggleFullscreen">
+      <svg viewBox="0 0 24 24"><path d="M3 8V3h5M21 8V3h-5M3 16v5h5M21 16v5h-5" /></svg>
+      <span>Exit Fullscreen</span>
      </button>
+     <div class="chart-title">HISTORICAL RANGE <span>{{sensor.name}} ({{selectedObject?.name}})</span></div>
+     <div class="ranges">
+      <div class="range-buttons">
+       <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
+      </div>
+      <button v-if="!isChartFullscreen" class="fullscreen-btn" type="button" aria-label="Fullscreen" @click="toggleFullscreen">
+       <svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" /></svg>
+       <span>Fullscreen</span>
+      </button>
+     </div>
+     <TemperatureChart
+       v-if="sensor"
+       :sensor="sensor"
+       :readings="readings"
+       :high-threshold="highThreshold"
+       :low-threshold="lowThreshold"
+       :alarms="sensorAlarms"
+       :active-alarm-label="activeAlarmLabel"
+       :online="online()"
+       :loading="sensorsStore.rangeLoading"
+     />
     </div>
-    <div v-if="range==='CUSTOM'" class="custom-range">
-     <input type="datetime-local" v-model="customStart" />
-     <span>—</span>
-     <input type="datetime-local" v-model="customEnd" />
-     <button class="apply" @click="applyCustomRange" :disabled="!customStart||!customEnd">Zastosuj</button>
-    </div>
-    <TemperatureChart
-      v-if="sensor"
-      ref="chartRef"
-      :sensor="sensor"
-      :readings="readings"
-      :high-threshold="highThreshold"
-      :low-threshold="lowThreshold"
-      :alarms="sensorAlarms"
-      :active-alarm-label="activeAlarmLabel"
-      :online="online()"
-      :loading="sensorsStore.rangeLoading"
-      @update:fullscreen="v => isChartFullscreen = v"
-    />
    </article>
   </template><div v-else class="empty">Wybierz obiekt i sensor, aby zobaczyć dane.</div>
  </section>
@@ -170,15 +206,37 @@ watch(selectedObjectId,pickObject);
 }
 
 .chart-panel{height:clamp(460px,66vh,640px);margin-top:8px;border-radius:12px;padding:22px;display:flex;flex-direction:column}
-.chart-title{font-size:20px;flex:none}.chart-title span{font-size:14px;color:#8fa1ba;margin-left:28px}
-.ranges{display:flex;align-items:center;gap:8px;margin-top:20px;flex:none}
+
+/* Normally just a pass-through flex column matching the chart-panel's own
+   layout; becomes the actual Fullscreen API target on demand, at which
+   point title+ranges+chart all go fullscreen together (the range
+   selector must stay usable/visible while fullscreen). */
+.chart-fullscreen-root{display:flex;flex-direction:column;flex:1;min-height:0;position:relative}
+.chart-fullscreen-root.fullscreen{width:100vw;height:100vh;height:100dvh;padding:64px 24px 20px;background:#07121e}
+
+.exit-fullscreen-btn{position:fixed;top:14px;right:14px;z-index:50;display:flex;align-items:center;gap:8px;background:#0a1827;border:1px solid #29455e;border-radius:7px;color:#e8effa;font-size:13px;padding:10px 16px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.45)}
+.exit-fullscreen-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.exit-fullscreen-btn:hover{border-color:#ff6875;color:#ff8b93}
+
+/* "Control strip" (title + range selector) visually separated from the
+   chart display below it, industrial-panel style. */
+.chart-title{font-size:19px;font-weight:600;letter-spacing:.03em;flex:none;padding-bottom:14px;border-bottom:1px solid #172d42}
+.chart-title span{font-size:13px;font-weight:400;color:#8fa1ba;margin-left:24px;letter-spacing:.02em}
+.ranges{display:flex;align-items:center;gap:8px;margin-top:16px;flex:none}
 .range-buttons{display:flex;gap:8px;overflow-x:auto}
-.ranges button{background:#091725;border:1px solid #263e56;border-radius:5px;color:#afc0dc;font-size:14px;padding:9px 16px;flex:none;white-space:nowrap}.ranges .active{border-color:#00cce3;color:#00e5ef;background:#063142}
+.ranges button{background:#091725;border:1px solid #263e56;border-radius:5px;color:#afc0dc;font-size:13px;font-weight:600;letter-spacing:.02em;padding:9px 16px;flex:none;white-space:nowrap;height:38px}.ranges .active{border-color:#00cce3;color:#00e5ef;background:#063142}
 .fullscreen-btn{display:flex;align-items:center;gap:7px;margin-left:auto;color:#b9c9e6}
 .fullscreen-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .fullscreen-btn:hover{border-color:#00cce3;color:#00e5ef}
-.custom-range{display:flex;align-items:center;gap:10px;margin-top:12px;flex:none}.custom-range span{color:#8fa1ba}.custom-range input{background:#07121f;border:1px solid #294b68;border-radius:5px;color:#e8effa;padding:7px 10px;font-size:13px}.custom-range .apply{background:#063142;border:1px solid #00cce3;color:#00e5ef;border-radius:5px;padding:7px 14px;font-size:13px}.custom-range .apply:disabled{opacity:.4}
 .no-chart,.empty{text-align:center;padding:100px;color:#8fa1ba}
 @media(max-width:1100px){.dashboard{max-width:100%}.chart-panel{height:clamp(420px,58vh,560px)}}
-@media(max-width:800px){.dashboard{padding:16px}.selectors{grid-template-columns:1fr;gap:12px}.chart-panel{height:480px;padding:16px}.chart-title span{display:block;margin:8px 0}.fullscreen-btn{padding:9px 12px}.fullscreen-btn span{display:none}.custom-range{flex-wrap:wrap}}
+@media(max-width:800px){
+ .dashboard{padding:16px}.selectors{grid-template-columns:1fr;gap:12px}.chart-panel{height:480px;padding:16px}
+ .chart-title span{display:block;margin:6px 0 0}
+ .fullscreen-btn{padding:9px 12px}.fullscreen-btn span{display:none}
+ .exit-fullscreen-btn span{display:none}.exit-fullscreen-btn{padding:11px;top:10px;right:10px}
+ /* Mobile fullscreen: only chart + range selector + exit button + tooltip stay visible */
+ .chart-fullscreen-root.fullscreen .chart-title{display:none}
+ .chart-fullscreen-root.fullscreen{padding:56px 12px 12px}
+}
 </style>

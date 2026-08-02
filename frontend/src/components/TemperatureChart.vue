@@ -13,10 +13,6 @@ const props = defineProps<{
   loading: boolean
 }>()
 
-const emit = defineEmits<{
-  'update:fullscreen': [value: boolean]
-}>()
-
 // ─── Layout constants (internal SVG coordinate space) ──────────────
 const VB_W = 1000
 const VB_H = 360
@@ -58,26 +54,12 @@ const visible = computed(() => {
 
 const isZoomed = computed(() => zoomStart.value > 0.001 || zoomEnd.value < 0.999)
 
-// ─── Fullscreen ─────────────────────────────────────────────────
-// Zoom/pan state (zoomStart/zoomEnd) lives above and is never reset by
-// fullscreen entry/exit, so it's preserved automatically.
+// Fullscreen is owned by the parent (DashboardView) now, since the range
+// selector must stay visible in fullscreen too — it needs to wrap more
+// than just this component. rootEl here is only used to detect "tapped
+// outside this chart" for closing a locked touch selection. Zoom/pan
+// state (zoomStart/zoomEnd) is unaffected either way.
 const rootEl = ref<HTMLElement | null>(null)
-const isFullscreen = ref(false)
-
-function onFullscreenChange() {
-  isFullscreen.value = document.fullscreenElement === rootEl.value
-  emit('update:fullscreen', isFullscreen.value)
-}
-
-async function toggleFullscreen() {
-  if (document.fullscreenElement) {
-    await document.exitFullscreen()
-  } else {
-    await rootEl.value?.requestFullscreen()
-  }
-}
-
-defineExpose({ toggleFullscreen })
 
 // ─── Trend (based on the most recent points in the full series) ───
 const trend = computed<{ dir: 'up' | 'down' | 'flat'; label: string; glyph: string }>(() => {
@@ -590,16 +572,14 @@ function onDocumentPointerDown(e: PointerEvent) {
 
 onMounted(() => {
   document.addEventListener('pointerdown', onDocumentPointerDown, true)
-  document.addEventListener('fullscreenchange', onFullscreenChange)
 })
 onUnmounted(() => {
   document.removeEventListener('pointerdown', onDocumentPointerDown, true)
-  document.removeEventListener('fullscreenchange', onFullscreenChange)
 })
 </script>
 
 <template>
-  <div ref="rootEl" class="temp-chart" :class="{ fullscreen: isFullscreen }">
+  <div ref="rootEl" class="temp-chart">
     <div class="chart-toolbar">
       <span class="trend" :class="`trend-${trend.dir}`">
         Trend <b>{{ trend.glyph }} {{ trend.label }}</b>
@@ -800,17 +780,6 @@ onUnmounted(() => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-}
-
-/* Browser Fullscreen API target. The :fullscreen pseudo-class covers the
-   native trigger; the .fullscreen class mirrors the same reactive state
-   from JS so styling stays correct even if a UA has pseudo-class quirks. */
-.temp-chart:fullscreen,
-.temp-chart.fullscreen {
-  width: 100vw;
-  height: 100vh;
-  padding: 20px 24px;
-  background: #07121e;
 }
 
 .chart-toolbar {

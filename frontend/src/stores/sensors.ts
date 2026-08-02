@@ -3,11 +3,9 @@ import { ref } from "vue";
 import { apiSensors, apiMeasurements } from "@/api";
 import type { ChartRange, SensorItem, MeasurementItem, SensorCreate, SensorUpdate } from "@/types";
 
-// How far back each preset range reaches. CUSTOM is handled separately.
-const RANGE_DURATION_MS: Record<Exclude<ChartRange, "CUSTOM">, number> = {
-  LIVE: 15 * 60 * 1000,
+// How far back each preset range reaches.
+const RANGE_DURATION_MS: Record<Exclude<ChartRange, "LIVE">, number> = {
   "1H": 60 * 60 * 1000,
-  "6H": 6 * 60 * 60 * 1000,
   "24H": 24 * 60 * 60 * 1000,
   "7D": 7 * 24 * 60 * 60 * 1000,
 };
@@ -76,11 +74,7 @@ export const useSensorsStore = defineStore("sensors", () => {
     });
   }
 
-  async function fetchMeasurementsForRange(
-    range: ChartRange,
-    customStart?: Date,
-    customEnd?: Date,
-  ) {
+  async function fetchMeasurementsForRange(range: ChartRange) {
     const sensor = selectedSensor.value;
     if (!sensor) return;
     currentRange.value = range;
@@ -91,12 +85,8 @@ export const useSensorsStore = defineStore("sensors", () => {
         return;
       }
       const now = Date.now();
-      const untilMs = range === "CUSTOM" && customEnd ? customEnd.getTime() : now;
-      const sinceMs =
-        range === "CUSTOM"
-          ? (customStart?.getTime() ?? now - RANGE_DURATION_MS["24H"])
-          : now - RANGE_DURATION_MS[range];
-      measurements.value = await fetchMeasurementsSince(sensor.id, sinceMs, untilMs);
+      const sinceMs = now - RANGE_DURATION_MS[range];
+      measurements.value = await fetchMeasurementsSince(sensor.id, sinceMs, now);
     } catch {
       measurements.value = [];
     } finally {

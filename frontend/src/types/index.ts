@@ -97,4 +97,4 @@ export interface WsEvent {
   data: Record<string, unknown>;
 }
 
-export type ChartRange = "LIVE" | "1H" | "6H" | "24H" | "7D" | "CUSTOM";
+export type ChartRange = "LIVE" | "1H" | "24H" | "7D";
