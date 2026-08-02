@@ -378,10 +378,28 @@ function selectAt(pt: { x: number; y: number }, locked: boolean) {
   tooltipPos.value = pt
 }
 
+// Best-effort: pointer capture can throw (e.g. a pointerId the browser
+// doesn't recognize as currently active) and must never block selection
+// or panning — those are the behaviors that actually matter here.
+function tryCapturePointer(target: EventTarget | null, pointerId: number) {
+  try {
+    ;(target as Element)?.setPointerCapture?.(pointerId)
+  } catch {
+    /* not fatal — selection/pan logic runs regardless */
+  }
+}
+function tryReleasePointer(target: EventTarget | null, pointerId: number) {
+  try {
+    ;(target as Element)?.releasePointerCapture?.(pointerId)
+  } catch {
+    /* ignore */
+  }
+}
+
 function onPointerDown(e: PointerEvent) {
   hoveredMarker.value = null
   dragStartZoom.value = { start: zoomStart.value, end: zoomEnd.value }
-  ;(e.target as Element).setPointerCapture?.(e.pointerId)
+  tryCapturePointer(e.target, e.pointerId)
 
   if (e.pointerType === 'mouse') {
     dragging.value = true
@@ -430,7 +448,7 @@ function onPointerMove(e: PointerEvent) {
 function onPointerUp(e: PointerEvent) {
   dragging.value = false
   touchIsPanning.value = false
-  ;(e.target as Element).releasePointerCapture?.(e.pointerId)
+  tryReleasePointer(e.target, e.pointerId)
 }
 
 function onPointerLeave(e: PointerEvent) {
