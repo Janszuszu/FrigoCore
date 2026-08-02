@@ -11,7 +11,6 @@ const props = defineProps<{
   activeAlarmLabel: string | null
   online: boolean
   loading: boolean
-  fullscreen?: boolean
 }>()
 
 // ─── Layout constants (internal SVG coordinate space) ──────────────
@@ -61,28 +60,6 @@ const isZoomed = computed(() => zoomStart.value > 0.001 || zoomEnd.value < 0.999
 // outside this chart" for closing a locked touch selection. Zoom/pan
 // state (zoomStart/zoomEnd) is unaffected either way.
 const rootEl = ref<HTMLElement | null>(null)
-
-// ─── Trend (based on the most recent points in the full series) ───
-const trend = computed<{ dir: 'up' | 'down' | 'flat'; label: string; glyph: string }>(() => {
-  const d = validReadings.value
-  const sample = d.slice(-8)
-  if (sample.length < 3) return { dir: 'flat', label: 'Stable', glyph: '➡' }
-  const n = sample.length
-  const xs = sample.map((_, i) => i)
-  const ys = sample.map((r) => r.temperature)
-  const xMean = xs.reduce((a, b) => a + b, 0) / n
-  const yMean = ys.reduce((a, b) => a + b, 0) / n
-  let num = 0
-  let den = 0
-  for (let i = 0; i < n; i++) {
-    num += (xs[i] - xMean) * (ys[i] - yMean)
-    den += (xs[i] - xMean) ** 2
-  }
-  const slope = den === 0 ? 0 : num / den
-  if (slope > 0.04) return { dir: 'up', label: 'Rising', glyph: '⬈' }
-  if (slope < -0.04) return { dir: 'down', label: 'Falling', glyph: '⬊' }
-  return { dir: 'flat', label: 'Stable', glyph: '➡' }
-})
 
 // ─── Y domain: nice, padded, includes thresholds so they're visible ─
 function niceStep(rawStep: number): number {
@@ -580,14 +557,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="rootEl" class="temp-chart" :class="{fullscreen}">
-    <div v-if="!fullscreen" class="chart-toolbar">
-      <span class="trend" :class="`trend-${trend.dir}`">
-        Trend <b>{{ trend.glyph }} {{ trend.label }}</b>
-      </span>
-      <button v-if="isZoomed" type="button" class="reset-zoom" @click="resetZoom">Reset zoom ↺</button>
-    </div>
-
+  <div ref="rootEl" class="temp-chart">
     <div v-if="loading" class="state-message">Ładowanie danych…</div>
 
     <div v-else-if="!validReadings.length" class="empty-state">
@@ -603,6 +573,7 @@ onUnmounted(() => {
     <div v-else-if="validReadings.length < 2" class="state-message">Za mało danych do wykresu</div>
 
     <div v-else class="chart-wrap">
+      <button v-if="isZoomed" type="button" class="reset-zoom" @click="resetZoom">Reset zoom ↺</button>
       <svg
         ref="svgEl"
         :viewBox="`0 0 ${VB_W} ${VB_H}`"
@@ -783,32 +754,11 @@ onUnmounted(() => {
   min-height: 0;
 }
 
-.chart-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: 20px;
-  min-height: 28px;
-}
-
-.trend {
-  font-size: 13px;
-  color: #8fa1ba;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.trend b {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.trend-up b { color: #ff9f66; }
-.trend-down b { color: #4ea8ff; }
-.trend-flat b { color: #00e77b; }
-
 .reset-zoom {
-  margin-left: auto;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
   background: #081421;
   border: 1px solid #29455e;
   border-radius: 6px;
@@ -848,12 +798,7 @@ onUnmounted(() => {
   position: relative;
   flex: 1;
   min-height: 0;
-  margin-top: 14px;
   overflow: hidden;
-}
-.temp-chart.fullscreen .chart-wrap { margin-top: 6px; }
-@media (max-height: 430px) {
-  .temp-chart.fullscreen .chart-wrap { margin-top: 3px; }
 }
 
 .chart-svg {
@@ -930,12 +875,7 @@ onUnmounted(() => {
 .tooltip dd { margin: 0; font-size: 13px; color: #e8effa; text-align: right; font-variant-numeric: tabular-nums; }
 .tooltip dd.status-bad { color: #ff6875; }
 
-@media (max-width: 1100px) {
-  .chart-toolbar { margin-top: 14px; }
-}
-
 @media (max-width: 800px) {
-  .chart-wrap { margin-top: 10px; }
   .axis-label { font-size: 20px; }
   .tooltip { min-width: 190px; padding: 12px 14px; }
   .tooltip dt, .tooltip dd { font-size: 12px; }
