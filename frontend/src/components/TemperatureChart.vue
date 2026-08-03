@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import type { AlarmItem, MeasurementItem, SensorItem } from '@/types'
+import type { AlarmItem, ChartRange, MeasurementItem, SensorItem } from '@/types'
 
 const props = defineProps<{
   sensor: SensorItem
   readings: MeasurementItem[] // ascending by received_at (oldest first)
+  range: ChartRange
   highThreshold: number | null
   lowThreshold: number | null
   alarms: AlarmItem[] // this sensor's alarms overlapping the visible range
@@ -12,6 +13,8 @@ const props = defineProps<{
   online: boolean
   loading: boolean
 }>()
+
+const isLive = computed(() => props.range === 'LIVE')
 
 // ─── Layout constants (internal SVG coordinate space) ──────────────
 const VB_W = 1000
@@ -32,17 +35,9 @@ const validReadings = computed(() =>
 )
 
 // ─── Zoom / pan window (fractions of validReadings, 0..1) ─────────
+// Disabled entirely while LIVE (oscilloscope mode has no zoom/pan concept).
 const zoomStart = ref(0)
 const zoomEnd = ref(1)
-
-watch(
-  () => props.readings,
-  () => {
-    zoomStart.value = 0
-    zoomEnd.value = 1
-    clearSelection()
-  },
-)
 
 const visible = computed(() => {
   const d = validReadings.value
@@ -122,9 +117,17 @@ function xScaleMs(t: number): number {
   return MARGIN.left + ((clamped - start) / (end - start)) * PLOT_W
 }
 
+// ─── Responsive tick count — fewer labels on narrow viewports so they
+// never overlap; same lever drives both historical and LIVE ticks. ────
+const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1280)
+function onViewportResize() {
+  viewportWidth.value = window.innerWidth
+}
+const tickCount = computed(() => (viewportWidth.value < 480 ? 3 : viewportWidth.value < 900 ? 5 : 6))
+
 const xTicks = computed(() => {
   const { start, end } = xDomain.value
-  const count = 6
+  const count = tickCount.value
   const spanMs = end - start
   const ticks: { x: number; label: string }[] = []
   for (let i = 0; i <= count; i++) {
@@ -134,15 +137,35 @@ const xTicks = computed(() => {
   return ticks
 })
 
+// Labels are keyed to the explicitly selected range first (LIVE clock time,
+// 1H/24H time-of-day, 7D calendar dates) since that's what the user is
+// deliberately asking to see regardless of how much data is actually
+// loaded. Any range this component doesn't know about yet (or a zoomed
+// slice) falls back to a span-based auto choice so it's never wrong:
+// minutes/hours -> time, days -> dates, months -> month + day. A chart
+// spanning more than a day never shows hour-only labels.
+const MINUTE_MS = 60 * 1000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+
 function formatAxisTime(ms: number, spanMs: number): string {
   const d = new Date(ms)
-  if (spanMs > 36 * 60 * 60 * 1000) {
-    return d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })
+  if (props.range === 'LIVE') {
+    return d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   }
-  if (spanMs > 3 * 60 * 60 * 1000) {
+  if (props.range === '1H' || props.range === '24H') {
     return d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
   }
-  return d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  if (props.range === '7D') {
+    const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit' }
+    if (viewportWidth.value >= 900) opts.weekday = 'short'
+    return d.toLocaleDateString('pl-PL', opts)
+  }
+  // Auto fallback (e.g. a zoomed-in slice, or a future range) — never
+  // show hour-only labels once the span crosses a day.
+  if (spanMs <= DAY_MS) return d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
+  if (spanMs <= 90 * DAY_MS) return d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })
+  return d.toLocaleDateString('pl-PL', { day: '2-digit', month: 'short' })
 }
 
 // ─── Smoothed line path (lightweight midpoint quadratic smoothing) ─
@@ -171,6 +194,168 @@ const areaPath = computed(() => {
   const floor = MARGIN.top + PLOT_H
   return `${linePath.value} L${last},${floor} L${first},${floor} Z`
 })
+
+// ─── LIVE mode: oscilloscope-style sweep ──────────────────────────
+// Independent of the historical zoom/pan/linePath machinery above. The
+// x-axis is real wall-clock time anchored at when LIVE (re)started, not a
+// normalized 0..1 window over a fetched dataset — so a new point is a
+// cheap O(1) string append to an existing path rather than a recompute
+// over the whole buffer, and the sweep keeps drifting left continuously
+// between arrivals via a CSS-transitioned transform (no data refetch).
+const LIVE_WINDOW_MS = 5 * 60 * 1000 // visible sweep width once filled
+const LIVE_TICK_MS = 120 // clock granularity driving the continuous shift
+const LIVE_PX_PER_MS = PLOT_W / LIVE_WINDOW_MS
+
+const livePoints = ref<{ t: number; temp: number }[]>([])
+const liveSweepStart = ref(Date.now())
+const liveNow = ref(Date.now())
+const livePathD = ref('')
+let liveTimer: ReturnType<typeof setInterval> | null = null
+let lastLiveDomainKey = ''
+
+function startLiveClock() {
+  stopLiveClock()
+  liveTimer = setInterval(() => {
+    liveNow.value = Date.now()
+  }, LIVE_TICK_MS)
+}
+function stopLiveClock() {
+  if (liveTimer != null) {
+    clearInterval(liveTimer)
+    liveTimer = null
+  }
+}
+
+function liveRawX(t: number): number {
+  return MARGIN.left + (t - liveSweepStart.value) * LIVE_PX_PER_MS
+}
+
+const liveYDomain = computed(() => {
+  const temps = livePoints.value.map((p) => p.temp)
+  const extra: number[] = []
+  if (props.highThreshold != null) extra.push(props.highThreshold)
+  if (props.lowThreshold != null) extra.push(props.lowThreshold)
+  const all = temps.length ? temps.concat(extra) : extra.length ? extra : [0, 1]
+  const rawMin = Math.min(...all)
+  const rawMax = Math.max(...all)
+  const span = rawMax - rawMin || 1
+  const pad = Math.max(span * 0.18, 1)
+  const paddedMin = rawMin - pad
+  const paddedMax = rawMax + pad
+  const step = niceStep((paddedMax - paddedMin) / 5)
+  const min = Math.floor(paddedMin / step) * step
+  const max = Math.ceil(paddedMax / step) * step
+  return { min, max, step }
+})
+
+const liveYTicks = computed(() => {
+  const { min, max, step } = liveYDomain.value
+  const ticks: number[] = []
+  for (let v = min; v <= max + step * 0.001; v += step) ticks.push(Math.round(v * 100) / 100)
+  return ticks
+})
+
+function liveYScale(temp: number): number {
+  const { min, max } = liveYDomain.value
+  const span = max - min || 1
+  return MARGIN.top + PLOT_H - ((temp - min) / span) * PLOT_H
+}
+
+function rebuildLivePathFromScratch() {
+  const pts = livePoints.value
+  if (!pts.length) {
+    livePathD.value = ''
+    return
+  }
+  let d = `M${liveRawX(pts[0].t)},${liveYScale(pts[0].temp)}`
+  for (let i = 1; i < pts.length; i++) d += ` L${liveRawX(pts[i].t)},${liveYScale(pts[i].temp)}`
+  livePathD.value = d
+}
+
+function resetLive() {
+  livePoints.value = []
+  liveSweepStart.value = Date.now()
+  liveNow.value = liveSweepStart.value
+  livePathD.value = ''
+  lastLiveDomainKey = ''
+}
+
+// Appends one point in O(1) — only rebuilds the whole path string on the
+// rare occasion the Y-axis itself actually rescales (a new extreme), which
+// is a geometry remap, not a data refetch.
+function appendLivePoint(t: number, temp: number) {
+  livePoints.value.push({ t, temp })
+  const cutoff = t - LIVE_WINDOW_MS * 1.5
+  while (livePoints.value.length > 1 && livePoints.value[0].t < cutoff) livePoints.value.shift()
+
+  const domainKey = `${liveYDomain.value.min}:${liveYDomain.value.max}`
+  if (domainKey !== lastLiveDomainKey) {
+    lastLiveDomainKey = domainKey
+    rebuildLivePathFromScratch()
+  } else if (!livePathD.value) {
+    rebuildLivePathFromScratch()
+  } else {
+    livePathD.value += ` L${liveRawX(t)},${liveYScale(temp)}`
+  }
+}
+
+// The sweep: before the window is filled, the head simply advances from
+// the left edge (shift stays 0, satisfying "start drawing from the left
+// edge"); once the head passes the right edge, everything shifts left by
+// the overflow amount so the newest point stays pinned at the edge.
+const liveShiftPx = computed(() => {
+  const rightEdge = MARGIN.left + PLOT_W
+  const headX = liveRawX(liveNow.value)
+  return headX > rightEdge ? rightEdge - headX : 0
+})
+
+const liveXTicks = computed(() => {
+  const count = tickCount.value
+  const windowStart = liveNow.value - LIVE_WINDOW_MS
+  const ticks: { x: number; label: string }[] = []
+  for (let i = 0; i <= count; i++) {
+    const t = windowStart + (LIVE_WINDOW_MS * i) / count
+    ticks.push({ x: liveRawX(t) + liveShiftPx.value, label: formatAxisTime(t, LIVE_WINDOW_MS) })
+  }
+  return ticks
+})
+
+watch(isLive, (live) => {
+  if (live) {
+    resetLive()
+    startLiveClock()
+  } else {
+    stopLiveClock()
+  }
+}, { immediate: true })
+
+// Unified readings watcher: LIVE mode appends only the new tail (no zoom/
+// selection to reset — both are disabled in LIVE); historical ranges keep
+// the old full-reset behavior when the parent swaps in a new snapshot.
+watch(
+  () => props.readings,
+  (newR, oldR) => {
+    if (!isLive.value) {
+      zoomStart.value = 0
+      zoomEnd.value = 1
+      clearSelection()
+      return
+    }
+    const old = oldR ?? []
+    if (newR.length === 0) {
+      resetLive()
+      return
+    }
+    const grewInPlace = newR.length > old.length
+    const tail = grewInPlace ? newR.slice(old.length) : newR
+    if (!grewInPlace) resetLive()
+    for (const r of tail) {
+      if (typeof r.temperature === 'number' && !Number.isNaN(r.temperature)) {
+        appendLivePoint(new Date(r.received_at).getTime(), r.temperature)
+      }
+    }
+  },
+)
 
 // ─── Alarm-segment clip rects (reuse yScale/thresholds — no extra data
 // pass, just clips the same linePath so the red/blue overlay is a single
@@ -379,6 +564,7 @@ function tryReleasePointer(target: EventTarget | null, pointerId: number) {
 }
 
 function onPointerDown(e: PointerEvent) {
+  if (isLive.value) return // zoom/pan/selection all disabled while LIVE
   hoveredMarker.value = null
   dragStartZoom.value = { start: zoomStart.value, end: zoomEnd.value }
   tryCapturePointer(e.target, e.pointerId)
@@ -397,6 +583,7 @@ function onPointerDown(e: PointerEvent) {
 }
 
 function onPointerMove(e: PointerEvent) {
+  if (isLive.value) return
   const pt = svgPoint(e.clientX, e.clientY)
   if (!pt) return
 
@@ -439,6 +626,7 @@ function onPointerLeave(e: PointerEvent) {
 
 function onWheel(e: WheelEvent) {
   e.preventDefault()
+  if (isLive.value) return // zoom disabled while LIVE
   const pt = svgPoint(e.clientX, e.clientY)
   if (!pt) return
   const cursorFraction =
@@ -481,6 +669,7 @@ function touchDist(t: TouchList): number {
 }
 
 function onTouchStart(e: TouchEvent) {
+  if (isLive.value) return // pinch-zoom disabled while LIVE
   if (e.touches.length === 2) {
     hoveredMarker.value = null
     clearSelection()
@@ -490,6 +679,7 @@ function onTouchStart(e: TouchEvent) {
 }
 
 function onTouchMove(e: TouchEvent) {
+  if (isLive.value) return
   if (e.touches.length !== 2) return
   e.preventDefault()
   const dist = touchDist(e.touches)
@@ -560,15 +750,95 @@ function onDocumentPointerDown(e: PointerEvent) {
 
 onMounted(() => {
   document.addEventListener('pointerdown', onDocumentPointerDown, true)
+  window.addEventListener('resize', onViewportResize)
 })
 onUnmounted(() => {
   document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+  window.removeEventListener('resize', onViewportResize)
+  stopLiveClock()
 })
 </script>
 
 <template>
   <div ref="rootEl" class="temp-chart">
     <div v-if="loading" class="state-message">Ładowanie danych…</div>
+
+    <!-- LIVE: always renders the sweep canvas, even with zero points yet —
+         "start drawing from the left edge" means an empty, ready chart,
+         not an error/empty state. -->
+    <div v-else-if="isLive" class="chart-wrap">
+      <svg
+        ref="svgEl"
+        :viewBox="`0 0 ${VB_W} ${VB_H}`"
+        preserveAspectRatio="none"
+        class="chart-svg chart-svg-live"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointerleave="onPointerLeave"
+        @wheel="onWheel"
+        @touchstart="onTouchStart"
+        @touchmove="onTouchMove"
+      >
+        <defs>
+          <clipPath id="plot-area-clip">
+            <rect :x="MARGIN.left" :y="MARGIN.top" :width="PLOT_W" :height="PLOT_H" />
+          </clipPath>
+        </defs>
+
+        <!-- Grid + thresholds stay fixed in place — only the data sweeps -->
+        <line
+          v-for="t in liveYTicks"
+          :key="`live-grid-${t}`"
+          :x1="MARGIN.left"
+          :x2="VB_W - MARGIN.right"
+          :y1="liveYScale(t)"
+          :y2="liveYScale(t)"
+          class="grid-line"
+        />
+        <line
+          v-if="highThreshold != null"
+          :x1="MARGIN.left"
+          :x2="VB_W - MARGIN.right"
+          :y1="liveYScale(highThreshold)"
+          :y2="liveYScale(highThreshold)"
+          class="threshold-line threshold-high"
+        />
+        <line
+          v-if="lowThreshold != null"
+          :x1="MARGIN.left"
+          :x2="VB_W - MARGIN.right"
+          :y1="liveYScale(lowThreshold)"
+          :y2="liveYScale(lowThreshold)"
+          class="threshold-line threshold-low"
+        />
+        <text v-for="t in liveYTicks" :key="`live-ylabel-${t}`" :x="MARGIN.left - 10" :y="liveYScale(t)" class="axis-label y-label">
+          {{ t.toFixed(liveYDomain.step < 1 ? 1 : 0) }}°
+        </text>
+        <text v-for="(tick, i) in liveXTicks" :key="`live-xlabel-${i}`" :x="tick.x" :y="XLABEL_Y" class="axis-label x-label">
+          {{ tick.label }}
+        </text>
+
+        <!-- The sweep itself: clipped to the plot rect and shifted left as
+             the window fills, so it visibly scrolls off at the left edge
+             like an oscilloscope trace. The path grows by O(1) appends
+             (see appendLivePoint) — this <g> never re-parses old points. -->
+        <g clip-path="url(#plot-area-clip)">
+          <g class="live-sweep" :transform="`translate(${liveShiftPx},0)`">
+            <path :d="livePathD" class="line-path" />
+          </g>
+        </g>
+
+        <!-- Live head: a small pulsing dot at the newest point -->
+        <circle
+          v-if="livePoints.length"
+          :cx="Math.min(liveRawX(livePoints[livePoints.length - 1].t) + liveShiftPx, MARGIN.left + PLOT_W)"
+          :cy="liveYScale(livePoints[livePoints.length - 1].temp)"
+          r="4.5"
+          class="live-head-dot"
+        />
+      </svg>
+    </div>
 
     <div v-else-if="!validReadings.length" class="empty-state">
       <svg viewBox="0 0 24 24" class="empty-icon"><path d="M3 3v18h18M7 15l3-4 3 3 5-7" /></svg>
@@ -837,6 +1107,19 @@ onUnmounted(() => {
 }
 .line-path-high { stroke: #ff6875; }
 .line-path-low { stroke: #4ea8ff; }
+
+.chart-svg-live { cursor: default; }
+.live-head-dot {
+  fill: #0edbe5;
+  stroke: #eafeff;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  animation: live-pulse 1.4s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
 
 .strip-baseline { stroke: #1a2f43; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .marker-span { stroke-width: 2; vector-effect: non-scaling-stroke; opacity: 0.6; }

@@ -158,6 +158,7 @@ watch(selectedObjectId,pickObject);
        v-if="sensor"
        :sensor="sensor"
        :readings="readings"
+       :range="range"
        :high-threshold="highThreshold"
        :low-threshold="lowThreshold"
        :alarms="sensorAlarms"

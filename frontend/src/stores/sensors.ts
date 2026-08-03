@@ -78,12 +78,15 @@ export const useSensorsStore = defineStore("sensors", () => {
     const sensor = selectedSensor.value;
     if (!sensor) return;
     currentRange.value = range;
+    if (range === "LIVE") {
+      // Oscilloscope-style LIVE: no historical backfill — the chart starts
+      // empty and fills in only from live WS pushes (addMeasurementFromWs).
+      measurements.value = [];
+      rangeLoading.value = false;
+      return;
+    }
     rangeLoading.value = true;
     try {
-      if (range === "LIVE") {
-        measurements.value = await apiMeasurements.list(sensor.id, LIVE_CAP);
-        return;
-      }
       const now = Date.now();
       const sinceMs = now - RANGE_DURATION_MS[range];
       measurements.value = await fetchMeasurementsSince(sensor.id, sinceMs, now);
