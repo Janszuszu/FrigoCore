@@ -509,10 +509,17 @@ function liveTickLabel(index: number, ms: number): string {
 
 const liveXTicks = computed(() => {
   const count = tickCount.value
-  const windowStart = liveNow.value - LIVE_WINDOW_MS
+  // Clamp to the actual sweep start — right after LIVE (re)starts, a full
+  // LIVE_WINDOW_MS hasn't elapsed yet, so `liveNow - LIVE_WINDOW_MS` would
+  // be a time BEFORE the sweep began, producing ticks anchored at
+  // negative/off-screen positions. Ticks compress toward "now" during the
+  // fill-up phase and reach their normal full spacing once the window
+  // genuinely fills — same idea as the sweep itself starting empty.
+  const windowStart = Math.max(liveSweepStart.value, liveNow.value - LIVE_WINDOW_MS)
+  const windowSpan = liveNow.value - windowStart || 1
   const ticks: { x: number; label: string }[] = []
   for (let i = 0; i <= count; i++) {
-    const t = windowStart + (LIVE_WINDOW_MS * i) / count
+    const t = windowStart + (windowSpan * i) / count
     ticks.push({ x: liveRawX(t) + liveShiftPx.value, label: liveTickLabel(i, t) })
   }
   return ticks
