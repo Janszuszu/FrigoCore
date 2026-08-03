@@ -168,22 +168,97 @@ function formatAxisTime(ms: number, spanMs: number): string {
   return d.toLocaleDateString('pl-PL', { day: '2-digit', month: 'short' })
 }
 
-// ─── Smoothed line path (lightweight midpoint quadratic smoothing) ─
+// ─── Monotone cubic Hermite spline (Fritsch–Carlson) ───────────────
+// Unlike a plain Catmull-Rom spline, the monotonicity constraint below
+// clamps each segment's tangents so the curve never rings past a data
+// point's actual value — it stays smooth without ever overshooting.
+function buildMonotonePath(pts: { x: number; y: number }[]): string {
+  const n = pts.length
+  if (n === 0) return ''
+  if (n === 1) return `M${pts[0].x},${pts[0].y}`
+  if (n === 2) return `M${pts[0].x},${pts[0].y} L${pts[1].x},${pts[1].y}`
+
+  const dx: number[] = new Array(n - 1)
+  const slope: number[] = new Array(n - 1)
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = pts[i + 1].x - pts[i].x
+    const dy = pts[i + 1].y - pts[i].y
+    slope[i] = dx[i] !== 0 ? dy / dx[i] : 0
+  }
+
+  const m: number[] = new Array(n)
+  m[0] = slope[0]
+  m[n - 1] = slope[n - 2]
+  for (let i = 1; i < n - 1; i++) {
+    m[i] = slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2
+  }
+
+  // Fritsch–Carlson monotonicity constraint — the actual no-overshoot guarantee.
+  for (let i = 0; i < n - 1; i++) {
+    if (slope[i] === 0) {
+      m[i] = 0
+      m[i + 1] = 0
+      continue
+    }
+    const a = m[i] / slope[i]
+    const b = m[i + 1] / slope[i]
+    const h = Math.hypot(a, b)
+    if (h > 3) {
+      const tau = 3 / h
+      m[i] = tau * a * slope[i]
+      m[i + 1] = tau * b * slope[i]
+    }
+  }
+
+  let d = `M${pts[0].x},${pts[0].y}`
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = pts[i]
+    const p1 = pts[i + 1]
+    const cp1x = p0.x + dx[i] / 3
+    const cp1y = p0.y + (m[i] * dx[i]) / 3
+    const cp2x = p1.x - dx[i] / 3
+    const cp2y = p1.y - (m[i + 1] * dx[i]) / 3
+    d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p1.x},${p1.y}`
+  }
+  return d
+}
+
+// ─── Render-point decimation ────────────────────────────────────────
+// Keeps the rendered path tractable with 10k+ historical points without
+// touching the domain/tooltip/marker logic, which still use the full-
+// fidelity `visible` array. Min/max-per-bucket (not a stride/average)
+// so real excursions above/below a threshold are never smoothed away.
+const RENDER_POINT_BUDGET = 2000
+
+function decimateForRender<T extends { x: number; y: number }>(points: T[], maxPoints: number): T[] {
+  if (points.length <= maxPoints) return points
+  const bucketSize = Math.ceil(points.length / (maxPoints / 2))
+  const result: T[] = []
+  for (let i = 0; i < points.length; i += bucketSize) {
+    const bucket = points.slice(i, i + bucketSize)
+    if (!bucket.length) continue
+    let minP = bucket[0]
+    let maxP = bucket[0]
+    for (const p of bucket) {
+      if (p.y < minP.y) minP = p
+      if (p.y > maxP.y) maxP = p
+    }
+    if (minP === maxP) {
+      result.push(minP)
+    } else if (minP.x <= maxP.x) {
+      result.push(minP, maxP)
+    } else {
+      result.push(maxP, minP)
+    }
+  }
+  return result
+}
+
 const linePath = computed(() => {
   const d = visible.value
   if (d.length < 2) return ''
-  const pts = d.map((r) => [xScale(r.received_at), yScale(r.temperature)] as const)
-  let path = `M${pts[0][0]},${pts[0][1]}`
-  for (let i = 1; i < pts.length; i++) {
-    const [x0, y0] = pts[i - 1]
-    const [x1, y1] = pts[i]
-    const mx = (x0 + x1) / 2
-    const my = (y0 + y1) / 2
-    path += ` Q${x0},${y0} ${mx},${my}`
-  }
-  const last = pts[pts.length - 1]
-  path += ` L${last[0]},${last[1]}`
-  return path
+  const pts = d.map((r) => ({ x: xScale(r.received_at), y: yScale(r.temperature) }))
+  return buildMonotonePath(decimateForRender(pts, RENDER_POINT_BUDGET))
 })
 
 const areaPath = computed(() => {
@@ -198,31 +273,32 @@ const areaPath = computed(() => {
 // ─── LIVE mode: oscilloscope-style sweep ──────────────────────────
 // Independent of the historical zoom/pan/linePath machinery above. The
 // x-axis is real wall-clock time anchored at when LIVE (re)started, not a
-// normalized 0..1 window over a fetched dataset — so a new point is a
-// cheap O(1) string append to an existing path rather than a recompute
-// over the whole buffer, and the sweep keeps drifting left continuously
-// between arrivals via a CSS-transitioned transform (no data refetch).
+// normalized 0..1 window over a fetched dataset. `liveNow` is driven by
+// requestAnimationFrame — a genuine 30-60fps sweep, not a fixed-interval
+// tick — so the trace glides continuously between arrivals instead of
+// stepping. New points only ever get pushed onto `livePoints` (never a
+// data refetch); the smoothed path recomputes from that small, bounded,
+// in-memory buffer, which costs nothing at LIVE's actual data rate.
 const LIVE_WINDOW_MS = 5 * 60 * 1000 // visible sweep width once filled
-const LIVE_TICK_MS = 120 // clock granularity driving the continuous shift
-const LIVE_PX_PER_MS = PLOT_W / LIVE_WINDOW_MS
 
 const livePoints = ref<{ t: number; temp: number }[]>([])
 const liveSweepStart = ref(Date.now())
 const liveNow = ref(Date.now())
-const livePathD = ref('')
-let liveTimer: ReturnType<typeof setInterval> | null = null
-let lastLiveDomainKey = ''
+const LIVE_PX_PER_MS = PLOT_W / LIVE_WINDOW_MS
+let liveRafId: number | null = null
 
+function liveFrame() {
+  liveNow.value = Date.now()
+  liveRafId = requestAnimationFrame(liveFrame)
+}
 function startLiveClock() {
   stopLiveClock()
-  liveTimer = setInterval(() => {
-    liveNow.value = Date.now()
-  }, LIVE_TICK_MS)
+  liveRafId = requestAnimationFrame(liveFrame)
 }
 function stopLiveClock() {
-  if (liveTimer != null) {
-    clearInterval(liveTimer)
-    liveTimer = null
+  if (liveRafId != null) {
+    cancelAnimationFrame(liveRafId)
+    liveRafId = null
   }
 }
 
@@ -261,42 +337,24 @@ function liveYScale(temp: number): number {
   return MARGIN.top + PLOT_H - ((temp - min) / span) * PLOT_H
 }
 
-function rebuildLivePathFromScratch() {
-  const pts = livePoints.value
-  if (!pts.length) {
-    livePathD.value = ''
-    return
-  }
-  let d = `M${liveRawX(pts[0].t)},${liveYScale(pts[0].temp)}`
-  for (let i = 1; i < pts.length; i++) d += ` L${liveRawX(pts[i].t)},${liveYScale(pts[i].temp)}`
-  livePathD.value = d
-}
+// Recomputed only when livePoints/thresholds actually change (i.e. on a
+// real new measurement) — NOT on the 60fps `liveNow` tick, which only
+// drives the cheap shift transform below.
+const liveLinePath = computed(() => {
+  const pts = livePoints.value.map((p) => ({ x: liveRawX(p.t), y: liveYScale(p.temp) }))
+  return buildMonotonePath(pts)
+})
 
 function resetLive() {
   livePoints.value = []
   liveSweepStart.value = Date.now()
   liveNow.value = liveSweepStart.value
-  livePathD.value = ''
-  lastLiveDomainKey = ''
 }
 
-// Appends one point in O(1) — only rebuilds the whole path string on the
-// rare occasion the Y-axis itself actually rescales (a new extreme), which
-// is a geometry remap, not a data refetch.
 function appendLivePoint(t: number, temp: number) {
   livePoints.value.push({ t, temp })
   const cutoff = t - LIVE_WINDOW_MS * 1.5
   while (livePoints.value.length > 1 && livePoints.value[0].t < cutoff) livePoints.value.shift()
-
-  const domainKey = `${liveYDomain.value.min}:${liveYDomain.value.max}`
-  if (domainKey !== lastLiveDomainKey) {
-    lastLiveDomainKey = domainKey
-    rebuildLivePathFromScratch()
-  } else if (!livePathD.value) {
-    rebuildLivePathFromScratch()
-  } else {
-    livePathD.value += ` L${liveRawX(t)},${liveYScale(temp)}`
-  }
 }
 
 // The sweep: before the window is filled, the head simply advances from
@@ -309,15 +367,50 @@ const liveShiftPx = computed(() => {
   return headX > rightEdge ? rightEdge - headX : 0
 })
 
+// Tick x-positions track liveNow every frame for a smooth slide; the
+// (relatively expensive) Intl label text only needs to change once a
+// second, so each tick index memoizes its own last-formatted second —
+// avoiding ~60 redundant Intl.DateTimeFormat calls/sec per tick.
+const liveTickLabelCache: { second: number; label: string }[] = []
+function liveTickLabel(index: number, ms: number): string {
+  const second = Math.floor(ms / 1000)
+  const cached = liveTickLabelCache[index]
+  if (cached && cached.second === second) return cached.label
+  const label = formatAxisTime(second * 1000, LIVE_WINDOW_MS)
+  liveTickLabelCache[index] = { second, label }
+  return label
+}
+
 const liveXTicks = computed(() => {
   const count = tickCount.value
   const windowStart = liveNow.value - LIVE_WINDOW_MS
   const ticks: { x: number; label: string }[] = []
   for (let i = 0; i <= count; i++) {
     const t = windowStart + (LIVE_WINDOW_MS * i) / count
-    ticks.push({ x: liveRawX(t) + liveShiftPx.value, label: formatAxisTime(t, LIVE_WINDOW_MS) })
+    ticks.push({ x: liveRawX(t) + liveShiftPx.value, label: liveTickLabel(i, t) })
   }
   return ticks
+})
+
+// ─── LIVE alarm-segment clip rects — same technique as the historical
+// overlay below, just against liveYDomain/liveYScale instead. ────────
+const liveHighClipRect = computed(() => {
+  const hi = props.highThreshold
+  if (hi == null) return null
+  const { max } = liveYDomain.value
+  if (hi >= max) return null
+  const y = liveYScale(Math.min(hi, max))
+  return { x: MARGIN.left, y: MARGIN.top, width: PLOT_W, height: Math.max(y - MARGIN.top, 0) }
+})
+
+const liveLowClipRect = computed(() => {
+  const lo = props.lowThreshold
+  if (lo == null) return null
+  const { min } = liveYDomain.value
+  if (lo <= min) return null
+  const y = liveYScale(Math.max(lo, min))
+  const bottom = MARGIN.top + PLOT_H
+  return { x: MARGIN.left, y, width: PLOT_W, height: Math.max(bottom - y, 0) }
 })
 
 watch(isLive, (live) => {
@@ -784,6 +877,12 @@ onUnmounted(() => {
           <clipPath id="plot-area-clip">
             <rect :x="MARGIN.left" :y="MARGIN.top" :width="PLOT_W" :height="PLOT_H" />
           </clipPath>
+          <clipPath v-if="liveHighClipRect" id="live-clip-high-zone">
+            <rect :x="liveHighClipRect.x" :y="liveHighClipRect.y" :width="liveHighClipRect.width" :height="liveHighClipRect.height" />
+          </clipPath>
+          <clipPath v-if="liveLowClipRect" id="live-clip-low-zone">
+            <rect :x="liveLowClipRect.x" :y="liveLowClipRect.y" :width="liveLowClipRect.width" :height="liveLowClipRect.height" />
+          </clipPath>
         </defs>
 
         <!-- Grid + thresholds stay fixed in place — only the data sweeps -->
@@ -821,11 +920,26 @@ onUnmounted(() => {
 
         <!-- The sweep itself: clipped to the plot rect and shifted left as
              the window fills, so it visibly scrolls off at the left edge
-             like an oscilloscope trace. The path grows by O(1) appends
-             (see appendLivePoint) — this <g> never re-parses old points. -->
+             like an oscilloscope trace. liveLinePath only recomputes when
+             a real point arrives; liveShiftPx (this transform) is the one
+             thing driven by the 60fps clock. -->
         <g clip-path="url(#plot-area-clip)">
           <g class="live-sweep" :transform="`translate(${liveShiftPx},0)`">
-            <path :d="livePathD" class="line-path" />
+            <path :d="liveLinePath" class="line-path" />
+          </g>
+        </g>
+        <!-- Alarm-excursion overlay: threshold clips live in the FIXED
+             coordinate space (same as the grid/threshold lines), so each
+             wraps its own shifted copy of the same path rather than being
+             nested inside the already-shifted group above. -->
+        <g v-if="liveHighClipRect" clip-path="url(#live-clip-high-zone)">
+          <g :transform="`translate(${liveShiftPx},0)`">
+            <path :d="liveLinePath" class="line-path line-path-high" />
+          </g>
+        </g>
+        <g v-if="liveLowClipRect" clip-path="url(#live-clip-low-zone)">
+          <g :transform="`translate(${liveShiftPx},0)`">
+            <path :d="liveLinePath" class="line-path line-path-low" />
           </g>
         </g>
 
