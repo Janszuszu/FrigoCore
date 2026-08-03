@@ -172,6 +172,28 @@ const areaPath = computed(() => {
   return `${linePath.value} L${last},${floor} L${first},${floor} Z`
 })
 
+// ─── Alarm-segment clip rects (reuse yScale/thresholds — no extra data
+// pass, just clips the same linePath so the red/blue overlay is a single
+// cheap extra <path> per threshold rather than re-slicing the dataset) ─
+const highClipRect = computed(() => {
+  const hi = props.highThreshold
+  if (hi == null) return null
+  const { max } = yDomain.value
+  if (hi >= max) return null
+  const y = yScale(Math.min(hi, max))
+  return { x: MARGIN.left, y: MARGIN.top, width: PLOT_W, height: Math.max(y - MARGIN.top, 0) }
+})
+
+const lowClipRect = computed(() => {
+  const lo = props.lowThreshold
+  if (lo == null) return null
+  const { min } = yDomain.value
+  if (lo <= min) return null
+  const y = yScale(Math.max(lo, min))
+  const bottom = MARGIN.top + PLOT_H
+  return { x: MARGIN.left, y, width: PLOT_W, height: Math.max(bottom - y, 0) }
+})
+
 // ─── Background zones ───────────────────────────────────────────
 const zones = computed(() => {
   const { min, max } = yDomain.value
@@ -493,18 +515,6 @@ function onTouchMove(e: TouchEvent) {
 // ─── Tooltip content ──────────────────────────────────────────────
 const hoveredReading = computed(() => (hoverIndex.value != null ? visible.value[hoverIndex.value] : null))
 
-const alarmStatusAtHover = computed(() => {
-  const r = hoveredReading.value
-  if (!r) return null
-  const t = new Date(r.received_at).getTime()
-  const match = props.alarms.find((a) => {
-    const s = new Date(a.triggered_at ?? a.detected_at).getTime()
-    const e = a.resolved_at ? new Date(a.resolved_at).getTime() : Date.now()
-    return t >= s && t <= e
-  })
-  return match ? alarmTypeLabel(match.alarm_type) : 'Normal'
-})
-
 function fmtTemp(v: number | null | undefined): string {
   return v == null ? '—' : `${v.toFixed(1)} °C`
 }
@@ -593,14 +603,12 @@ onUnmounted(() => {
             <stop offset="0%" stop-color="#0edbe5" stop-opacity="0.28" />
             <stop offset="100%" stop-color="#0edbe5" stop-opacity="0" />
           </linearGradient>
-          <filter id="point-glow" x="-150%" y="-150%" width="400%" height="400%">
-            <feGaussianBlur stdDeviation="3.2" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
+          <clipPath v-if="highClipRect" id="clip-high-zone">
+            <rect :x="highClipRect.x" :y="highClipRect.y" :width="highClipRect.width" :height="highClipRect.height" />
+          </clipPath>
+          <clipPath v-if="lowClipRect" id="clip-low-zone">
+            <rect :x="lowClipRect.x" :y="lowClipRect.y" :width="lowClipRect.width" :height="lowClipRect.height" />
+          </clipPath>
         </defs>
 
         <!-- Background zones -->
@@ -656,6 +664,10 @@ onUnmounted(() => {
         <!-- Area + line -->
         <path :d="areaPath" class="area-fill" />
         <path :d="linePath" class="line-path" />
+        <!-- Alarm-excursion overlay: same path, clipped to the zone above
+             HIGH / below LOW so only that portion reads as red/blue. -->
+        <path v-if="highClipRect" :d="linePath" class="line-path line-path-high" clip-path="url(#clip-high-zone)" />
+        <path v-if="lowClipRect" :d="linePath" class="line-path line-path-low" clip-path="url(#clip-low-zone)" />
 
         <!-- Alarm timeline strip -->
         <line :x1="MARGIN.left" :x2="VB_W - MARGIN.right" :y1="STRIP_Y + STRIP_H / 2" :y2="STRIP_Y + STRIP_H / 2" class="strip-baseline" />
@@ -701,34 +713,20 @@ onUnmounted(() => {
           <!-- Painted after line-path/area-fill in DOM order, so it always
                sits on top (SVG has no z-index; paint order = source order). -->
           <circle
-            v-if="isPointLocked"
             :cx="xScale(hoveredReading.received_at)"
             :cy="yScale(hoveredReading.temperature)"
-            r="10"
-            class="selected-dot"
-            filter="url(#point-glow)"
-          />
-          <circle
-            :cx="xScale(hoveredReading.received_at)"
-            :cy="yScale(hoveredReading.temperature)"
-            :r="isPointLocked ? 7 : 4.5"
+            :r="isPointLocked ? 6 : 4.5"
             class="hover-dot"
             :class="{ locked: isPointLocked }"
           />
         </template>
       </svg>
 
-      <!-- Point tooltip -->
-      <div v-if="hoveredReading" class="tooltip" :style="tooltipStyle">
-        <div class="tooltip-title">{{ sensor.name }}</div>
-        <dl>
-          <dt>Temperature</dt><dd>{{ fmtTemp(hoveredReading.temperature) }}</dd>
-          <dt>Date</dt><dd>{{ fmtDate(hoveredReading.received_at) }}</dd>
-          <dt>Time</dt><dd>{{ fmtTime(hoveredReading.received_at) }}</dd>
-          <dt>Sensor status</dt><dd :class="{ 'status-bad': !online }">{{ online ? 'ONLINE' : 'OFFLINE' }}</dd>
-          <dt>Alarm status</dt><dd :class="{ 'status-bad': alarmStatusAtHover !== 'Normal' }">{{ alarmStatusAtHover }}</dd>
-          <dt>Last MQTT message</dt><dd>{{ sensor.last_message_at ? fmtTime(sensor.last_message_at) : '—' }}</dd>
-        </dl>
+      <!-- Point tooltip: compact by design — temperature, date, time only -->
+      <div v-if="hoveredReading" class="tooltip point-tooltip" :style="tooltipStyle">
+        <div class="tooltip-temp">{{ fmtTemp(hoveredReading.temperature) }}</div>
+        <div class="tooltip-date">{{ fmtDate(hoveredReading.received_at) }}</div>
+        <div class="tooltip-time">{{ fmtTime(hoveredReading.received_at) }}</div>
       </div>
 
       <!-- Alarm marker tooltip -->
@@ -837,6 +835,8 @@ onUnmounted(() => {
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
+.line-path-high { stroke: #ff6875; }
+.line-path-low { stroke: #4ea8ff; }
 
 .strip-baseline { stroke: #1a2f43; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .marker-span { stroke-width: 2; vector-effect: non-scaling-stroke; opacity: 0.6; }
@@ -849,14 +849,12 @@ onUnmounted(() => {
 
 .crosshair { stroke: #8fa1ba; stroke-width: 1; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; opacity: 0.6; }
 .crosshair.locked { stroke: #0edbe5; opacity: 0.85; }
-.hover-dot { fill: #0edbe5; stroke: #071620; stroke-width: 2; vector-effect: non-scaling-stroke; }
-.hover-dot.locked { stroke: #eafeff; stroke-width: 2.5; }
-.selected-dot { fill: #0edbe5; opacity: 0.35; }
+.hover-dot { fill: #0edbe5; stroke: #071620; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.hover-dot.locked { stroke: #eafeff; stroke-width: 1.5; }
 
 .tooltip {
   position: absolute;
   z-index: 4;
-  min-width: 220px;
   max-width: calc(100% - 12px);
   box-sizing: border-box;
   background: #0a1827;
@@ -875,9 +873,14 @@ onUnmounted(() => {
 .tooltip dd { margin: 0; font-size: 13px; color: #e8effa; text-align: right; font-variant-numeric: tabular-nums; }
 .tooltip dd.status-bad { color: #ff6875; }
 
+.point-tooltip { min-width: 150px; }
+.tooltip-temp { font-size: 24px; font-weight: 700; color: #0edbe5; line-height: 1; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+.tooltip-date, .tooltip-time { font-size: 13px; color: #9aabc5; }
+
 @media (max-width: 800px) {
   .axis-label { font-size: 20px; }
-  .tooltip { min-width: 190px; padding: 12px 14px; }
+  .tooltip { padding: 12px 14px; }
   .tooltip dt, .tooltip dd { font-size: 12px; }
+  .tooltip-temp { font-size: 20px; }
 }
 </style>
