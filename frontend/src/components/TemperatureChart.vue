@@ -261,6 +261,102 @@ const linePath = computed(() => {
   return buildMonotonePath(decimateForRender(pts, RENDER_POINT_BUDGET))
 })
 
+// ─── Threshold-anchored color story ────────────────────────────────
+// Below LOW -> blue, normal -> cyan, approaching HIGH -> yellow, above
+// HIGH -> red. Rendered as a single vertical gradient stroke rather than
+// hard-clipped overlay paths: cheaper (one path, no extra clip-path
+// geometry per zone) and reads as the smooth SCADA-style blend the
+// reference design calls for, while every pivot color is still pinned
+// to an exact, real threshold value — nothing about the anchor points
+// is approximate, only the blend width between them is stylistic.
+const LINE_COLOR_LOW = '#4ea8ff'
+const LINE_COLOR_NORMAL = '#0edbe5'
+const LINE_COLOR_APPROACHING = '#ffd23f'
+const LINE_COLOR_HIGH = '#ff4d4f'
+const APPROACH_BUFFER_FRACTION = 0.15
+
+interface GradientStop {
+  offset: number
+  color: string
+}
+
+function buildLineGradientStops(
+  scaleFn: (temp: number) => number,
+  domainMin: number,
+  domainMax: number,
+  lowT: number | null,
+  highT: number | null,
+): GradientStop[] {
+  if (lowT == null && highT == null) {
+    return [
+      { offset: 0, color: LINE_COLOR_NORMAL },
+      { offset: 1, color: LINE_COLOR_NORMAL },
+    ]
+  }
+  const topY = scaleFn(domainMax)
+  const bottomY = scaleFn(domainMin)
+  const span = bottomY - topY || 1
+  const offsetFor = (temp: number) => Math.min(1, Math.max(0, (scaleFn(temp) - topY) / span))
+  const refLow = lowT ?? domainMin
+  const refHigh = highT ?? domainMax
+  const buffer = (refHigh - refLow) * APPROACH_BUFFER_FRACTION
+
+  const stops: GradientStop[] = [{ offset: 0, color: highT != null ? LINE_COLOR_HIGH : LINE_COLOR_NORMAL }]
+  if (highT != null) {
+    const approaching = highT - buffer
+    stops.push({ offset: offsetFor(highT), color: LINE_COLOR_HIGH })
+    stops.push({ offset: offsetFor(approaching), color: LINE_COLOR_APPROACHING })
+    stops.push({ offset: offsetFor(approaching), color: LINE_COLOR_NORMAL })
+  }
+  if (lowT != null) {
+    stops.push({ offset: offsetFor(lowT), color: LINE_COLOR_NORMAL })
+    stops.push({ offset: offsetFor(lowT), color: LINE_COLOR_LOW })
+  }
+  stops.push({ offset: 1, color: lowT != null ? LINE_COLOR_LOW : LINE_COLOR_NORMAL })
+
+  // SVG gradients require non-decreasing offsets — clamp in case a
+  // threshold sits outside the (padded) visible domain.
+  for (let i = 1; i < stops.length; i++) {
+    if (stops[i].offset < stops[i - 1].offset) stops[i].offset = stops[i - 1].offset
+  }
+  return stops
+}
+
+interface ZoneInfo {
+  gradientStops: GradientStop[]
+  normalLow: number | null
+  normalHigh: number | null
+  normalLineY: number | null
+}
+
+function buildZoneInfo(
+  scaleFn: (temp: number) => number,
+  domainMin: number,
+  domainMax: number,
+  lowT: number | null,
+  highT: number | null,
+): ZoneInfo {
+  const gradientStops = buildLineGradientStops(scaleFn, domainMin, domainMax, lowT, highT)
+  if (lowT == null && highT == null) {
+    return { gradientStops, normalLow: null, normalHigh: null, normalLineY: null }
+  }
+  const refLow = lowT ?? domainMin
+  const refHigh = highT ?? domainMax
+  const buffer = (refHigh - refLow) * APPROACH_BUFFER_FRACTION
+  const normalLow = lowT != null ? lowT + buffer : null
+  const normalHigh = highT != null ? highT - buffer : null
+  const midTemp = ((normalLow ?? domainMin) + (normalHigh ?? domainMax)) / 2
+  return { gradientStops, normalLow, normalHigh, normalLineY: scaleFn(midTemp) }
+}
+
+const zoneInfo = computed(() =>
+  buildZoneInfo(yScale, yDomain.value.min, yDomain.value.max, props.lowThreshold, props.highThreshold),
+)
+
+function fmtSigned(v: number): string {
+  return `${v >= 0 ? '+' : ''}${v.toFixed(1)}°C`
+}
+
 const areaPath = computed(() => {
   if (!linePath.value || !visible.value.length) return ''
   const d = visible.value
@@ -392,26 +488,13 @@ const liveXTicks = computed(() => {
   return ticks
 })
 
-// ─── LIVE alarm-segment clip rects — same technique as the historical
-// overlay below, just against liveYDomain/liveYScale instead. ────────
-const liveHighClipRect = computed(() => {
-  const hi = props.highThreshold
-  if (hi == null) return null
-  const { max } = liveYDomain.value
-  if (hi >= max) return null
-  const y = liveYScale(Math.min(hi, max))
-  return { x: MARGIN.left, y: MARGIN.top, width: PLOT_W, height: Math.max(y - MARGIN.top, 0) }
-})
+const liveZoneInfo = computed(() =>
+  buildZoneInfo(liveYScale, liveYDomain.value.min, liveYDomain.value.max, props.lowThreshold, props.highThreshold),
+)
 
-const liveLowClipRect = computed(() => {
-  const lo = props.lowThreshold
-  if (lo == null) return null
-  const { min } = liveYDomain.value
-  if (lo <= min) return null
-  const y = liveYScale(Math.max(lo, min))
-  const bottom = MARGIN.top + PLOT_H
-  return { x: MARGIN.left, y, width: PLOT_W, height: Math.max(bottom - y, 0) }
-})
+const liveZones = computed(() =>
+  buildZones(liveYScale, liveYDomain.value.min, liveYDomain.value.max, props.lowThreshold, props.highThreshold),
+)
 
 watch(isLive, (live) => {
   if (live) {
@@ -450,51 +533,37 @@ watch(
   },
 )
 
-// ─── Alarm-segment clip rects (reuse yScale/thresholds — no extra data
-// pass, just clips the same linePath so the red/blue overlay is a single
-// cheap extra <path> per threshold rather than re-slicing the dataset) ─
-const highClipRect = computed(() => {
-  const hi = props.highThreshold
-  if (hi == null) return null
-  const { max } = yDomain.value
-  if (hi >= max) return null
-  const y = yScale(Math.min(hi, max))
-  return { x: MARGIN.left, y: MARGIN.top, width: PLOT_W, height: Math.max(y - MARGIN.top, 0) }
-})
 
-const lowClipRect = computed(() => {
-  const lo = props.lowThreshold
-  if (lo == null) return null
-  const { min } = yDomain.value
-  if (lo <= min) return null
-  const y = yScale(Math.max(lo, min))
-  const bottom = MARGIN.top + PLOT_H
-  return { x: MARGIN.left, y, width: PLOT_W, height: Math.max(bottom - y, 0) }
-})
-
-// ─── Background zones ───────────────────────────────────────────
-const zones = computed(() => {
-  const { min, max } = yDomain.value
+// ─── Background zones — subtle shading for the three alarm bands ───
+function buildZones(
+  scaleFn: (temp: number) => number,
+  domainMin: number,
+  domainMax: number,
+  lowT: number | null,
+  highT: number | null,
+): { y: number; height: number; className: string }[] {
   const top = MARGIN.top
   const bottom = MARGIN.top + PLOT_H
-  const hi = props.highThreshold
-  const lo = props.lowThreshold
   const zonesList: { y: number; height: number; className: string }[] = []
-  if (hi != null && hi < max) {
-    const y = yScale(Math.min(hi, max))
+  if (highT != null && highT < domainMax) {
+    const y = scaleFn(Math.min(highT, domainMax))
     zonesList.push({ y: top, height: Math.max(y - top, 0), className: 'zone-high' })
   }
-  if (lo != null && lo > min) {
-    const y = yScale(Math.max(lo, min))
+  if (lowT != null && lowT > domainMin) {
+    const y = scaleFn(Math.max(lowT, domainMin))
     zonesList.push({ y, height: Math.max(bottom - y, 0), className: 'zone-low' })
   }
-  const normalTop = hi != null ? yScale(Math.min(hi, max)) : top
-  const normalBottom = lo != null ? yScale(Math.max(lo, min)) : bottom
+  const normalTop = highT != null ? scaleFn(Math.min(highT, domainMax)) : top
+  const normalBottom = lowT != null ? scaleFn(Math.max(lowT, domainMin)) : bottom
   if (normalBottom > normalTop) {
     zonesList.push({ y: normalTop, height: normalBottom - normalTop, className: 'zone-normal' })
   }
   return zonesList
-})
+}
+
+const zones = computed(() =>
+  buildZones(yScale, yDomain.value.min, yDomain.value.max, props.lowThreshold, props.highThreshold),
+)
 
 // ─── Alarm timeline markers ─────────────────────────────────────
 const ALARM_GLYPH: Record<string, string> = {
@@ -825,12 +894,57 @@ function positionFromViewBox(vbX: number, vbY: number, boxWidth = 220): { left: 
   return { left: `${left}px`, top: `${top}px` }
 }
 
-const tooltipStyle = computed(() => positionFromViewBox(tooltipPos.value.x, tooltipPos.value.y))
+// viewportWidth is read (not used numerically) purely to give these
+// computeds a reactive dependency on the viewport — without it, resizing
+// or rotating the device wouldn't reposition an already-open tooltip or
+// the always-on latest-value badge, since svgEl.getBoundingClientRect()
+// is read imperatively and isn't itself reactive.
+const tooltipStyle = computed(() => {
+  void viewportWidth.value
+  return positionFromViewBox(tooltipPos.value.x, tooltipPos.value.y)
+})
 
 const markerTooltipStyle = computed(() => {
+  void viewportWidth.value
   const m = hoveredMarker.value
   if (!m) return {}
   return positionFromViewBox(m.x1, STRIP_Y)
+})
+
+// ─── Latest-value marker — always visible, independent of hover/tap ─
+const latestReading = computed(() => {
+  if (isLive.value) {
+    const p = livePoints.value[livePoints.value.length - 1]
+    if (!p) return null
+    return { x: Math.min(liveRawX(p.t) + liveShiftPx.value, MARGIN.left + PLOT_W), y: liveYScale(p.temp), temp: p.temp }
+  }
+  const d = visible.value
+  if (!d.length) return null
+  const last = d[d.length - 1]
+  return { x: xScale(last.received_at), y: yScale(last.temperature), temp: last.temperature }
+})
+
+// Compact variant of positionFromViewBox: centers vertically on the point
+// (rather than offsetting above it) and assumes a much smaller box, since
+// this is a short value badge, not a multi-line tooltip.
+function badgePositionFromViewBox(vbX: number, vbY: number, boxWidth = 92, boxHeight = 30): { left: string; top: string } {
+  const el = svgEl.value
+  if (!el) return { left: '0px', top: '0px' }
+  const rect = el.getBoundingClientRect()
+  const pxPerVbX = rect.width / VB_W
+  const pxPerVbY = rect.height / VB_H
+  let left = vbX * pxPerVbX + 12
+  if (left + boxWidth > rect.width) left = Math.max(0, vbX * pxPerVbX - boxWidth - 12)
+  left = Math.min(left, Math.max(0, rect.width - boxWidth))
+  const top = Math.max(0, Math.min(vbY * pxPerVbY - boxHeight / 2, rect.height - boxHeight))
+  return { left: `${left}px`, top: `${top}px` }
+}
+
+const latestBadgeStyle = computed(() => {
+  void viewportWidth.value
+  const r = latestReading.value
+  if (!r) return {}
+  return badgePositionFromViewBox(r.x, r.y)
 })
 
 // A locked (touch-selected) tooltip only closes on: another selection
@@ -877,13 +991,21 @@ onUnmounted(() => {
           <clipPath id="plot-area-clip">
             <rect :x="MARGIN.left" :y="MARGIN.top" :width="PLOT_W" :height="PLOT_H" />
           </clipPath>
-          <clipPath v-if="liveHighClipRect" id="live-clip-high-zone">
-            <rect :x="liveHighClipRect.x" :y="liveHighClipRect.y" :width="liveHighClipRect.width" :height="liveHighClipRect.height" />
-          </clipPath>
-          <clipPath v-if="liveLowClipRect" id="live-clip-low-zone">
-            <rect :x="liveLowClipRect.x" :y="liveLowClipRect.y" :width="liveLowClipRect.width" :height="liveLowClipRect.height" />
-          </clipPath>
+          <linearGradient id="line-gradient" gradientUnits="userSpaceOnUse" :x1="MARGIN.left" :y1="MARGIN.top" :x2="MARGIN.left" :y2="MARGIN.top + PLOT_H">
+            <stop v-for="(s, i) in liveZoneInfo.gradientStops" :key="i" :offset="s.offset" :stop-color="s.color" />
+          </linearGradient>
         </defs>
+
+        <!-- Background zones -->
+        <rect
+          v-for="(z, i) in liveZones"
+          :key="`live-zone-${i}`"
+          :x="MARGIN.left"
+          :y="z.y"
+          :width="PLOT_W"
+          :height="z.height"
+          :class="z.className"
+        />
 
         <!-- Grid + thresholds stay fixed in place — only the data sweeps -->
         <line
@@ -904,6 +1026,14 @@ onUnmounted(() => {
           class="threshold-line threshold-high"
         />
         <line
+          v-if="liveZoneInfo.normalLineY != null"
+          :x1="MARGIN.left"
+          :x2="VB_W - MARGIN.right"
+          :y1="liveZoneInfo.normalLineY"
+          :y2="liveZoneInfo.normalLineY"
+          class="threshold-line threshold-normal"
+        />
+        <line
           v-if="lowThreshold != null"
           :x1="MARGIN.left"
           :x2="VB_W - MARGIN.right"
@@ -911,6 +1041,18 @@ onUnmounted(() => {
           :y2="liveYScale(lowThreshold)"
           class="threshold-line threshold-low"
         />
+
+        <!-- Left-side zone labels -->
+        <text v-if="highThreshold != null" :x="MARGIN.left + 8" :y="liveYScale(highThreshold) - 8" class="zone-label zone-label-alarm">
+          ALARM HIGH&#160;&#160;{{ fmtSigned(highThreshold) }}
+        </text>
+        <text v-if="liveZoneInfo.normalLineY != null" :x="MARGIN.left + 8" :y="liveZoneInfo.normalLineY - 8" class="zone-label zone-label-normal">
+          NORMAL&#160;&#160;{{ fmtSigned(liveZoneInfo.normalLow ?? liveYDomain.min) }} – {{ fmtSigned(liveZoneInfo.normalHigh ?? liveYDomain.max) }}
+        </text>
+        <text v-if="lowThreshold != null" :x="MARGIN.left + 8" :y="liveYScale(lowThreshold) - 8" class="zone-label zone-label-alarm">
+          ALARM LOW&#160;&#160;{{ fmtSigned(lowThreshold) }}
+        </text>
+
         <text v-for="t in liveYTicks" :key="`live-ylabel-${t}`" :x="MARGIN.left - 10" :y="liveYScale(t)" class="axis-label y-label">
           {{ t.toFixed(liveYDomain.step < 1 ? 1 : 0) }}°
         </text>
@@ -922,36 +1064,18 @@ onUnmounted(() => {
              the window fills, so it visibly scrolls off at the left edge
              like an oscilloscope trace. liveLinePath only recomputes when
              a real point arrives; liveShiftPx (this transform) is the one
-             thing driven by the 60fps clock. -->
+             thing driven by the 60fps clock. The gradient stroke costs
+             nothing extra per frame — it's a static def, not per-point. -->
         <g clip-path="url(#plot-area-clip)">
           <g class="live-sweep" :transform="`translate(${liveShiftPx},0)`">
             <path :d="liveLinePath" class="line-path" />
           </g>
         </g>
-        <!-- Alarm-excursion overlay: threshold clips live in the FIXED
-             coordinate space (same as the grid/threshold lines), so each
-             wraps its own shifted copy of the same path rather than being
-             nested inside the already-shifted group above. -->
-        <g v-if="liveHighClipRect" clip-path="url(#live-clip-high-zone)">
-          <g :transform="`translate(${liveShiftPx},0)`">
-            <path :d="liveLinePath" class="line-path line-path-high" />
-          </g>
-        </g>
-        <g v-if="liveLowClipRect" clip-path="url(#live-clip-low-zone)">
-          <g :transform="`translate(${liveShiftPx},0)`">
-            <path :d="liveLinePath" class="line-path line-path-low" />
-          </g>
-        </g>
 
-        <!-- Live head: a small pulsing dot at the newest point -->
-        <circle
-          v-if="livePoints.length"
-          :cx="Math.min(liveRawX(livePoints[livePoints.length - 1].t) + liveShiftPx, MARGIN.left + PLOT_W)"
-          :cy="liveYScale(livePoints[livePoints.length - 1].temp)"
-          r="4.5"
-          class="live-head-dot"
-        />
+        <!-- Latest value: always-on marker, independent of hover/tap -->
+        <circle v-if="latestReading" :cx="latestReading.x" :cy="latestReading.y" r="4.5" class="latest-dot" />
       </svg>
+      <div v-if="latestReading" class="latest-badge" :style="latestBadgeStyle">{{ fmtSigned(latestReading.temp) }}</div>
     </div>
 
     <div v-else-if="!validReadings.length" class="empty-state">
@@ -987,12 +1111,9 @@ onUnmounted(() => {
             <stop offset="0%" stop-color="#0edbe5" stop-opacity="0.28" />
             <stop offset="100%" stop-color="#0edbe5" stop-opacity="0" />
           </linearGradient>
-          <clipPath v-if="highClipRect" id="clip-high-zone">
-            <rect :x="highClipRect.x" :y="highClipRect.y" :width="highClipRect.width" :height="highClipRect.height" />
-          </clipPath>
-          <clipPath v-if="lowClipRect" id="clip-low-zone">
-            <rect :x="lowClipRect.x" :y="lowClipRect.y" :width="lowClipRect.width" :height="lowClipRect.height" />
-          </clipPath>
+          <linearGradient id="line-gradient" gradientUnits="userSpaceOnUse" :x1="MARGIN.left" :y1="MARGIN.top" :x2="MARGIN.left" :y2="MARGIN.top + PLOT_H">
+            <stop v-for="(s, i) in zoneInfo.gradientStops" :key="i" :offset="s.offset" :stop-color="s.color" />
+          </linearGradient>
         </defs>
 
         <!-- Background zones -->
@@ -1027,6 +1148,14 @@ onUnmounted(() => {
           class="threshold-line threshold-high"
         />
         <line
+          v-if="zoneInfo.normalLineY != null"
+          :x1="MARGIN.left"
+          :x2="VB_W - MARGIN.right"
+          :y1="zoneInfo.normalLineY"
+          :y2="zoneInfo.normalLineY"
+          class="threshold-line threshold-normal"
+        />
+        <line
           v-if="lowThreshold != null"
           :x1="MARGIN.left"
           :x2="VB_W - MARGIN.right"
@@ -1034,6 +1163,17 @@ onUnmounted(() => {
           :y2="yScale(lowThreshold)"
           class="threshold-line threshold-low"
         />
+
+        <!-- Left-side zone labels -->
+        <text v-if="highThreshold != null" :x="MARGIN.left + 8" :y="yScale(highThreshold) - 8" class="zone-label zone-label-alarm">
+          ALARM HIGH&#160;&#160;{{ fmtSigned(highThreshold) }}
+        </text>
+        <text v-if="zoneInfo.normalLineY != null" :x="MARGIN.left + 8" :y="zoneInfo.normalLineY - 8" class="zone-label zone-label-normal">
+          NORMAL&#160;&#160;{{ fmtSigned(zoneInfo.normalLow ?? yDomain.min) }} – {{ fmtSigned(zoneInfo.normalHigh ?? yDomain.max) }}
+        </text>
+        <text v-if="lowThreshold != null" :x="MARGIN.left + 8" :y="yScale(lowThreshold) - 8" class="zone-label zone-label-alarm">
+          ALARM LOW&#160;&#160;{{ fmtSigned(lowThreshold) }}
+        </text>
 
         <!-- Y axis labels -->
         <text v-for="t in yTicks" :key="`ylabel-${t}`" :x="MARGIN.left - 10" :y="yScale(t)" class="axis-label y-label">
@@ -1048,10 +1188,6 @@ onUnmounted(() => {
         <!-- Area + line -->
         <path :d="areaPath" class="area-fill" />
         <path :d="linePath" class="line-path" />
-        <!-- Alarm-excursion overlay: same path, clipped to the zone above
-             HIGH / below LOW so only that portion reads as red/blue. -->
-        <path v-if="highClipRect" :d="linePath" class="line-path line-path-high" clip-path="url(#clip-high-zone)" />
-        <path v-if="lowClipRect" :d="linePath" class="line-path line-path-low" clip-path="url(#clip-low-zone)" />
 
         <!-- Alarm timeline strip -->
         <line :x1="MARGIN.left" :x2="VB_W - MARGIN.right" :y1="STRIP_Y + STRIP_H / 2" :y2="STRIP_Y + STRIP_H / 2" class="strip-baseline" />
@@ -1104,7 +1240,12 @@ onUnmounted(() => {
             :class="{ locked: isPointLocked }"
           />
         </template>
+
+        <!-- Latest value: always-on marker, independent of hover/tap -->
+        <circle v-if="latestReading" :cx="latestReading.x" :cy="latestReading.y" r="4.5" class="latest-dot" />
       </svg>
+
+      <div v-if="latestReading" class="latest-badge" :style="latestBadgeStyle">{{ fmtSigned(latestReading.temp) }}</div>
 
       <!-- Point tooltip: compact by design — temperature, date, time only -->
       <div v-if="hoveredReading" class="tooltip point-tooltip" :style="tooltipStyle">
@@ -1205,6 +1346,16 @@ onUnmounted(() => {
 }
 .threshold-high { stroke: #ff6875; }
 .threshold-low { stroke: #4ea8ff; }
+.threshold-normal { stroke: #00e77b; opacity: 0.5; }
+
+.zone-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-anchor: start;
+}
+.zone-label-alarm { fill: #ff6875; }
+.zone-label-normal { fill: #00e77b; }
 
 .axis-label { fill: #9cadc7; font-size: 16.5px; }
 .y-label { text-anchor: end; dominant-baseline: middle; }
@@ -1213,26 +1364,29 @@ onUnmounted(() => {
 .area-fill { fill: url(#area-gradient); opacity: 0.5; }
 .line-path {
   fill: none;
-  stroke: #0edbe5;
+  stroke: url(#line-gradient);
   stroke-width: 3.2;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
-.line-path-high { stroke: #ff6875; }
-.line-path-low { stroke: #4ea8ff; }
 
 .chart-svg-live { cursor: default; }
-.live-head-dot {
-  fill: #0edbe5;
-  stroke: #eafeff;
-  stroke-width: 1.5;
-  vector-effect: non-scaling-stroke;
-  animation: live-pulse 1.4s ease-in-out infinite;
-}
-@keyframes live-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
+.latest-dot { fill: #0edbe5; stroke: #071620; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.latest-badge {
+  position: absolute;
+  z-index: 3;
+  background: #0a1827;
+  border: 1px solid #0edbe5;
+  border-radius: 14px;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0edbe5;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  font-variant-numeric: tabular-nums;
 }
 
 .strip-baseline { stroke: #1a2f43; stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -1276,8 +1430,10 @@ onUnmounted(() => {
 
 @media (max-width: 800px) {
   .axis-label { font-size: 20px; }
+  .zone-label { font-size: 15px; }
   .tooltip { padding: 12px 14px; }
   .tooltip dt, .tooltip dd { font-size: 12px; }
   .tooltip-temp { font-size: 20px; }
+  .latest-badge { font-size: 12px; padding: 3px 8px; }
 }
 </style>
