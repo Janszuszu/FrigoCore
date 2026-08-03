@@ -17,13 +17,17 @@ const props = defineProps<{
 const isLive = computed(() => props.range === 'LIVE')
 
 // ─── Layout constants (internal SVG coordinate space) ──────────────
+// MARGIN.bottom/VB_H were both increased by the same amount (+30) versus
+// the previous layout, purely to give the alarm-marker strip enough room
+// to be touch-friendly (see STRIP_H below) — PLOT_H itself (the actual
+// plotting area) is unchanged.
 const VB_W = 1000
-const VB_H = 360
-const MARGIN = { top: 16, right: 16, bottom: 58, left: 58 }
+const VB_H = 395
+const MARGIN = { top: 16, right: 16, bottom: 93, left: 58 }
 const PLOT_W = VB_W - MARGIN.left - MARGIN.right
 const PLOT_H = VB_H - MARGIN.top - MARGIN.bottom
 const STRIP_Y = MARGIN.top + PLOT_H + 10
-const STRIP_H = 16
+const STRIP_H = 38
 const XLABEL_Y = STRIP_Y + STRIP_H + 20
 
 // ─── Data ────────────────────────────────────────────────────────
@@ -83,11 +87,40 @@ const yDomain = computed(() => {
   return { min, max, step }
 })
 
+// Y-axis ticks always include the exact HIGH/LOW threshold values (not
+// just "nice round" step ticks) — per the SCADA-style requirement that
+// alarm boundaries be obvious from the axis itself, with no on-chart
+// text. If a threshold lands close to a regular tick already, it just
+// marks that tick instead of adding a crowded near-duplicate.
+interface YTick {
+  value: number
+  isHigh: boolean
+  isLow: boolean
+}
+
+function buildYTicks(min: number, max: number, step: number, lowT: number | null, highT: number | null): YTick[] {
+  const ticks: YTick[] = []
+  for (let v = min; v <= max + step * 0.001; v += step) {
+    ticks.push({ value: Math.round(v * 100) / 100, isHigh: false, isLow: false })
+  }
+  function markOrAdd(temp: number, mark: 'isHigh' | 'isLow') {
+    const rounded = Math.round(temp * 100) / 100
+    const existing = ticks.find((t) => Math.abs(t.value - rounded) < step * 0.25)
+    if (existing) {
+      existing[mark] = true
+      existing.value = rounded // show the precise threshold, not the nearby "nice" number
+    } else if (rounded >= min && rounded <= max) {
+      ticks.push({ value: rounded, isHigh: mark === 'isHigh', isLow: mark === 'isLow' })
+    }
+  }
+  if (highT != null) markOrAdd(highT, 'isHigh')
+  if (lowT != null) markOrAdd(lowT, 'isLow')
+  return ticks.sort((a, b) => a.value - b.value)
+}
+
 const yTicks = computed(() => {
   const { min, max, step } = yDomain.value
-  const ticks: number[] = []
-  for (let v = min; v <= max + step * 0.001; v += step) ticks.push(Math.round(v * 100) / 100)
-  return ticks
+  return buildYTicks(min, max, step, props.lowThreshold, props.highThreshold)
 })
 
 function yScale(temp: number): number {
@@ -117,13 +150,43 @@ function xScaleMs(t: number): number {
   return MARGIN.left + ((clamped - start) / (end - start)) * PLOT_W
 }
 
-// ─── Responsive tick count — fewer labels on narrow viewports so they
-// never overlap; same lever drives both historical and LIVE ticks. ────
-const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1280)
-function onViewportResize() {
-  viewportWidth.value = window.innerWidth
-}
-const tickCount = computed(() => (viewportWidth.value < 480 ? 3 : viewportWidth.value < 900 ? 5 : 6))
+// ─── Responsive tick count — driven by the chart's actual rendered
+// width (via ResizeObserver on rootEl), not the window's width. A chart
+// that isn't full-viewport-width (embedded, split layout, etc.) gets the
+// right tick count for ITS OWN space, and label count never exceeds what
+// the available pixels can actually hold without touching. ───────────
+const containerWidthPx = ref(390)
+const containerHeightPx = ref(300)
+let containerResizeObserver: ResizeObserver | null = null
+
+// Marker touch targets are drawn as an ellipse (not a circle) with rx/ry
+// solved from the CURRENT container scale so the real rendered target is
+// genuinely ~44x44 CSS px regardless of viewBox non-uniform scaling —
+// a plain fixed-radius circle would render as a lopsided, undersized
+// ellipse once stretched to the container's actual aspect ratio.
+const MARKER_TOUCH_TARGET_PX = 44
+const markerHitRx = computed(() => {
+  const scaleX = containerWidthPx.value / VB_W
+  return scaleX > 0 ? MARKER_TOUCH_TARGET_PX / 2 / scaleX : 40
+})
+const markerHitRy = computed(() => {
+  const scaleY = containerHeightPx.value / VB_H
+  return scaleY > 0 ? MARKER_TOUCH_TARGET_PX / 2 / scaleY : 40
+})
+
+// Rough per-format label width (real px) — wide enough that adjacent
+// labels never touch even at the larger mobile font-size.
+const minLabelWidthPx = computed(() => {
+  if (props.range === 'LIVE') return 66 // "HH:mm:ss"
+  if (props.range === '7D') return 86 // "dd.MM HH:mm"
+  return 52 // "HH:mm" (1H/24H, and the short auto-fallback)
+})
+
+const tickCount = computed(() => {
+  const plotWidthPx = containerWidthPx.value * (PLOT_W / VB_W)
+  const maxTicks = Math.floor(plotWidthPx / minLabelWidthPx.value)
+  return Math.min(7, Math.max(2, maxTicks))
+})
 
 const xTicks = computed(() => {
   const { start, end } = xDomain.value
@@ -138,15 +201,21 @@ const xTicks = computed(() => {
 })
 
 // Labels are keyed to the explicitly selected range first (LIVE clock time,
-// 1H/24H time-of-day, 7D calendar dates) since that's what the user is
+// 1H/24H time-of-day, 7D date+time) since that's what the user is
 // deliberately asking to see regardless of how much data is actually
 // loaded. Any range this component doesn't know about yet (or a zoomed
 // slice) falls back to a span-based auto choice so it's never wrong:
-// minutes/hours -> time, days -> dates, months -> month + day. A chart
-// spanning more than a day never shows hour-only labels.
+// minutes/hours -> time, days -> date+time, months -> month + day. A
+// chart spanning more than a day never shows hour-only labels.
 const MINUTE_MS = 60 * 1000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
+
+function formatDateAndHour(d: Date): string {
+  const datePart = d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })
+  const timePart = d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
+  return `${datePart} ${timePart}`
+}
 
 function formatAxisTime(ms: number, spanMs: number): string {
   const d = new Date(ms)
@@ -157,14 +226,12 @@ function formatAxisTime(ms: number, spanMs: number): string {
     return d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
   }
   if (props.range === '7D') {
-    const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit' }
-    if (viewportWidth.value >= 900) opts.weekday = 'short'
-    return d.toLocaleDateString('pl-PL', opts)
+    return formatDateAndHour(d)
   }
   // Auto fallback (e.g. a zoomed-in slice, or a future range) — never
   // show hour-only labels once the span crosses a day.
   if (spanMs <= DAY_MS) return d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
-  if (spanMs <= 90 * DAY_MS) return d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })
+  if (spanMs <= 90 * DAY_MS) return formatDateAndHour(d)
   return d.toLocaleDateString('pl-PL', { day: '2-digit', month: 'short' })
 }
 
@@ -262,18 +329,15 @@ const linePath = computed(() => {
 })
 
 // ─── Threshold-anchored color story ────────────────────────────────
-// Below LOW -> blue, normal -> cyan, approaching HIGH -> yellow, above
-// HIGH -> red. Rendered as a single vertical gradient stroke rather than
-// hard-clipped overlay paths: cheaper (one path, no extra clip-path
-// geometry per zone) and reads as the smooth SCADA-style blend the
-// reference design calls for, while every pivot color is still pinned
-// to an exact, real threshold value — nothing about the anchor points
-// is approximate, only the blend width between them is stylistic.
-const LINE_COLOR_LOW = '#4ea8ff'
-const LINE_COLOR_NORMAL = '#0edbe5'
-const LINE_COLOR_APPROACHING = '#ffd23f'
-const LINE_COLOR_HIGH = '#ff4d4f'
-const APPROACH_BUFFER_FRACTION = 0.15
+// Exactly three colors, no blend: green in the normal range, red above
+// HIGH, blue below LOW. Rendered as an SVG gradient stroke purely as an
+// implementation trick — each transition uses two stops at the identical
+// offset (a zero-width "blend"), so the color visibly cuts over exactly
+// at the threshold rather than fading through it, while still only
+// costing one <path> (no per-zone clip-path geometry).
+const LINE_COLOR_LOW = '#3b82f6'
+const LINE_COLOR_NORMAL = '#22c55e'
+const LINE_COLOR_HIGH = '#ef4444'
 
 interface GradientStop {
   offset: number
@@ -297,16 +361,11 @@ function buildLineGradientStops(
   const bottomY = scaleFn(domainMin)
   const span = bottomY - topY || 1
   const offsetFor = (temp: number) => Math.min(1, Math.max(0, (scaleFn(temp) - topY) / span))
-  const refLow = lowT ?? domainMin
-  const refHigh = highT ?? domainMax
-  const buffer = (refHigh - refLow) * APPROACH_BUFFER_FRACTION
 
   const stops: GradientStop[] = [{ offset: 0, color: highT != null ? LINE_COLOR_HIGH : LINE_COLOR_NORMAL }]
   if (highT != null) {
-    const approaching = highT - buffer
     stops.push({ offset: offsetFor(highT), color: LINE_COLOR_HIGH })
-    stops.push({ offset: offsetFor(approaching), color: LINE_COLOR_APPROACHING })
-    stops.push({ offset: offsetFor(approaching), color: LINE_COLOR_NORMAL })
+    stops.push({ offset: offsetFor(highT), color: LINE_COLOR_NORMAL })
   }
   if (lowT != null) {
     stops.push({ offset: offsetFor(lowT), color: LINE_COLOR_NORMAL })
@@ -322,35 +381,8 @@ function buildLineGradientStops(
   return stops
 }
 
-interface ZoneInfo {
-  gradientStops: GradientStop[]
-  normalLow: number | null
-  normalHigh: number | null
-  normalLineY: number | null
-}
-
-function buildZoneInfo(
-  scaleFn: (temp: number) => number,
-  domainMin: number,
-  domainMax: number,
-  lowT: number | null,
-  highT: number | null,
-): ZoneInfo {
-  const gradientStops = buildLineGradientStops(scaleFn, domainMin, domainMax, lowT, highT)
-  if (lowT == null && highT == null) {
-    return { gradientStops, normalLow: null, normalHigh: null, normalLineY: null }
-  }
-  const refLow = lowT ?? domainMin
-  const refHigh = highT ?? domainMax
-  const buffer = (refHigh - refLow) * APPROACH_BUFFER_FRACTION
-  const normalLow = lowT != null ? lowT + buffer : null
-  const normalHigh = highT != null ? highT - buffer : null
-  const midTemp = ((normalLow ?? domainMin) + (normalHigh ?? domainMax)) / 2
-  return { gradientStops, normalLow, normalHigh, normalLineY: scaleFn(midTemp) }
-}
-
-const zoneInfo = computed(() =>
-  buildZoneInfo(yScale, yDomain.value.min, yDomain.value.max, props.lowThreshold, props.highThreshold),
+const gradientStops = computed(() =>
+  buildLineGradientStops(yScale, yDomain.value.min, yDomain.value.max, props.lowThreshold, props.highThreshold),
 )
 
 function fmtSigned(v: number): string {
@@ -422,9 +454,7 @@ const liveYDomain = computed(() => {
 
 const liveYTicks = computed(() => {
   const { min, max, step } = liveYDomain.value
-  const ticks: number[] = []
-  for (let v = min; v <= max + step * 0.001; v += step) ticks.push(Math.round(v * 100) / 100)
-  return ticks
+  return buildYTicks(min, max, step, props.lowThreshold, props.highThreshold)
 })
 
 function liveYScale(temp: number): number {
@@ -488,8 +518,8 @@ const liveXTicks = computed(() => {
   return ticks
 })
 
-const liveZoneInfo = computed(() =>
-  buildZoneInfo(liveYScale, liveYDomain.value.min, liveYDomain.value.max, props.lowThreshold, props.highThreshold),
+const liveGradientStops = computed(() =>
+  buildLineGradientStops(liveYScale, liveYDomain.value.min, liveYDomain.value.max, props.lowThreshold, props.highThreshold),
 )
 
 const liveZones = computed(() =>
@@ -894,18 +924,18 @@ function positionFromViewBox(vbX: number, vbY: number, boxWidth = 220): { left: 
   return { left: `${left}px`, top: `${top}px` }
 }
 
-// viewportWidth is read (not used numerically) purely to give these
-// computeds a reactive dependency on the viewport — without it, resizing
-// or rotating the device wouldn't reposition an already-open tooltip or
-// the always-on latest-value badge, since svgEl.getBoundingClientRect()
-// is read imperatively and isn't itself reactive.
+// containerWidthPx is read (not used numerically) purely to give these
+// computeds a reactive dependency on the container's size — without it,
+// resizing or rotating the device wouldn't reposition an already-open
+// tooltip or the always-on latest-value badge, since svgEl's bounding
+// rect is read imperatively and isn't itself reactive.
 const tooltipStyle = computed(() => {
-  void viewportWidth.value
+  void containerWidthPx.value
   return positionFromViewBox(tooltipPos.value.x, tooltipPos.value.y)
 })
 
 const markerTooltipStyle = computed(() => {
-  void viewportWidth.value
+  void containerWidthPx.value
   const m = hoveredMarker.value
   if (!m) return {}
   return positionFromViewBox(m.x1, STRIP_Y)
@@ -941,27 +971,69 @@ function badgePositionFromViewBox(vbX: number, vbY: number, boxWidth = 92, boxHe
 }
 
 const latestBadgeStyle = computed(() => {
-  void viewportWidth.value
+  void containerWidthPx.value
   const r = latestReading.value
   if (!r) return {}
   return badgePositionFromViewBox(r.x, r.y)
 })
 
-// A locked (touch-selected) tooltip only closes on: another selection
-// (handled in selectAt), the chart's data changing (handled in the
-// readings watcher), or a tap outside the chart — handled here.
+// Tapping a marker's (generous) hit-circle stops the pointerdown from
+// reaching the chart's own handler — otherwise the same tap would also
+// select/lock the nearest curve point underneath it, showing both
+// tooltips at once. `.stop` on the template binding does that; this just
+// sets the selection and clears any point-tooltip that was already open.
+function selectMarker(m: (typeof markers.value)[number]) {
+  hoveredMarker.value = m
+  clearSelection()
+}
+// Compares by the underlying alarm's id, not object identity — `markers`
+// is a computed that maps a fresh array of objects every time it
+// recomputes (e.g. a new alarm arriving over WS), which would otherwise
+// silently break the "selected" highlight for an alarm the user still
+// has open, even though it's still the same alarm.
+function isMarkerSelected(m: (typeof markers.value)[number]): boolean {
+  return hoveredMarker.value?.alarm.id === m.alarm.id
+}
+function onMarkerLeave(m: (typeof markers.value)[number]) {
+  if (isMarkerSelected(m)) hoveredMarker.value = null
+}
+
+// A locked (touch-selected) point tooltip or an open marker tooltip only
+// close on: another selection (handled in selectAt/selectMarker), the
+// chart's data changing (handled in the readings watcher), or a tap
+// outside the chart entirely — handled here.
 function onDocumentPointerDown(e: PointerEvent) {
-  if (!isPointLocked.value) return
-  if (rootEl.value && !rootEl.value.contains(e.target as Node)) clearSelection()
+  if (rootEl.value && rootEl.value.contains(e.target as Node)) return
+  if (isPointLocked.value) clearSelection()
+  if (hoveredMarker.value) hoveredMarker.value = null
+}
+
+// ResizeObserver is the semantically-correct mechanism (also catches a
+// layout change that isn't a window resize — a sidebar collapsing, etc.)
+// but a plain window 'resize' listener is kept alongside it as a fallback
+// measurement, since ResizeObserver has been observed to not fire in at
+// least one environment despite the element's own layout genuinely
+// having changed. Cheap and harmless to keep both.
+function measureContainer() {
+  if (!rootEl.value) return
+  const rect = rootEl.value.getBoundingClientRect()
+  if (rect.width) containerWidthPx.value = rect.width
+  if (rect.height) containerHeightPx.value = rect.height
 }
 
 onMounted(() => {
   document.addEventListener('pointerdown', onDocumentPointerDown, true)
-  window.addEventListener('resize', onViewportResize)
+  measureContainer()
+  window.addEventListener('resize', measureContainer)
+  if (rootEl.value && typeof ResizeObserver !== 'undefined') {
+    containerResizeObserver = new ResizeObserver(() => measureContainer())
+    containerResizeObserver.observe(rootEl.value)
+  }
 })
 onUnmounted(() => {
   document.removeEventListener('pointerdown', onDocumentPointerDown, true)
-  window.removeEventListener('resize', onViewportResize)
+  window.removeEventListener('resize', measureContainer)
+  containerResizeObserver?.disconnect()
   stopLiveClock()
 })
 </script>
@@ -992,7 +1064,7 @@ onUnmounted(() => {
             <rect :x="MARGIN.left" :y="MARGIN.top" :width="PLOT_W" :height="PLOT_H" />
           </clipPath>
           <linearGradient id="line-gradient" gradientUnits="userSpaceOnUse" :x1="MARGIN.left" :y1="MARGIN.top" :x2="MARGIN.left" :y2="MARGIN.top + PLOT_H">
-            <stop v-for="(s, i) in liveZoneInfo.gradientStops" :key="i" :offset="s.offset" :stop-color="s.color" />
+            <stop v-for="(s, i) in liveGradientStops" :key="i" :offset="s.offset" :stop-color="s.color" />
           </linearGradient>
         </defs>
 
@@ -1007,14 +1079,17 @@ onUnmounted(() => {
           :class="z.className"
         />
 
-        <!-- Grid + thresholds stay fixed in place — only the data sweeps -->
+        <!-- Grid + thresholds stay fixed in place — only the data sweeps.
+             No text labels for alarm zones: the dashed lines, the subtle
+             zone shading, and the Y-axis values themselves (highlighted
+             below) are the only indicators, per the SCADA-style spec. -->
         <line
           v-for="t in liveYTicks"
-          :key="`live-grid-${t}`"
+          :key="`live-grid-${t.value}`"
           :x1="MARGIN.left"
           :x2="VB_W - MARGIN.right"
-          :y1="liveYScale(t)"
-          :y2="liveYScale(t)"
+          :y1="liveYScale(t.value)"
+          :y2="liveYScale(t.value)"
           class="grid-line"
         />
         <line
@@ -1026,14 +1101,6 @@ onUnmounted(() => {
           class="threshold-line threshold-high"
         />
         <line
-          v-if="liveZoneInfo.normalLineY != null"
-          :x1="MARGIN.left"
-          :x2="VB_W - MARGIN.right"
-          :y1="liveZoneInfo.normalLineY"
-          :y2="liveZoneInfo.normalLineY"
-          class="threshold-line threshold-normal"
-        />
-        <line
           v-if="lowThreshold != null"
           :x1="MARGIN.left"
           :x2="VB_W - MARGIN.right"
@@ -1042,21 +1109,24 @@ onUnmounted(() => {
           class="threshold-line threshold-low"
         />
 
-        <!-- Left-side zone labels -->
-        <text v-if="highThreshold != null" :x="MARGIN.left + 8" :y="liveYScale(highThreshold) - 8" class="zone-label zone-label-alarm">
-          ALARM HIGH&#160;&#160;{{ fmtSigned(highThreshold) }}
+        <text
+          v-for="t in liveYTicks"
+          :key="`live-ylabel-${t.value}`"
+          :x="MARGIN.left - 10"
+          :y="liveYScale(t.value)"
+          class="axis-label y-label"
+          :class="{ 'y-label-high': t.isHigh, 'y-label-low': t.isLow }"
+        >
+          {{ t.value.toFixed(liveYDomain.step < 1 ? 1 : 0) }}°
         </text>
-        <text v-if="liveZoneInfo.normalLineY != null" :x="MARGIN.left + 8" :y="liveZoneInfo.normalLineY - 8" class="zone-label zone-label-normal">
-          NORMAL&#160;&#160;{{ fmtSigned(liveZoneInfo.normalLow ?? liveYDomain.min) }} – {{ fmtSigned(liveZoneInfo.normalHigh ?? liveYDomain.max) }}
-        </text>
-        <text v-if="lowThreshold != null" :x="MARGIN.left + 8" :y="liveYScale(lowThreshold) - 8" class="zone-label zone-label-alarm">
-          ALARM LOW&#160;&#160;{{ fmtSigned(lowThreshold) }}
-        </text>
-
-        <text v-for="t in liveYTicks" :key="`live-ylabel-${t}`" :x="MARGIN.left - 10" :y="liveYScale(t)" class="axis-label y-label">
-          {{ t.toFixed(liveYDomain.step < 1 ? 1 : 0) }}°
-        </text>
-        <text v-for="(tick, i) in liveXTicks" :key="`live-xlabel-${i}`" :x="tick.x" :y="XLABEL_Y" class="axis-label x-label">
+        <text
+          v-for="(tick, i) in liveXTicks"
+          :key="`live-xlabel-${i}`"
+          :x="tick.x"
+          :y="XLABEL_Y"
+          class="axis-label x-label"
+          :class="{ 'x-label-first': i === 0, 'x-label-last': i === liveXTicks.length - 1 }"
+        >
           {{ tick.label }}
         </text>
 
@@ -1112,7 +1182,7 @@ onUnmounted(() => {
             <stop offset="100%" stop-color="#0edbe5" stop-opacity="0" />
           </linearGradient>
           <linearGradient id="line-gradient" gradientUnits="userSpaceOnUse" :x1="MARGIN.left" :y1="MARGIN.top" :x2="MARGIN.left" :y2="MARGIN.top + PLOT_H">
-            <stop v-for="(s, i) in zoneInfo.gradientStops" :key="i" :offset="s.offset" :stop-color="s.color" />
+            <stop v-for="(s, i) in gradientStops" :key="i" :offset="s.offset" :stop-color="s.color" />
           </linearGradient>
         </defs>
 
@@ -1130,15 +1200,18 @@ onUnmounted(() => {
         <!-- Horizontal grid -->
         <line
           v-for="t in yTicks"
-          :key="`grid-${t}`"
+          :key="`grid-${t.value}`"
           :x1="MARGIN.left"
           :x2="VB_W - MARGIN.right"
-          :y1="yScale(t)"
-          :y2="yScale(t)"
+          :y1="yScale(t.value)"
+          :y2="yScale(t.value)"
           class="grid-line"
         />
 
-        <!-- Threshold lines (visually distinct from grid: dashed + color) -->
+        <!-- Threshold lines (visually distinct from grid: dashed + color).
+             No text labels for alarm zones — the dashed lines, the subtle
+             zone shading, and the highlighted Y-axis values below are the
+             only indicators, per the SCADA-style spec. -->
         <line
           v-if="highThreshold != null"
           :x1="MARGIN.left"
@@ -1146,14 +1219,6 @@ onUnmounted(() => {
           :y1="yScale(highThreshold)"
           :y2="yScale(highThreshold)"
           class="threshold-line threshold-high"
-        />
-        <line
-          v-if="zoneInfo.normalLineY != null"
-          :x1="MARGIN.left"
-          :x2="VB_W - MARGIN.right"
-          :y1="zoneInfo.normalLineY"
-          :y2="zoneInfo.normalLineY"
-          class="threshold-line threshold-normal"
         />
         <line
           v-if="lowThreshold != null"
@@ -1164,24 +1229,29 @@ onUnmounted(() => {
           class="threshold-line threshold-low"
         />
 
-        <!-- Left-side zone labels -->
-        <text v-if="highThreshold != null" :x="MARGIN.left + 8" :y="yScale(highThreshold) - 8" class="zone-label zone-label-alarm">
-          ALARM HIGH&#160;&#160;{{ fmtSigned(highThreshold) }}
-        </text>
-        <text v-if="zoneInfo.normalLineY != null" :x="MARGIN.left + 8" :y="zoneInfo.normalLineY - 8" class="zone-label zone-label-normal">
-          NORMAL&#160;&#160;{{ fmtSigned(zoneInfo.normalLow ?? yDomain.min) }} – {{ fmtSigned(zoneInfo.normalHigh ?? yDomain.max) }}
-        </text>
-        <text v-if="lowThreshold != null" :x="MARGIN.left + 8" :y="yScale(lowThreshold) - 8" class="zone-label zone-label-alarm">
-          ALARM LOW&#160;&#160;{{ fmtSigned(lowThreshold) }}
-        </text>
-
-        <!-- Y axis labels -->
-        <text v-for="t in yTicks" :key="`ylabel-${t}`" :x="MARGIN.left - 10" :y="yScale(t)" class="axis-label y-label">
-          {{ t.toFixed(yDomain.step < 1 ? 1 : 0) }}°
+        <!-- Y axis labels — HIGH/LOW threshold ticks are highlighted so the
+             boundary values themselves make the alarm levels obvious. -->
+        <text
+          v-for="t in yTicks"
+          :key="`ylabel-${t.value}`"
+          :x="MARGIN.left - 10"
+          :y="yScale(t.value)"
+          class="axis-label y-label"
+          :class="{ 'y-label-high': t.isHigh, 'y-label-low': t.isLow }"
+        >
+          {{ t.value.toFixed(yDomain.step < 1 ? 1 : 0) }}°
         </text>
 
-        <!-- X axis labels -->
-        <text v-for="(tick, i) in xTicks" :key="`xlabel-${i}`" :x="tick.x" :y="XLABEL_Y" class="axis-label x-label">
+        <!-- X axis labels — first/last are anchored inward (not centered)
+             so they never overhang past the plot edge. -->
+        <text
+          v-for="(tick, i) in xTicks"
+          :key="`xlabel-${i}`"
+          :x="tick.x"
+          :y="XLABEL_Y"
+          class="axis-label x-label"
+          :class="{ 'x-label-first': i === 0, 'x-label-last': i === xTicks.length - 1 }"
+        >
           {{ tick.label }}
         </text>
 
@@ -1189,9 +1259,13 @@ onUnmounted(() => {
         <path :d="areaPath" class="area-fill" />
         <path :d="linePath" class="line-path" />
 
-        <!-- Alarm timeline strip -->
+        <!-- Alarm timeline strip. Each marker is: a visible dot (small,
+             compact), a highlight ring shown only when selected, and a
+             separate much-larger invisible circle purely for touch/click
+             hit-testing — sized well past the visible dot so it's a real
+             thumb-friendly target without the strip itself looking big. -->
         <line :x1="MARGIN.left" :x2="VB_W - MARGIN.right" :y1="STRIP_Y + STRIP_H / 2" :y2="STRIP_Y + STRIP_H / 2" class="strip-baseline" />
-        <g v-for="(m, i) in markers" :key="`marker-${i}`">
+        <g v-for="(m, i) in markers" :key="`marker-${i}`" class="marker-group" :class="{ selected: isMarkerSelected(m) }">
           <line
             v-if="m.x2 != null"
             :x1="m.x1"
@@ -1201,22 +1275,26 @@ onUnmounted(() => {
             class="marker-span"
             :class="m.cls"
           />
-          <text
-            :x="m.x1"
-            :y="STRIP_Y + STRIP_H - 3"
-            class="marker-glyph"
-            :class="m.cls"
-            @mouseenter="hoveredMarker = m"
-            @mouseleave="hoveredMarker = null"
-          >{{ m.glyph }}</text>
           <circle
             v-if="m.x2 != null"
             :cx="m.x2"
             :cy="STRIP_Y + STRIP_H / 2"
-            r="3.2"
+            r="5"
             class="marker-resolved"
+            :class="m.cls"
+          />
+          <circle v-if="isMarkerSelected(m)" :cx="m.x1" :cy="STRIP_Y + STRIP_H / 2" r="15" class="marker-ring" :class="m.cls" />
+          <circle :cx="m.x1" :cy="STRIP_Y + STRIP_H / 2" r="10" class="marker-dot" :class="m.cls" />
+          <text :x="m.x1" :y="STRIP_Y + STRIP_H / 2" class="marker-glyph" :class="m.cls">{{ m.glyph }}</text>
+          <ellipse
+            :cx="m.x1"
+            :cy="STRIP_Y + STRIP_H / 2"
+            :rx="markerHitRx"
+            :ry="markerHitRy"
+            class="marker-hit"
+            @pointerdown.stop="selectMarker(m)"
             @mouseenter="hoveredMarker = m"
-            @mouseleave="hoveredMarker = null"
+            @mouseleave="onMarkerLeave(m)"
           />
         </g>
 
@@ -1332,9 +1410,9 @@ onUnmounted(() => {
 }
 .chart-svg:active { cursor: grabbing; }
 
-.zone-high { fill: rgba(255, 104, 117, 0.07); }
-.zone-low { fill: rgba(78, 168, 255, 0.07); }
-.zone-normal { fill: rgba(0, 231, 123, 0.035); }
+.zone-high { fill: rgba(239, 68, 68, 0.07); }
+.zone-low { fill: rgba(59, 130, 246, 0.07); }
+.zone-normal { fill: rgba(34, 197, 94, 0.035); }
 
 .grid-line { stroke: #14293c; stroke-width: 1; vector-effect: non-scaling-stroke; }
 
@@ -1344,22 +1422,16 @@ onUnmounted(() => {
   vector-effect: non-scaling-stroke;
   opacity: 0.75;
 }
-.threshold-high { stroke: #ff6875; }
-.threshold-low { stroke: #4ea8ff; }
-.threshold-normal { stroke: #00e77b; opacity: 0.5; }
-
-.zone-label {
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-anchor: start;
-}
-.zone-label-alarm { fill: #ff6875; }
-.zone-label-normal { fill: #00e77b; }
+.threshold-high { stroke: #ef4444; }
+.threshold-low { stroke: #3b82f6; }
 
 .axis-label { fill: #9cadc7; font-size: 16.5px; }
 .y-label { text-anchor: end; dominant-baseline: middle; }
+.y-label-high { fill: #ef4444; font-weight: 700; }
+.y-label-low { fill: #3b82f6; font-weight: 700; }
 .x-label { text-anchor: middle; }
+.x-label-first { text-anchor: start; }
+.x-label-last { text-anchor: end; }
 
 .area-fill { fill: url(#area-gradient); opacity: 0.5; }
 .line-path {
@@ -1390,13 +1462,44 @@ onUnmounted(() => {
 }
 
 .strip-baseline { stroke: #1a2f43; stroke-width: 1; vector-effect: non-scaling-stroke; }
-.marker-span { stroke-width: 2; vector-effect: non-scaling-stroke; opacity: 0.6; }
-.marker-glyph { font-size: 13px; text-anchor: middle; cursor: pointer; }
-.marker-resolved { fill: #00e77b; cursor: pointer; }
+.marker-span { stroke-width: 2.5; vector-effect: non-scaling-stroke; opacity: 0.55; }
+.marker-resolved { stroke: none; opacity: 0.7; }
 
-.marker-high, .marker-high.marker-span { fill: #ff6875; stroke: #ff6875; }
-.marker-low, .marker-low.marker-span { fill: #4ea8ff; stroke: #4ea8ff; }
-.marker-offline, .marker-offline.marker-span { fill: #8fa1ba; stroke: #8fa1ba; }
+.marker-dot {
+  stroke: #071620;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  transition: r 0.12s ease;
+}
+.marker-group.selected .marker-dot { stroke: #eafeff; }
+
+.marker-ring {
+  fill: none;
+  stroke-width: 2;
+  opacity: 0.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.marker-glyph {
+  font-size: 12px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+  fill: #071620;
+  pointer-events: none;
+}
+
+/* The actual tap/click/hover target — deliberately much bigger than the
+   visible dot so it reads as a proper touch target on mobile without the
+   timeline strip itself looking oversized. */
+.marker-hit { fill: transparent; cursor: pointer; }
+
+.marker-high, .marker-high.marker-span, .marker-high.marker-resolved, .marker-high.marker-ring { fill: #ef4444; stroke: #ef4444; }
+.marker-low, .marker-low.marker-span, .marker-low.marker-resolved, .marker-low.marker-ring { fill: #3b82f6; stroke: #3b82f6; }
+.marker-offline, .marker-offline.marker-span, .marker-offline.marker-resolved, .marker-offline.marker-ring { fill: #8fa1ba; stroke: #8fa1ba; }
+/* Higher specificity than the type-color rules above so the glyph symbol
+   itself always stays dark for contrast against its colored dot. */
+.marker-glyph.marker-high, .marker-glyph.marker-low, .marker-glyph.marker-offline { fill: #071620; }
 
 .crosshair { stroke: #8fa1ba; stroke-width: 1; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; opacity: 0.6; }
 .crosshair.locked { stroke: #0edbe5; opacity: 0.85; }
@@ -1430,7 +1533,6 @@ onUnmounted(() => {
 
 @media (max-width: 800px) {
   .axis-label { font-size: 20px; }
-  .zone-label { font-size: 15px; }
   .tooltip { padding: 12px 14px; }
   .tooltip dt, .tooltip dd { font-size: 12px; }
   .tooltip-temp { font-size: 20px; }

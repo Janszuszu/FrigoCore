@@ -264,7 +264,7 @@ watch(selectedObjectId,pickObject);
 
 @media(max-width:1100px){.dashboard{max-width:100%}.chart-panel{height:clamp(420px,58vh,560px)}}
 @media(max-width:800px){
- .dashboard{padding:16px}.selectors{grid-template-columns:1fr;gap:12px}.chart-panel{height:480px;padding:16px}
+ .dashboard{padding:16px}.selectors{grid-template-columns:1fr;gap:12px}.chart-panel{height:clamp(260px,64vw,340px);padding:16px}
  /* Narrow screens: collapse the toggle button to icon-only so the row
     never wraps or scrolls, in both normal and fullscreen mode. */
  .fullscreen-btn span,.exit-fullscreen-btn span{display:none}
