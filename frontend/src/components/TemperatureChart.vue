@@ -2,31 +2,42 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AlarmItem, ChartRange, MeasurementItem, SensorItem } from '@/types'
 
-const props = defineProps<{
-  sensor: SensorItem
-  readings: MeasurementItem[] // ascending by received_at (oldest first)
-  range: ChartRange
-  highThreshold: number | null
-  lowThreshold: number | null
-  alarms: AlarmItem[] // this sensor's alarms overlapping the visible range
-  activeAlarmLabel: string | null
-  online: boolean
-  loading: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    sensor: SensorItem
+    readings: MeasurementItem[] // ascending by received_at (oldest first)
+    range: ChartRange
+    highThreshold: number | null
+    lowThreshold: number | null
+    alarms: AlarmItem[] // this sensor's alarms overlapping the visible range
+    activeAlarmLabel: string | null
+    online: boolean
+    loading: boolean
+    // 'classic' = colored high/low/normal background zones (current default).
+    // 'scada' = alternative theme: uniform near-black background, no zones —
+    // everything else (grid, line, threshold lines, alarm colors, all
+    // interactions) is identical between the two. Purely a rendering choice
+    // so both can be compared before picking a default.
+    theme?: 'classic' | 'scada'
+  }>(),
+  { theme: 'classic' },
+)
 
 const isLive = computed(() => props.range === 'LIVE')
 
 // ─── Layout constants (internal SVG coordinate space) ──────────────
-// No Y-axis labels and no separate alarm-marker strip row — alarm start
-// times render as colored labels sharing the X-axis label row instead —
-// so the left margin only needs a hair of breathing room and the bottom
-// margin only needs to fit one row of axis text, not axis-text + a strip.
+// No Y-axis labels. Alarm start times get their own two rows ABOVE the
+// regular periodic timeline row (never sharing it — that was the source
+// of the label-overlap bug) — the bottom margin fits: plot edge -> alarm
+// lane 1 (staggered/overflow) -> alarm lane 0 (primary) -> periodic ticks.
 const VB_W = 1000
 const VB_H = 340
-const MARGIN = { top: 16, right: 16, bottom: 56, left: 12 }
+const MARGIN = { top: 16, right: 16, bottom: 70, left: 12 }
 const PLOT_W = VB_W - MARGIN.left - MARGIN.right
 const PLOT_H = VB_H - MARGIN.top - MARGIN.bottom
-const XLABEL_Y = MARGIN.top + PLOT_H + 30
+const XLABEL_Y = MARGIN.top + PLOT_H + 56
+// Lane 0 = primary (closer to the periodic row), lane 1 = staggered/overflow.
+const ALARM_LABEL_ROW_Y = [MARGIN.top + PLOT_H + 36, MARGIN.top + PLOT_H + 18]
 
 // ─── Data ────────────────────────────────────────────────────────
 const validReadings = computed(() =>
@@ -639,6 +650,44 @@ const markers = computed(() => {
     .filter((m): m is NonNullable<typeof m> => m !== null)
 })
 
+// ─── Alarm label collision avoidance ───────────────────────────────
+// Alarm start-time labels get their own two rows above the periodic X-axis
+// row (see ALARM_LABEL_ROW_Y) so they can never overlap the regular
+// timeline labels — that's structural (different Y), not something this
+// needs to compute. What this DOES handle is alarm labels colliding with
+// EACH OTHER: walk them in time order, and greedily place each one in the
+// first lane where it clears a minimum gap from the last label already
+// placed in that lane. A label that collides in both lanes is hidden
+// entirely rather than rendered overlapping — per spec, readability beats
+// showing every single alarm.
+const ALARM_LABEL_MIN_GAP_PX = 46
+const alarmLabelMinGapVb = computed(() => {
+  const scaleX = containerWidthPx.value / VB_W
+  return scaleX > 0 ? ALARM_LABEL_MIN_GAP_PX / scaleX : 60
+})
+
+interface MarkerLayout {
+  marker: (typeof markers.value)[number]
+  lane: 0 | 1
+  visible: boolean
+}
+
+const markerLayout = computed<MarkerLayout[]>(() => {
+  const sorted = [...markers.value].sort((a, b) => a.x1 - b.x1)
+  const minGap = alarmLabelMinGapVb.value
+  const laneLastX = [-Infinity, -Infinity]
+  return sorted.map((marker) => {
+    const lane = laneLastX.findIndex((lastX) => marker.x1 - lastX >= minGap)
+    if (lane === -1) return { marker, lane: 0, visible: false }
+    laneLastX[lane] = marker.x1
+    return { marker, lane: lane as 0 | 1, visible: true }
+  })
+})
+
+// Separate computed (rather than v-if alongside v-for on the same
+// template element) purely so vue-tsc can narrow `entry` cleanly.
+const visibleMarkerLayout = computed(() => markerLayout.value.filter((entry) => entry.visible))
+
 function formatDuration(startIso: string, endIso: string | null): string {
   const startMs = new Date(startIso).getTime()
   const endMs = endIso ? new Date(endIso).getTime() : Date.now()
@@ -1032,16 +1081,20 @@ onUnmounted(() => {
           </linearGradient>
         </defs>
 
-        <!-- Background zones -->
-        <rect
-          v-for="(z, i) in liveZones"
-          :key="`live-zone-${i}`"
-          :x="MARGIN.left"
-          :y="z.y"
-          :width="PLOT_W"
-          :height="z.height"
-          :class="z.className"
-        />
+        <!-- Uniform near-black background (scada theme) OR colored
+             high/low/normal zones (classic theme) — mutually exclusive. -->
+        <rect v-if="theme === 'scada'" x="0" y="0" :width="VB_W" :height="VB_H" class="scada-bg" />
+        <template v-else>
+          <rect
+            v-for="(z, i) in liveZones"
+            :key="`live-zone-${i}`"
+            :x="MARGIN.left"
+            :y="z.y"
+            :width="PLOT_W"
+            :height="z.height"
+            :class="z.className"
+          />
+        </template>
 
         <!-- Grid + thresholds stay fixed in place — only the data sweeps.
              No text labels for alarm zones: the dashed lines, the subtle
@@ -1137,16 +1190,20 @@ onUnmounted(() => {
           </linearGradient>
         </defs>
 
-        <!-- Background zones -->
-        <rect
-          v-for="(z, i) in zones"
-          :key="`zone-${i}`"
-          :x="MARGIN.left"
-          :y="z.y"
-          :width="PLOT_W"
-          :height="z.height"
-          :class="z.className"
-        />
+        <!-- Uniform near-black background (scada theme) OR colored
+             high/low/normal zones (classic theme) — mutually exclusive. -->
+        <rect v-if="theme === 'scada'" x="0" y="0" :width="VB_W" :height="VB_H" class="scada-bg" />
+        <template v-else>
+          <rect
+            v-for="(z, i) in zones"
+            :key="`zone-${i}`"
+            :x="MARGIN.left"
+            :y="z.y"
+            :width="PLOT_W"
+            :height="z.height"
+            :class="z.className"
+          />
+        </template>
 
         <!-- Horizontal grid -->
         <line
@@ -1197,30 +1254,45 @@ onUnmounted(() => {
         <path :d="areaPath" class="area-fill" />
         <path :d="linePath" class="line-path" />
 
-        <!-- Alarm start times rendered directly on the X-axis, colored by
-             type — these ARE the clickable alarm markers now (no separate
-             icon strip). Each is: the colored time label, a selected-state
-             background pill, and a much-larger invisible rect purely for
-             touch/click hit-testing (>=44px regardless of viewBox scale). -->
-        <g v-for="(m, i) in markers" :key="`marker-${i}`" class="marker-group" :class="{ selected: isMarkerSelected(m) }">
+        <!-- Alarm start times, colored by type, on their own two rows ABOVE
+             the periodic X-axis row (never sharing it — that's what caused
+             the overlap). These labels ARE the clickable alarm markers (no
+             separate icon strip). markerLayout has already resolved
+             collisions: each visible label sits in a lane clear of its
+             neighbors, and anything that couldn't fit is hidden rather than
+             rendered on top of another label. Each visible one is: the
+             colored time label, a selected-state background pill, and a
+             much-larger invisible rect purely for touch/click hit-testing
+             (>=44px regardless of viewBox scale). -->
+        <g
+          v-for="(entry, i) in visibleMarkerLayout"
+          :key="`marker-${i}`"
+          class="marker-group"
+          :class="{ selected: isMarkerSelected(entry.marker) }"
+        >
           <rect
-            v-if="isMarkerSelected(m)"
-            :x="m.x1 - markerHitHalfW * 0.55"
-            :y="XLABEL_Y - 14"
+            v-if="isMarkerSelected(entry.marker)"
+            :x="entry.marker.x1 - markerHitHalfW * 0.55"
+            :y="ALARM_LABEL_ROW_Y[entry.lane] - 14"
             :width="markerHitHalfW * 1.1"
             height="20"
             rx="5"
             class="marker-pill"
-            :class="m.cls"
+            :class="entry.marker.cls"
           />
-          <text :x="m.x1" :y="XLABEL_Y" class="axis-label x-label marker-time" :class="m.cls">{{ m.label }}</text>
+          <text
+            :x="entry.marker.x1"
+            :y="ALARM_LABEL_ROW_Y[entry.lane]"
+            class="axis-label x-label marker-time"
+            :class="entry.marker.cls"
+          >{{ entry.marker.label }}</text>
           <rect
-            :x="m.x1 - markerHitHalfW"
-            :y="XLABEL_Y - markerHitHalfH"
+            :x="entry.marker.x1 - markerHitHalfW"
+            :y="ALARM_LABEL_ROW_Y[entry.lane] - markerHitHalfH"
             :width="markerHitHalfW * 2"
             :height="markerHitHalfH * 2"
             class="marker-hit"
-            @pointerdown.stop="selectMarker(m)"
+            @pointerdown.stop="selectMarker(entry.marker)"
           />
         </g>
 
@@ -1340,6 +1412,11 @@ onUnmounted(() => {
 .zone-high { fill: rgba(239, 68, 68, 0.07); }
 .zone-low { fill: rgba(59, 130, 246, 0.07); }
 .zone-normal { fill: rgba(34, 197, 94, 0.035); }
+
+/* Alternative "scada" theme: uniform near-black background instead of the
+   colored high/low/normal zones — grid, line, threshold lines and alarm
+   colors are all shared with the classic theme, unchanged. */
+.scada-bg { fill: #04070b; }
 
 .grid-line { stroke: #14293c; stroke-width: 1; vector-effect: non-scaling-stroke; }
 
