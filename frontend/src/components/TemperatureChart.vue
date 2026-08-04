@@ -17,18 +17,16 @@ const props = defineProps<{
 const isLive = computed(() => props.range === 'LIVE')
 
 // ─── Layout constants (internal SVG coordinate space) ──────────────
-// MARGIN.bottom/VB_H were both increased by the same amount (+30) versus
-// the previous layout, purely to give the alarm-marker strip enough room
-// to be touch-friendly (see STRIP_H below) — PLOT_H itself (the actual
-// plotting area) is unchanged.
+// No Y-axis labels and no separate alarm-marker strip row — alarm start
+// times render as colored labels sharing the X-axis label row instead —
+// so the left margin only needs a hair of breathing room and the bottom
+// margin only needs to fit one row of axis text, not axis-text + a strip.
 const VB_W = 1000
-const VB_H = 395
-const MARGIN = { top: 16, right: 16, bottom: 93, left: 58 }
+const VB_H = 340
+const MARGIN = { top: 16, right: 16, bottom: 56, left: 12 }
 const PLOT_W = VB_W - MARGIN.left - MARGIN.right
 const PLOT_H = VB_H - MARGIN.top - MARGIN.bottom
-const STRIP_Y = MARGIN.top + PLOT_H + 10
-const STRIP_H = 38
-const XLABEL_Y = STRIP_Y + STRIP_H + 20
+const XLABEL_Y = MARGIN.top + PLOT_H + 30
 
 // ─── Data ────────────────────────────────────────────────────────
 const validReadings = computed(() =>
@@ -159,17 +157,17 @@ const containerWidthPx = ref(390)
 const containerHeightPx = ref(300)
 let containerResizeObserver: ResizeObserver | null = null
 
-// Marker touch targets are drawn as an ellipse (not a circle) with rx/ry
+// Marker touch targets are a rect (not just the text's own tight bbox)
 // solved from the CURRENT container scale so the real rendered target is
-// genuinely ~44x44 CSS px regardless of viewBox non-uniform scaling —
-// a plain fixed-radius circle would render as a lopsided, undersized
-// ellipse once stretched to the container's actual aspect ratio.
+// genuinely >=44x44 CSS px regardless of viewBox non-uniform scaling — a
+// fixed viewBox-unit size would render lopsided/undersized once stretched
+// to the container's actual aspect ratio.
 const MARKER_TOUCH_TARGET_PX = 44
-const markerHitRx = computed(() => {
+const markerHitHalfW = computed(() => {
   const scaleX = containerWidthPx.value / VB_W
   return scaleX > 0 ? MARKER_TOUCH_TARGET_PX / 2 / scaleX : 40
 })
-const markerHitRy = computed(() => {
+const markerHitHalfH = computed(() => {
   const scaleY = containerHeightPx.value / VB_H
   return scaleY > 0 ? MARKER_TOUCH_TARGET_PX / 2 / scaleY : 40
 })
@@ -604,16 +602,15 @@ const zones = computed(() =>
   buildZones(yScale, yDomain.value.min, yDomain.value.max, props.lowThreshold, props.highThreshold),
 )
 
-// ─── Alarm timeline markers ─────────────────────────────────────
-const ALARM_GLYPH: Record<string, string> = {
-  high_temperature: '▲',
-  low_temperature: '▼',
-  offline: '■',
-}
+// ─── Alarm timeline markers — colored start-time labels on the X-axis ──
 const ALARM_CLASS: Record<string, string> = {
   high_temperature: 'marker-high',
   low_temperature: 'marker-low',
   offline: 'marker-offline',
+}
+
+function formatMarkerTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
 }
 
 const markers = computed(() => {
@@ -633,8 +630,7 @@ const markers = computed(() => {
       return {
         alarm,
         x1: xScaleMs(startMs),
-        x2: endMs != null ? xScaleMs(endMs) : null,
-        glyph: ALARM_GLYPH[alarm.alarm_type] ?? '●',
+        label: formatMarkerTime(startMs),
         cls: ALARM_CLASS[alarm.alarm_type] ?? 'marker-offline',
         maxTemp: temps.length ? Math.max(...temps) : null,
         minTemp: temps.length ? Math.min(...temps) : null,
@@ -1078,16 +1074,6 @@ onUnmounted(() => {
         />
 
         <text
-          v-for="t in liveYTicks"
-          :key="`live-ylabel-${t.value}`"
-          :x="MARGIN.left - 10"
-          :y="liveYScale(t.value)"
-          class="axis-label y-label"
-          :class="{ 'y-label-high': t.isHigh, 'y-label-low': t.isLow }"
-        >
-          {{ t.value.toFixed(liveYDomain.step < 1 ? 1 : 0) }}°
-        </text>
-        <text
           v-for="(tick, i) in liveXTicks"
           :key="`live-xlabel-${i}`"
           :x="tick.x"
@@ -1194,19 +1180,6 @@ onUnmounted(() => {
           class="threshold-line threshold-low"
         />
 
-        <!-- Y axis labels — HIGH/LOW threshold ticks are highlighted so the
-             boundary values themselves make the alarm levels obvious. -->
-        <text
-          v-for="t in yTicks"
-          :key="`ylabel-${t.value}`"
-          :x="MARGIN.left - 10"
-          :y="yScale(t.value)"
-          class="axis-label y-label"
-          :class="{ 'y-label-high': t.isHigh, 'y-label-low': t.isLow }"
-        >
-          {{ t.value.toFixed(yDomain.step < 1 ? 1 : 0) }}°
-        </text>
-
         <!-- X axis labels — first/last are anchored inward (not centered)
              so they never overhang past the plot edge. -->
         <text
@@ -1224,38 +1197,28 @@ onUnmounted(() => {
         <path :d="areaPath" class="area-fill" />
         <path :d="linePath" class="line-path" />
 
-        <!-- Alarm timeline strip. Each marker is: a visible dot (small,
-             compact), a highlight ring shown only when selected, and a
-             separate much-larger invisible circle purely for touch/click
-             hit-testing — sized well past the visible dot so it's a real
-             thumb-friendly target without the strip itself looking big. -->
-        <line :x1="MARGIN.left" :x2="VB_W - MARGIN.right" :y1="STRIP_Y + STRIP_H / 2" :y2="STRIP_Y + STRIP_H / 2" class="strip-baseline" />
+        <!-- Alarm start times rendered directly on the X-axis, colored by
+             type — these ARE the clickable alarm markers now (no separate
+             icon strip). Each is: the colored time label, a selected-state
+             background pill, and a much-larger invisible rect purely for
+             touch/click hit-testing (>=44px regardless of viewBox scale). -->
         <g v-for="(m, i) in markers" :key="`marker-${i}`" class="marker-group" :class="{ selected: isMarkerSelected(m) }">
-          <line
-            v-if="m.x2 != null"
-            :x1="m.x1"
-            :x2="m.x2"
-            :y1="STRIP_Y + STRIP_H / 2"
-            :y2="STRIP_Y + STRIP_H / 2"
-            class="marker-span"
+          <rect
+            v-if="isMarkerSelected(m)"
+            :x="m.x1 - markerHitHalfW * 0.55"
+            :y="XLABEL_Y - 14"
+            :width="markerHitHalfW * 1.1"
+            height="20"
+            rx="5"
+            class="marker-pill"
             :class="m.cls"
           />
-          <circle
-            v-if="m.x2 != null"
-            :cx="m.x2"
-            :cy="STRIP_Y + STRIP_H / 2"
-            r="6"
-            class="marker-resolved"
-            :class="m.cls"
-          />
-          <circle v-if="isMarkerSelected(m)" :cx="m.x1" :cy="STRIP_Y + STRIP_H / 2" r="18" class="marker-ring" :class="m.cls" />
-          <circle :cx="m.x1" :cy="STRIP_Y + STRIP_H / 2" r="12" class="marker-dot" :class="m.cls" />
-          <text :x="m.x1" :y="STRIP_Y + STRIP_H / 2" class="marker-glyph" :class="m.cls">{{ m.glyph }}</text>
-          <ellipse
-            :cx="m.x1"
-            :cy="STRIP_Y + STRIP_H / 2"
-            :rx="markerHitRx"
-            :ry="markerHitRy"
+          <text :x="m.x1" :y="XLABEL_Y" class="axis-label x-label marker-time" :class="m.cls">{{ m.label }}</text>
+          <rect
+            :x="m.x1 - markerHitHalfW"
+            :y="XLABEL_Y - markerHitHalfH"
+            :width="markerHitHalfW * 2"
+            :height="markerHitHalfH * 2"
             class="marker-hit"
             @pointerdown.stop="selectMarker(m)"
           />
@@ -1294,7 +1257,7 @@ onUnmounted(() => {
            readable and easy to dismiss with a thumb on mobile. Only one can
            be open at a time (hoveredMarker is a single ref); picking another
            marker just replaces it. -->
-      <div v-if="hoveredMarker" class="alarm-modal-backdrop" @click.self="hoveredMarker = null">
+      <div v-if="hoveredMarker" class="alarm-modal-backdrop" @pointerdown.self="hoveredMarker = null">
         <div class="alarm-modal">
           <button type="button" class="alarm-modal-close" aria-label="Close" @click="hoveredMarker = null">✕</button>
           <div class="tooltip-title" :class="hoveredMarker.cls">{{ alarmTypeLabel(hoveredMarker.alarm.alarm_type) }}</div>
@@ -1390,9 +1353,6 @@ onUnmounted(() => {
 .threshold-low { stroke: #3b82f6; }
 
 .axis-label { fill: #9cadc7; font-size: 16.5px; }
-.y-label { text-anchor: end; dominant-baseline: middle; }
-.y-label-high { fill: #ef4444; font-weight: 700; }
-.y-label-low { fill: #3b82f6; font-weight: 700; }
 .x-label { text-anchor: middle; }
 .x-label-first { text-anchor: start; }
 .x-label-last { text-anchor: end; }
@@ -1409,45 +1369,30 @@ onUnmounted(() => {
 
 .chart-svg-live { cursor: default; }
 
-.strip-baseline { stroke: #1a2f43; stroke-width: 1; vector-effect: non-scaling-stroke; }
-.marker-span { stroke-width: 2.5; vector-effect: non-scaling-stroke; opacity: 0.55; }
-.marker-resolved { stroke: none; opacity: 0.7; }
+/* Alarm start times, colored by type, sharing the X-axis label row — these
+   text elements ARE the clickable alarm markers now. */
+.marker-time { font-weight: 700; pointer-events: none; }
+.marker-high.marker-time { fill: #ef4444; }
+.marker-low.marker-time { fill: #3b82f6; }
+.marker-offline.marker-time { fill: #8fa1ba; }
 
-.marker-dot {
-  stroke: #071620;
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-  transition: r 0.12s ease;
-}
-.marker-group.selected .marker-dot { stroke: #eafeff; }
-
-.marker-ring {
-  fill: none;
-  stroke-width: 2;
-  opacity: 0.6;
-  vector-effect: non-scaling-stroke;
-}
-
-.marker-glyph {
-  font-size: 13px;
-  font-weight: 700;
-  text-anchor: middle;
-  dominant-baseline: central;
-  fill: #071620;
-  pointer-events: none;
-}
+.marker-pill { opacity: 0.22; }
+.marker-pill.marker-high { fill: #ef4444; }
+.marker-pill.marker-low { fill: #3b82f6; }
+.marker-pill.marker-offline { fill: #8fa1ba; }
 
 /* The actual tap/click/hover target — deliberately much bigger than the
-   visible dot so it reads as a proper touch target on mobile without the
-   timeline strip itself looking oversized. */
-.marker-hit { fill: transparent; cursor: pointer; }
-
-.marker-high, .marker-high.marker-span, .marker-high.marker-resolved, .marker-high.marker-ring { fill: #ef4444; stroke: #ef4444; }
-.marker-low, .marker-low.marker-span, .marker-low.marker-resolved, .marker-low.marker-ring { fill: #3b82f6; stroke: #3b82f6; }
-.marker-offline, .marker-offline.marker-span, .marker-offline.marker-resolved, .marker-offline.marker-ring { fill: #8fa1ba; stroke: #8fa1ba; }
-/* Higher specificity than the type-color rules above so the glyph symbol
-   itself always stays dark for contrast against its colored dot. */
-.marker-glyph.marker-high, .marker-glyph.marker-low, .marker-glyph.marker-offline { fill: #071620; }
+   visible label so it reads as a proper (>=44px) touch target on mobile.
+   Explicitly kills text-selection and the long-press callout/context-menu
+   a browser would otherwise show over what looks like selectable text. */
+.marker-hit {
+  fill: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 
 .crosshair { stroke: #8fa1ba; stroke-width: 1; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; opacity: 0.6; }
 .crosshair.locked { stroke: #0edbe5; opacity: 0.85; }
