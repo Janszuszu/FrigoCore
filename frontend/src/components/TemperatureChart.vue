@@ -464,10 +464,23 @@ const liveLinePath = computed(() => {
   return buildMonotonePath(pts)
 })
 
+// The last timestamp actually appended to livePoints — the ONLY reliable
+// way to know "did new data arrive". The store's live measurement array
+// is a length-capped ring buffer (unshift + pop at LIVE_CAP), so once a
+// long-running LIVE session fills it, its .length stops changing on every
+// subsequent WS push even though genuinely new points keep arriving (an
+// old one is evicted for each new one). Comparing array lengths was the
+// previous (broken) approach — it misread "length didn't grow" as "no new
+// data / snapshot changed", forcing a full resetLive() on every single
+// live measurement once the cap was reached, which is what caused the
+// sweep to keep flickering/restarting instead of extending smoothly.
+let lastAppendedLiveTs: number | null = null
+
 function resetLive() {
   livePoints.value = []
   liveSweepStart.value = Date.now()
   liveNow.value = liveSweepStart.value
+  lastAppendedLiveTs = null
 }
 
 function appendLivePoint(t: number, temp: number) {
@@ -531,30 +544,37 @@ watch(isLive, (live) => {
   }
 }, { immediate: true })
 
-// Unified readings watcher: LIVE mode appends only the new tail (no zoom/
-// selection to reset — both are disabled in LIVE); historical ranges keep
-// the old full-reset behavior when the parent swaps in a new snapshot.
+// Unified readings watcher: LIVE mode appends only genuinely new points
+// (no zoom/selection to reset — both are disabled in LIVE); historical
+// ranges keep the full-reset behavior when the parent swaps in a new
+// snapshot.
+//
+// "New" is decided by timestamp against lastAppendedLiveTs, NOT by array
+// length. The store's live buffer is a capped ring (see LIVE_CAP in
+// stores/sensors.ts) — its length plateaus once full even though the
+// WS is still delivering fresh measurements, so length-diffing can't
+// distinguish "nothing new happened" from "the buffer is just full".
+// Timestamp identity has no such blind spot: it's correct whether the
+// array grew, stayed the same length, or (in principle) shrank.
 watch(
   () => props.readings,
-  (newR, oldR) => {
+  (newR) => {
     if (!isLive.value) {
       zoomStart.value = 0
       zoomEnd.value = 1
       clearSelection()
       return
     }
-    const old = oldR ?? []
     if (newR.length === 0) {
       resetLive()
       return
     }
-    const grewInPlace = newR.length > old.length
-    const tail = grewInPlace ? newR.slice(old.length) : newR
-    if (!grewInPlace) resetLive()
-    for (const r of tail) {
-      if (typeof r.temperature === 'number' && !Number.isNaN(r.temperature)) {
-        appendLivePoint(new Date(r.received_at).getTime(), r.temperature)
-      }
+    for (const r of newR) {
+      if (typeof r.temperature !== 'number' || Number.isNaN(r.temperature)) continue
+      const t = new Date(r.received_at).getTime()
+      if (lastAppendedLiveTs != null && t <= lastAppendedLiveTs) continue
+      appendLivePoint(t, r.temperature)
+      lastAppendedLiveTs = t
     }
   },
 )
