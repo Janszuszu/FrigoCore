@@ -30,6 +30,7 @@ from app.models.alarm_config import AlarmConfig
 from app.api.websocket import manager as ws_manager
 from app.models.notification_profile import NotificationProfile
 from app.models.sensor import Sensor
+from app.schemas import AlarmResponse
 from app.services.notification_engine import NotificationEngine
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,16 @@ def _ensure_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+def _alarm_payload(alarm: Alarm) -> dict:
+    """Serialize an alarm to the same full shape the REST API returns.
+
+    WS broadcasts must match AlarmResponse/AlarmItem exactly — a partial
+    payload gets blindly merged over the frontend's cached alarm and
+    clobbers fields (e.g. triggered_at) the client already had.
+    """
+    return AlarmResponse.model_validate(alarm).model_dump(mode="json")
 
 
 class AlarmEngine:
@@ -147,21 +158,12 @@ class AlarmEngine:
                         description=_build_description(config.alarm_type, trigger_value),
                     )
                     session.add(alarm)
+                    await session.flush()  # populate id/created_at/updated_at before broadcasting
                     logger.info(
                         "Alarm PENDING — type=%s sensor=%s value=%s",
                         config.alarm_type, sensor.name, trigger_value,
                     )
-                    await ws_manager.broadcast(
-                        "alarm.pending",
-                        {
-                            "id": str(alarm.id),
-                            "alarm_type": _alarm_type_str(alarm),
-                            "trigger_value": trigger_value,
-                            "detected_at": now.isoformat(),
-                            "object_id": str(alarm.object_id),
-                            "sensor_id": str(alarm.sensor_id),
-                        },
-                    )
+                    await ws_manager.broadcast("alarm.pending", _alarm_payload(alarm))
 
     # ------------------------------------------------------------------
     # Step 2 — PENDING → TRIGGERED
@@ -195,21 +197,12 @@ class AlarmEngine:
                 alarm.status = AlarmStatus.TRIGGERED
                 alarm.triggered_at = now
                 session.add(alarm)
+                await session.flush()  # persist updated_at before broadcasting
                 logger.warning(
                     "Alarm TRIGGERED — type=%s sensor=%s value=%s",
                     alarm_type_str, sensor.name, alarm.trigger_value,
                 )
-                await ws_manager.broadcast(
-                    "alarm.triggered",
-                    {
-                        "id": str(alarm.id),
-                        "alarm_type": alarm_type_str,
-                        "trigger_value": alarm.trigger_value,
-                        "triggered_at": now.isoformat(),
-                        "object_id": str(alarm.object_id),
-                        "sensor_id": str(alarm.sensor_id),
-                    },
-                )
+                await ws_manager.broadcast("alarm.triggered", _alarm_payload(alarm))
                 await _send_triggered_notification(session, alarm)
 
     # ------------------------------------------------------------------
@@ -256,17 +249,9 @@ class AlarmEngine:
                 alarm.status = AlarmStatus.RESOLVED
                 alarm.resolved_at = now
                 session.add(alarm)
+                await session.flush()  # persist updated_at before broadcasting
                 logger.info("Alarm RESOLVED — type=%s sensor=%s", alarm_type_str, sensor.name)
-                await ws_manager.broadcast(
-                    "alarm.resolved",
-                    {
-                        "id": str(alarm.id),
-                        "alarm_type": alarm_type_str,
-                        "resolved_at": now.isoformat(),
-                        "object_id": str(alarm.object_id),
-                        "sensor_id": str(alarm.sensor_id),
-                    },
-                )
+                await ws_manager.broadcast("alarm.resolved", _alarm_payload(alarm))
 
 
 def _build_description(alarm_type: AlarmType, value: float | None) -> str:
