@@ -184,7 +184,13 @@ const minLabelWidthPx = computed(() => {
 
 const tickCount = computed(() => {
   const plotWidthPx = containerWidthPx.value * (PLOT_W / VB_W)
-  const maxTicks = Math.floor(plotWidthPx / minLabelWidthPx.value)
+  // The first/last labels are edge-anchored (start/end) so their full
+  // width extends inward from the axis edge, unlike interior labels which
+  // are center-anchored and only need half their width on each side. The
+  // binding constraint is therefore the edge-to-neighbor gap, which needs
+  // ~1.5x a label's width to clear — not 1x, or the outermost ticks
+  // collide with their neighbor at narrow/mobile widths.
+  const maxTicks = Math.floor(plotWidthPx / (minLabelWidthPx.value * 1.5))
   return Math.min(7, Math.max(2, maxTicks))
 })
 
@@ -384,10 +390,6 @@ function buildLineGradientStops(
 const gradientStops = computed(() =>
   buildLineGradientStops(yScale, yDomain.value.min, yDomain.value.max, props.lowThreshold, props.highThreshold),
 )
-
-function fmtSigned(v: number): string {
-  return `${v >= 0 ? '+' : ''}${v.toFixed(1)}°C`
-}
 
 const areaPath = computed(() => {
   if (!linePath.value || !visible.value.length) return ''
@@ -931,65 +933,27 @@ function positionFromViewBox(vbX: number, vbY: number, boxWidth = 220): { left: 
   return { left: `${left}px`, top: `${top}px` }
 }
 
-// containerWidthPx is read (not used numerically) purely to give these
-// computeds a reactive dependency on the container's size — without it,
+// containerWidthPx is read (not used numerically) purely to give this
+// computed a reactive dependency on the container's size — without it,
 // resizing or rotating the device wouldn't reposition an already-open
-// tooltip or the always-on latest-value badge, since svgEl's bounding
-// rect is read imperatively and isn't itself reactive.
+// tooltip, since svgEl's bounding rect is read imperatively and isn't
+// itself reactive.
 const tooltipStyle = computed(() => {
   void containerWidthPx.value
   return positionFromViewBox(tooltipPos.value.x, tooltipPos.value.y)
 })
 
-const markerTooltipStyle = computed(() => {
-  void containerWidthPx.value
-  const m = hoveredMarker.value
-  if (!m) return {}
-  return positionFromViewBox(m.x1, STRIP_Y)
-})
-
-// ─── Latest-value marker — always visible, independent of hover/tap ─
-const latestReading = computed(() => {
-  if (isLive.value) {
-    const p = livePoints.value[livePoints.value.length - 1]
-    if (!p) return null
-    return { x: Math.min(liveRawX(p.t) + liveShiftPx.value, MARGIN.left + PLOT_W), y: liveYScale(p.temp), temp: p.temp }
-  }
-  const d = visible.value
-  if (!d.length) return null
-  const last = d[d.length - 1]
-  return { x: xScale(last.received_at), y: yScale(last.temperature), temp: last.temperature }
-})
-
-// Compact variant of positionFromViewBox: centers vertically on the point
-// (rather than offsetting above it) and assumes a much smaller box, since
-// this is a short value badge, not a multi-line tooltip.
-function badgePositionFromViewBox(vbX: number, vbY: number, boxWidth = 92, boxHeight = 30): { left: string; top: string } {
-  const el = svgEl.value
-  if (!el) return { left: '0px', top: '0px' }
-  const rect = el.getBoundingClientRect()
-  const pxPerVbX = rect.width / VB_W
-  const pxPerVbY = rect.height / VB_H
-  let left = vbX * pxPerVbX + 12
-  if (left + boxWidth > rect.width) left = Math.max(0, vbX * pxPerVbX - boxWidth - 12)
-  left = Math.min(left, Math.max(0, rect.width - boxWidth))
-  const top = Math.max(0, Math.min(vbY * pxPerVbY - boxHeight / 2, rect.height - boxHeight))
-  return { left: `${left}px`, top: `${top}px` }
-}
-
-const latestBadgeStyle = computed(() => {
-  void containerWidthPx.value
-  const r = latestReading.value
-  if (!r) return {}
-  return badgePositionFromViewBox(r.x, r.y)
-})
-
 // Tapping a marker's (generous) hit-circle stops the pointerdown from
 // reaching the chart's own handler — otherwise the same tap would also
-// select/lock the nearest curve point underneath it, showing both
-// tooltips at once. `.stop` on the template binding does that; this just
-// sets the selection and clears any point-tooltip that was already open.
+// select/lock the nearest curve point underneath it, showing both popups
+// at once. `.stop` on the template binding does that. Tapping the
+// already-open alarm's marker again closes its popup (toggle); tapping a
+// different marker replaces it, so only one popup ever exists.
 function selectMarker(m: (typeof markers.value)[number]) {
+  if (isMarkerSelected(m)) {
+    hoveredMarker.value = null
+    return
+  }
   hoveredMarker.value = m
   clearSelection()
 }
@@ -1000,9 +964,6 @@ function selectMarker(m: (typeof markers.value)[number]) {
 // has open, even though it's still the same alarm.
 function isMarkerSelected(m: (typeof markers.value)[number]): boolean {
   return hoveredMarker.value?.alarm.id === m.alarm.id
-}
-function onMarkerLeave(m: (typeof markers.value)[number]) {
-  if (isMarkerSelected(m)) hoveredMarker.value = null
 }
 
 // A locked (touch-selected) point tooltip or an open marker tooltip only
@@ -1149,10 +1110,7 @@ onUnmounted(() => {
           </g>
         </g>
 
-        <!-- Latest value: always-on marker, independent of hover/tap -->
-        <circle v-if="latestReading" :cx="latestReading.x" :cy="latestReading.y" r="4.5" class="latest-dot" />
       </svg>
-      <div v-if="latestReading" class="latest-badge" :style="latestBadgeStyle">{{ fmtSigned(latestReading.temp) }}</div>
     </div>
 
     <div v-else-if="!validReadings.length" class="empty-state">
@@ -1286,12 +1244,12 @@ onUnmounted(() => {
             v-if="m.x2 != null"
             :cx="m.x2"
             :cy="STRIP_Y + STRIP_H / 2"
-            r="5"
+            r="6"
             class="marker-resolved"
             :class="m.cls"
           />
-          <circle v-if="isMarkerSelected(m)" :cx="m.x1" :cy="STRIP_Y + STRIP_H / 2" r="15" class="marker-ring" :class="m.cls" />
-          <circle :cx="m.x1" :cy="STRIP_Y + STRIP_H / 2" r="10" class="marker-dot" :class="m.cls" />
+          <circle v-if="isMarkerSelected(m)" :cx="m.x1" :cy="STRIP_Y + STRIP_H / 2" r="18" class="marker-ring" :class="m.cls" />
+          <circle :cx="m.x1" :cy="STRIP_Y + STRIP_H / 2" r="12" class="marker-dot" :class="m.cls" />
           <text :x="m.x1" :y="STRIP_Y + STRIP_H / 2" class="marker-glyph" :class="m.cls">{{ m.glyph }}</text>
           <ellipse
             :cx="m.x1"
@@ -1300,8 +1258,6 @@ onUnmounted(() => {
             :ry="markerHitRy"
             class="marker-hit"
             @pointerdown.stop="selectMarker(m)"
-            @mouseenter="hoveredMarker = m"
-            @mouseleave="onMarkerLeave(m)"
           />
         </g>
 
@@ -1325,12 +1281,7 @@ onUnmounted(() => {
             :class="{ locked: isPointLocked }"
           />
         </template>
-
-        <!-- Latest value: always-on marker, independent of hover/tap -->
-        <circle v-if="latestReading" :cx="latestReading.x" :cy="latestReading.y" r="4.5" class="latest-dot" />
       </svg>
-
-      <div v-if="latestReading" class="latest-badge" :style="latestBadgeStyle">{{ fmtSigned(latestReading.temp) }}</div>
 
       <!-- Point tooltip: compact by design — temperature, date, time only -->
       <div v-if="hoveredReading" class="tooltip point-tooltip" :style="tooltipStyle">
@@ -1339,16 +1290,22 @@ onUnmounted(() => {
         <div class="tooltip-time">{{ fmtTime(hoveredReading.received_at) }}</div>
       </div>
 
-      <!-- Alarm marker tooltip -->
-      <div v-if="hoveredMarker" class="tooltip marker-tooltip" :style="markerTooltipStyle">
-        <div class="tooltip-title" :class="hoveredMarker.cls">{{ alarmTypeLabel(hoveredMarker.alarm.alarm_type) }}</div>
-        <dl>
-          <dt>Start</dt><dd>{{ fmtDate(hoveredMarker.alarm.triggered_at ?? hoveredMarker.alarm.detected_at) }} {{ fmtTime(hoveredMarker.alarm.triggered_at ?? hoveredMarker.alarm.detected_at) }}</dd>
-          <dt>End</dt><dd>{{ hoveredMarker.alarm.resolved_at ? `${fmtDate(hoveredMarker.alarm.resolved_at)} ${fmtTime(hoveredMarker.alarm.resolved_at)}` : 'ongoing' }}</dd>
-          <dt>Duration</dt><dd>{{ formatDuration(hoveredMarker.alarm.triggered_at ?? hoveredMarker.alarm.detected_at, hoveredMarker.alarm.resolved_at) }}</dd>
-          <dt>Max</dt><dd>{{ fmtTemp(hoveredMarker.maxTemp) }}</dd>
-          <dt>Min</dt><dd>{{ fmtTemp(hoveredMarker.minTemp) }}</dd>
-        </dl>
+      <!-- Alarm popup: centered modal (not anchored to the marker) so it's
+           readable and easy to dismiss with a thumb on mobile. Only one can
+           be open at a time (hoveredMarker is a single ref); picking another
+           marker just replaces it. -->
+      <div v-if="hoveredMarker" class="alarm-modal-backdrop" @click.self="hoveredMarker = null">
+        <div class="alarm-modal">
+          <button type="button" class="alarm-modal-close" aria-label="Close" @click="hoveredMarker = null">✕</button>
+          <div class="tooltip-title" :class="hoveredMarker.cls">{{ alarmTypeLabel(hoveredMarker.alarm.alarm_type) }}</div>
+          <dl>
+            <dt>Start</dt><dd>{{ fmtDate(hoveredMarker.alarm.triggered_at ?? hoveredMarker.alarm.detected_at) }} {{ fmtTime(hoveredMarker.alarm.triggered_at ?? hoveredMarker.alarm.detected_at) }}</dd>
+            <dt>End</dt><dd>{{ hoveredMarker.alarm.resolved_at ? `${fmtDate(hoveredMarker.alarm.resolved_at)} ${fmtTime(hoveredMarker.alarm.resolved_at)}` : 'ongoing' }}</dd>
+            <dt>Duration</dt><dd>{{ formatDuration(hoveredMarker.alarm.triggered_at ?? hoveredMarker.alarm.detected_at, hoveredMarker.alarm.resolved_at) }}</dd>
+            <dt>Max</dt><dd>{{ fmtTemp(hoveredMarker.maxTemp) }}</dd>
+            <dt>Min</dt><dd>{{ fmtTemp(hoveredMarker.minTemp) }}</dd>
+          </dl>
+        </div>
       </div>
     </div>
   </div>
@@ -1451,22 +1408,6 @@ onUnmounted(() => {
 }
 
 .chart-svg-live { cursor: default; }
-.latest-dot { fill: #0edbe5; stroke: #071620; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.latest-badge {
-  position: absolute;
-  z-index: 3;
-  background: #0a1827;
-  border: 1px solid #0edbe5;
-  border-radius: 14px;
-  padding: 4px 10px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #0edbe5;
-  white-space: nowrap;
-  pointer-events: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-  font-variant-numeric: tabular-nums;
-}
 
 .strip-baseline { stroke: #1a2f43; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .marker-span { stroke-width: 2.5; vector-effect: non-scaling-stroke; opacity: 0.55; }
@@ -1488,7 +1429,7 @@ onUnmounted(() => {
 }
 
 .marker-glyph {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   text-anchor: middle;
   dominant-baseline: central;
@@ -1538,11 +1479,58 @@ onUnmounted(() => {
 .tooltip-temp { font-size: 24px; font-weight: 700; color: #0edbe5; line-height: 1; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
 .tooltip-date, .tooltip-time { font-size: 13px; color: #9aabc5; }
 
+/* Alarm popup: a centered modal, not anchored to the marker — dark
+   backdrop, ~80-90% viewport width on mobile (capped on larger screens),
+   closed by the X button, tapping the backdrop, or tapping the same
+   marker again. */
+.alarm-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 9, 16, 0.72);
+  padding: 20px;
+}
+.alarm-modal {
+  position: relative;
+  width: min(88vw, 420px);
+  max-height: 85vh;
+  overflow: auto;
+  background: #0a1827;
+  border: 1px solid #26516b;
+  border-radius: 14px;
+  padding: 24px 20px 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.alarm-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0d2436;
+  border: 1px solid #26516b;
+  border-radius: 50%;
+  color: #b9c9e6;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.alarm-modal-close:hover { border-color: #00cce3; color: #00e5ef; }
+.alarm-modal .tooltip-title { font-size: 16px; margin: 0 26px 16px 0; }
+.alarm-modal dl { display: grid; grid-template-columns: auto auto; gap: 10px 20px; margin: 0; }
+.alarm-modal dt { font-size: 14px; color: #8fa1ba; }
+.alarm-modal dd { margin: 0; font-size: 14px; color: #e8effa; text-align: right; font-variant-numeric: tabular-nums; }
+
 @media (max-width: 800px) {
   .axis-label { font-size: 20px; }
   .tooltip { padding: 12px 14px; }
   .tooltip dt, .tooltip dd { font-size: 12px; }
   .tooltip-temp { font-size: 20px; }
-  .latest-badge { font-size: 12px; padding: 3px 8px; }
 }
 </style>

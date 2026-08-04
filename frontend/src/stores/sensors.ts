@@ -23,7 +23,7 @@ export const useSensorsStore = defineStore("sensors", () => {
   const loading = ref(false);
   const rangeLoading = ref(false);
   const error = ref<string | null>(null);
-  const currentRange = ref<ChartRange>("LIVE");
+  const currentRange = ref<ChartRange>("24H");
 
   async function fetchSensors(objectId: string) {
     loading.value = true;
@@ -37,10 +37,10 @@ export const useSensorsStore = defineStore("sensors", () => {
     }
   }
 
-  function selectSensor(sensor: SensorItem | null) {
+  function selectSensor(sensor: SensorItem | null, range: ChartRange = "24H") {
     selectedSensor.value = sensor;
     if (sensor) {
-      fetchMeasurementsForRange("LIVE");
+      fetchMeasurementsForRange(range);
     } else {
       measurements.value = [];
     }

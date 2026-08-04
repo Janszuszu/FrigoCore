@@ -8,7 +8,7 @@ import type { AlarmConfigItem, ChartRange, MeasurementItem } from "@/types";
 import TemperatureChart from "@/components/TemperatureChart.vue";
 
 const objectsStore=useObjectsStore(), sensorsStore=useSensorsStore(), alarmsStore=useAlarmsStore();
-const selectedObjectId=ref(""), selectedSensorId=ref(""), range=ref<ChartRange>("LIVE");
+const selectedObjectId=ref(""), selectedSensorId=ref(""), range=ref<ChartRange>("24H");
 const alarmConfigs=ref<AlarmConfigItem[]>([]);
 const isChartFullscreen=ref(false);
 
@@ -97,8 +97,8 @@ async function pickObject(){
   if(sensorsStore.sensors[0]){selectedSensorId.value=sensorsStore.sensors[0].id;pickSensor()}
 }
 function pickSensor(){
-  range.value="LIVE";
-  sensorsStore.selectSensor(sensorsStore.sensors.find(x=>x.id===selectedSensorId.value)||null);
+  range.value="24H";
+  sensorsStore.selectSensor(sensorsStore.sensors.find(x=>x.id===selectedSensorId.value)||null,"24H");
   if(selectedSensorId.value) loadAlarmConfigs(selectedSensorId.value);
 }
 
@@ -112,7 +112,7 @@ watch(selectedObjectId,pickObject);
 </script>
 <template>
  <section class="dashboard">
-  <div class="selectors"><label>Obiekt:<select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select></label><label>Czujnik:<select v-model="selectedSensorId" @change="pickSensor" :disabled="!selectedObjectId"><option value="">Wybierz sensor</option><option v-for="item in sensorsStore.sensors" :key="item.id" :value="item.id">{{item.name}}</option></select></label></div>
+  <div class="selectors"><label>OBIEKT<select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select></label><label>SENSOR<select v-model="selectedSensorId" @change="pickSensor" :disabled="!selectedObjectId"><option value="">Wybierz sensor</option><option v-for="item in sensorsStore.sensors" :key="item.id" :value="item.id">{{item.name}}</option></select></label></div>
   <template v-if="sensor">
    <article class="temperature-panel">
     <div class="hero">
@@ -235,7 +235,7 @@ watch(selectedObjectId,pickObject);
    point the chart + range selector go fullscreen together (the range
    selector must stay usable/visible while fullscreen). */
 .chart-fullscreen-root{display:flex;flex-direction:column;flex:1;min-height:0;position:relative}
-.chart-fullscreen-root.fullscreen{position:fixed;inset:0;flex:none;width:100vw;height:100vh;height:100dvh;padding:6px 10px 6px;background:#07121e;z-index:40}
+.chart-fullscreen-root.fullscreen{position:fixed;inset:0;flex:none;width:100vw;height:100vh;height:100dvh;padding:4px;background:#07121e;z-index:40}
 
 /* Control strip lives BELOW the chart now — chart is the dominant element,
    controls are a secondary, thumb-reachable row underneath it. One shared
@@ -257,10 +257,20 @@ watch(selectedObjectId,pickObject);
 .exit-fullscreen-btn:hover{border-color:#ff6875;color:#ff8b93}
 .empty{text-align:center;padding:100px;color:#8fa1ba}
 
-/* Fullscreen toolbar: ONE row pinned to the bottom, right-aligned — range
-   buttons, a fixed spacer, then Exit Fullscreen at the far right. */
-.chart-fullscreen-root.fullscreen .ranges{margin-top:0;padding:4px 0;justify-content:flex-end;flex:none}
-.chart-fullscreen-root.fullscreen .toolbar-spacer{width:18px;flex:none}
+/* Fullscreen: SCADA-style floating toolbar. It overlays the chart itself,
+   pinned to the top-right corner, so the chart underneath can occupy
+   almost the entire screen. Semi-transparent + blurred so it stays
+   legible without fully hiding the plot behind it; the Y axis lives on
+   the left and X axis labels sit at the bottom, so a top-right pill
+   never covers either. */
+.chart-fullscreen-root.fullscreen .ranges{
+  position:absolute;top:14px;right:14px;z-index:41;
+  margin-top:0;padding:6px 8px;flex:none;justify-content:flex-end;
+  background:rgba(7,18,30,0.8);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  border:1px solid rgba(38,62,86,0.7);border-radius:12px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.35);
+}
+.chart-fullscreen-root.fullscreen .toolbar-spacer{display:none}
 
 @media(max-width:1100px){.dashboard{max-width:100%}.chart-panel{height:clamp(420px,58vh,560px)}}
 @media(max-width:800px){
@@ -271,15 +281,15 @@ watch(selectedObjectId,pickObject);
  .fullscreen-btn,.exit-fullscreen-btn{width:40px;padding:0}
  .ranges{gap:6px}
  .range-buttons{gap:6px}
- .chart-fullscreen-root.fullscreen .toolbar-spacer{width:14px}
+ .chart-fullscreen-root.fullscreen .ranges{top:8px;right:8px;gap:6px;padding:5px 6px}
 }
 
-/* Short landscape phones (~375-430px tall once rotated): trim the toolbar
-   further to keep the chart close to the 90-95% target without shrinking
-   tap targets past comfortable thumb use. */
+/* Short landscape phones (~375-430px tall once rotated): trim the floating
+   toolbar further to keep the chart close to the 90-95% target without
+   shrinking tap targets past comfortable thumb use. */
 @media(max-height:430px){
- .chart-fullscreen-root.fullscreen{padding:4px 8px 4px}
- .chart-fullscreen-root.fullscreen .ranges{padding:2px 0}
+ .chart-fullscreen-root.fullscreen{padding:2px}
+ .chart-fullscreen-root.fullscreen .ranges{top:6px;right:6px;padding:4px 5px}
  .chart-fullscreen-root.fullscreen .ranges button,
  .chart-fullscreen-root.fullscreen .fullscreen-btn,
  .chart-fullscreen-root.fullscreen .exit-fullscreen-btn{height:36px}
