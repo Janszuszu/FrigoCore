@@ -61,7 +61,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.app-shell { min-height:100vh; background:#020910; color:#edf4ff; display:flex; flex-direction:column; }
+.app-shell { height:100vh; background:#020910; color:#edf4ff; display:flex; flex-direction:column; }
 .app-header { height:68px; border-bottom:1px solid #172638; background:linear-gradient(100deg,#02070d,#06111c); display:flex; align-items:center; padding:0 26px; gap:26px; flex:none; }
 button { font:inherit; } .menu-button,.refresh { display:grid; place-items:center; color:#b8c8e1; background:transparent; border:0; padding:0; cursor:pointer; } .menu-button svg { width:28px; height:28px; } .refresh svg { width:25px; height:25px; }
 svg { fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
