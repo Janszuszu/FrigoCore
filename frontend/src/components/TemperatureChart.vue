@@ -2,26 +2,17 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AlarmItem, ChartRange, MeasurementItem, SensorItem } from '@/types'
 
-const props = withDefaults(
-  defineProps<{
-    sensor: SensorItem
-    readings: MeasurementItem[] // ascending by received_at (oldest first)
-    range: ChartRange
-    highThreshold: number | null
-    lowThreshold: number | null
-    alarms: AlarmItem[] // this sensor's alarms overlapping the visible range
-    activeAlarmLabel: string | null
-    online: boolean
-    loading: boolean
-    // 'classic' = colored high/low/normal background zones (current default).
-    // 'scada' = alternative theme: uniform near-black background, no zones —
-    // everything else (grid, line, threshold lines, alarm colors, all
-    // interactions) is identical between the two. Purely a rendering choice
-    // so both can be compared before picking a default.
-    theme?: 'classic' | 'scada'
-  }>(),
-  { theme: 'classic' },
-)
+const props = defineProps<{
+  sensor: SensorItem
+  readings: MeasurementItem[] // ascending by received_at (oldest first)
+  range: ChartRange
+  highThreshold: number | null
+  lowThreshold: number | null
+  alarms: AlarmItem[] // this sensor's alarms overlapping the visible range
+  activeAlarmLabel: string | null
+  online: boolean
+  loading: boolean
+}>()
 
 const isLive = computed(() => props.range === 'LIVE')
 
@@ -400,15 +391,6 @@ const gradientStops = computed(() =>
   buildLineGradientStops(yScale, yDomain.value.min, yDomain.value.max, props.lowThreshold, props.highThreshold),
 )
 
-const areaPath = computed(() => {
-  if (!linePath.value || !visible.value.length) return ''
-  const d = visible.value
-  const first = xScale(d[0].received_at)
-  const last = xScale(d[d.length - 1].received_at)
-  const floor = MARGIN.top + PLOT_H
-  return `${linePath.value} L${last},${floor} L${first},${floor} Z`
-})
-
 // ─── LIVE mode: oscilloscope-style sweep ──────────────────────────
 // Independent of the historical zoom/pan/linePath machinery above. The
 // x-axis is real wall-clock time anchored at when LIVE (re)started, not a
@@ -540,10 +522,6 @@ const liveGradientStops = computed(() =>
   buildLineGradientStops(liveYScale, liveYDomain.value.min, liveYDomain.value.max, props.lowThreshold, props.highThreshold),
 )
 
-const liveZones = computed(() =>
-  buildZones(liveYScale, liveYDomain.value.min, liveYDomain.value.max, props.lowThreshold, props.highThreshold),
-)
-
 watch(isLive, (live) => {
   if (live) {
     resetLive()
@@ -581,37 +559,6 @@ watch(
   },
 )
 
-
-// ─── Background zones — subtle shading for the three alarm bands ───
-function buildZones(
-  scaleFn: (temp: number) => number,
-  domainMin: number,
-  domainMax: number,
-  lowT: number | null,
-  highT: number | null,
-): { y: number; height: number; className: string }[] {
-  const top = MARGIN.top
-  const bottom = MARGIN.top + PLOT_H
-  const zonesList: { y: number; height: number; className: string }[] = []
-  if (highT != null && highT < domainMax) {
-    const y = scaleFn(Math.min(highT, domainMax))
-    zonesList.push({ y: top, height: Math.max(y - top, 0), className: 'zone-high' })
-  }
-  if (lowT != null && lowT > domainMin) {
-    const y = scaleFn(Math.max(lowT, domainMin))
-    zonesList.push({ y, height: Math.max(bottom - y, 0), className: 'zone-low' })
-  }
-  const normalTop = highT != null ? scaleFn(Math.min(highT, domainMax)) : top
-  const normalBottom = lowT != null ? scaleFn(Math.max(lowT, domainMin)) : bottom
-  if (normalBottom > normalTop) {
-    zonesList.push({ y: normalTop, height: normalBottom - normalTop, className: 'zone-normal' })
-  }
-  return zonesList
-}
-
-const zones = computed(() =>
-  buildZones(yScale, yDomain.value.min, yDomain.value.max, props.lowThreshold, props.highThreshold),
-)
 
 // ─── Alarm timeline markers — colored start-time labels on the X-axis ──
 const ALARM_CLASS: Record<string, string> = {
@@ -1081,25 +1028,12 @@ onUnmounted(() => {
           </linearGradient>
         </defs>
 
-        <!-- Uniform near-black background (scada theme) OR colored
-             high/low/normal zones (classic theme) — mutually exclusive. -->
-        <rect v-if="theme === 'scada'" x="0" y="0" :width="VB_W" :height="VB_H" class="scada-bg" />
-        <template v-else>
-          <rect
-            v-for="(z, i) in liveZones"
-            :key="`live-zone-${i}`"
-            :x="MARGIN.left"
-            :y="z.y"
-            :width="PLOT_W"
-            :height="z.height"
-            :class="z.className"
-          />
-        </template>
+        <!-- Industrial SCADA/HMI look: uniform matte-black background, no
+             color fills of any kind behind the graph — just a subtle grid
+             and the line/threshold colors. -->
+        <rect x="0" y="0" :width="VB_W" :height="VB_H" class="chart-bg" />
 
-        <!-- Grid + thresholds stay fixed in place — only the data sweeps.
-             No text labels for alarm zones: the dashed lines, the subtle
-             zone shading, and the Y-axis values themselves (highlighted
-             below) are the only indicators, per the SCADA-style spec. -->
+        <!-- Grid stays fixed in place — only the data sweeps. -->
         <line
           v-for="t in liveYTicks"
           :key="`live-grid-${t.value}`"
@@ -1107,6 +1041,15 @@ onUnmounted(() => {
           :x2="VB_W - MARGIN.right"
           :y1="liveYScale(t.value)"
           :y2="liveYScale(t.value)"
+          class="grid-line"
+        />
+        <line
+          v-for="(tick, i) in liveXTicks"
+          :key="`live-vgrid-${i}`"
+          :x1="tick.x"
+          :x2="tick.x"
+          :y1="MARGIN.top"
+          :y2="MARGIN.top + PLOT_H"
           class="grid-line"
         />
         <line
@@ -1181,31 +1124,17 @@ onUnmounted(() => {
         @touchmove="onTouchMove"
       >
         <defs>
-          <linearGradient id="area-gradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#0edbe5" stop-opacity="0.28" />
-            <stop offset="100%" stop-color="#0edbe5" stop-opacity="0" />
-          </linearGradient>
           <linearGradient id="line-gradient" gradientUnits="userSpaceOnUse" :x1="MARGIN.left" :y1="MARGIN.top" :x2="MARGIN.left" :y2="MARGIN.top + PLOT_H">
             <stop v-for="(s, i) in gradientStops" :key="i" :offset="s.offset" :stop-color="s.color" />
           </linearGradient>
         </defs>
 
-        <!-- Uniform near-black background (scada theme) OR colored
-             high/low/normal zones (classic theme) — mutually exclusive. -->
-        <rect v-if="theme === 'scada'" x="0" y="0" :width="VB_W" :height="VB_H" class="scada-bg" />
-        <template v-else>
-          <rect
-            v-for="(z, i) in zones"
-            :key="`zone-${i}`"
-            :x="MARGIN.left"
-            :y="z.y"
-            :width="PLOT_W"
-            :height="z.height"
-            :class="z.className"
-          />
-        </template>
+        <!-- Industrial SCADA/HMI look: uniform matte-black background, no
+             color fills of any kind behind the graph — just a subtle grid
+             and the line/threshold colors. -->
+        <rect x="0" y="0" :width="VB_W" :height="VB_H" class="chart-bg" />
 
-        <!-- Horizontal grid -->
+        <!-- Grid — thin horizontal AND vertical lines, subtle. -->
         <line
           v-for="t in yTicks"
           :key="`grid-${t.value}`"
@@ -1215,11 +1144,19 @@ onUnmounted(() => {
           :y2="yScale(t.value)"
           class="grid-line"
         />
+        <line
+          v-for="(tick, i) in xTicks"
+          :key="`vgrid-${i}`"
+          :x1="tick.x"
+          :x2="tick.x"
+          :y1="MARGIN.top"
+          :y2="MARGIN.top + PLOT_H"
+          class="grid-line"
+        />
 
         <!-- Threshold lines (visually distinct from grid: dashed + color).
-             No text labels for alarm zones — the dashed lines, the subtle
-             zone shading, and the highlighted Y-axis values below are the
-             only indicators, per the SCADA-style spec. -->
+             The dashed lines and the line's own color transitions are the
+             only alarm indicators — no zone shading, no area fill. -->
         <line
           v-if="highThreshold != null"
           :x1="MARGIN.left"
@@ -1250,8 +1187,7 @@ onUnmounted(() => {
           {{ tick.label }}
         </text>
 
-        <!-- Area + line -->
-        <path :d="areaPath" class="area-fill" />
+        <!-- Line only — no fill behind the graph. -->
         <path :d="linePath" class="line-path" />
 
         <!-- Alarm start times, colored by type, on their own two rows ABOVE
@@ -1409,16 +1345,12 @@ onUnmounted(() => {
 }
 .chart-svg:active { cursor: grabbing; }
 
-.zone-high { fill: rgba(239, 68, 68, 0.07); }
-.zone-low { fill: rgba(59, 130, 246, 0.07); }
-.zone-normal { fill: rgba(34, 197, 94, 0.035); }
+/* Industrial SCADA/HMI look: one uniform matte-black/graphite background,
+   no color fills of any kind behind the graph — just a subtle grid and
+   the line/threshold colors (green/red/blue). */
+.chart-bg { fill: #08090b; }
 
-/* Alternative "scada" theme: uniform near-black background instead of the
-   colored high/low/normal zones — grid, line, threshold lines and alarm
-   colors are all shared with the classic theme, unchanged. */
-.scada-bg { fill: #04070b; }
-
-.grid-line { stroke: #14293c; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.grid-line { stroke: #1c2126; stroke-width: 1; vector-effect: non-scaling-stroke; }
 
 .threshold-line {
   stroke-width: 1.4;
@@ -1434,7 +1366,6 @@ onUnmounted(() => {
 .x-label-first { text-anchor: start; }
 .x-label-last { text-anchor: end; }
 
-.area-fill { fill: url(#area-gradient); opacity: 0.5; }
 .line-path {
   fill: none;
   stroke: url(#line-gradient);
