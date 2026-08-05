@@ -248,69 +248,15 @@ function formatAxisTime(ms: number, spanMs: number): string {
   return d.toLocaleDateString('pl-PL', { day: '2-digit', month: 'short' })
 }
 
-// ─── Monotone cubic Hermite spline (Fritsch–Carlson) ───────────────
-// Unlike a plain Catmull-Rom spline, the monotonicity constraint below
-// clamps each segment's tangents so the curve never rings past a data
-// point's actual value — it stays smooth without ever overshooting.
-function buildMonotonePath(pts: { x: number; y: number }[]): string {
-  const n = pts.length
-  if (n === 0) return ''
-  if (n === 1) return `M${pts[0].x},${pts[0].y}`
-  if (n === 2) return `M${pts[0].x},${pts[0].y} L${pts[1].x},${pts[1].y}`
-
-  const dx: number[] = new Array(n - 1)
-  const slope: number[] = new Array(n - 1)
-  for (let i = 0; i < n - 1; i++) {
-    dx[i] = pts[i + 1].x - pts[i].x
-    const dy = pts[i + 1].y - pts[i].y
-    slope[i] = dx[i] !== 0 ? dy / dx[i] : 0
-  }
-
-  const m: number[] = new Array(n)
-  m[0] = slope[0]
-  m[n - 1] = slope[n - 2]
-  for (let i = 1; i < n - 1; i++) {
-    m[i] = slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2
-  }
-
-  // Fritsch–Carlson monotonicity constraint — the actual no-overshoot guarantee.
-  for (let i = 0; i < n - 1; i++) {
-    if (slope[i] === 0) {
-      m[i] = 0
-      m[i + 1] = 0
-      continue
-    }
-    const a = m[i] / slope[i]
-    const b = m[i + 1] / slope[i]
-    const h = Math.hypot(a, b)
-    if (h > 3) {
-      const tau = 3 / h
-      m[i] = tau * a * slope[i]
-      m[i + 1] = tau * b * slope[i]
-    }
-  }
-
-  let d = `M${pts[0].x},${pts[0].y}`
-  for (let i = 0; i < n - 1; i++) {
-    const p0 = pts[i]
-    const p1 = pts[i + 1]
-    const cp1x = p0.x + dx[i] / 3
-    const cp1y = p0.y + (m[i] * dx[i]) / 3
-    const cp2x = p1.x - dx[i] / 3
-    const cp2y = p1.y - (m[i + 1] * dx[i]) / 3
-    d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p1.x},${p1.y}`
-  }
-  return d
-}
-
 // ─── Render-point decimation ────────────────────────────────────────
-// Keeps the rendered path tractable with 10k+ historical points without
-// touching the domain/tooltip/marker logic, which still use the full-
-// fidelity `visible` array. Min/max-per-bucket (not a stride/average)
-// so real excursions above/below a threshold are never smoothed away.
+// Keeps the rendered column count tractable with 10k+ historical points
+// without touching the domain/tooltip/marker logic, which still use the
+// full-fidelity `visible` array. Min/max-per-bucket by temperature (not a
+// stride/average) so real excursions above/below a threshold are never
+// decimated away.
 const RENDER_POINT_BUDGET = 2000
 
-function decimateForRender<T extends { x: number; y: number }>(points: T[], maxPoints: number): T[] {
+function decimateForRender<T extends { x: number; t: number }>(points: T[], maxPoints: number): T[] {
   if (points.length <= maxPoints) return points
   const bucketSize = Math.ceil(points.length / (maxPoints / 2))
   const result: T[] = []
@@ -320,8 +266,8 @@ function decimateForRender<T extends { x: number; y: number }>(points: T[], maxP
     let minP = bucket[0]
     let maxP = bucket[0]
     for (const p of bucket) {
-      if (p.y < minP.y) minP = p
-      if (p.y > maxP.y) maxP = p
+      if (p.t < minP.t) minP = p
+      if (p.t > maxP.t) maxP = p
     }
     if (minP === maxP) {
       result.push(minP)
@@ -334,72 +280,78 @@ function decimateForRender<T extends { x: number; y: number }>(points: T[], maxP
   return result
 }
 
-const linePath = computed(() => {
-  const d = visible.value
-  if (d.length < 2) return ''
-  const pts = d.map((r) => ({ x: xScale(r.received_at), y: yScale(r.temperature) }))
-  return buildMonotonePath(decimateForRender(pts, RENDER_POINT_BUDGET))
-})
-
 // ─── Threshold-anchored color story ────────────────────────────────
-// Exactly three colors, no blend: green in the normal range, red above
-// HIGH, blue below LOW. Rendered as an SVG gradient stroke purely as an
-// implementation trick — each transition uses two stops at the identical
-// offset (a zero-width "blend"), so the color visibly cuts over exactly
-// at the threshold rather than fading through it, while still only
-// costing one <path> (no per-zone clip-path geometry).
-const LINE_COLOR_LOW = '#3b82f6'
-const LINE_COLOR_NORMAL = '#22c55e'
-const LINE_COLOR_HIGH = '#ef4444'
+// Exactly three colors, no blend, no gradient: green in the normal
+// range, red above HIGH, blue below LOW. Each column is a single solid
+// fill, decided from that column's own measurement only.
+const COLUMN_COLOR_LOW = '#3b82f6'
+const COLUMN_COLOR_NORMAL = '#22c55e'
+const COLUMN_COLOR_HIGH = '#ef4444'
 
-interface GradientStop {
-  offset: number
+interface Column {
+  x: number
+  y: number
+  width: number
+  height: number
   color: string
 }
 
-function buildLineGradientStops(
+// ─── True baseline column chart (ECMWF-anomaly style) ─────────────────
+// This is NOT a line chart redrawn as rectangles — there is no path, no
+// bridging, no per-neighbor sizing, nothing derived from the shape of a
+// curve. Every column is independent, identical width, constant spacing,
+// rooted at a fixed reference temperature (0°C) rather than the bottom of
+// the plot. That's the part that actually matters: because the baseline
+// sits inside the domain instead of at its floor, a column grows UP from
+// it for a reading >= 0°C and DOWN from it for a reading < 0°C — exactly
+// like an ECMWF anomaly bar grows up for a positive anomaly and down for
+// a negative one. Rooting every column at the plot's bottom edge instead
+// (an earlier attempt) traces the exact same silhouette as the old line
+// chart, just filled in solid — which is why it still read as "a line
+// wearing rectangles" even once the rectangles themselves were correct.
+//
+// A missing sample is simply a missing column — width/spacing come from
+// `PLOT_W / column count`, never from the calendar time to a neighbor, so
+// a sensor's offline gap can't stretch or balloon the columns next to it.
+const BASELINE_TEMP = 0
+const COLUMN_GAP_FRACTION = 0.32
+const MIN_COLUMN_WIDTH = 0.6
+const MIN_COLUMN_HEIGHT = 1.5
+
+function buildColumns(
+  points: { x: number; t: number }[],
   scaleFn: (temp: number) => number,
-  domainMin: number,
-  domainMax: number,
   lowT: number | null,
   highT: number | null,
-): GradientStop[] {
-  if (lowT == null && highT == null) {
-    return [
-      { offset: 0, color: LINE_COLOR_NORMAL },
-      { offset: 1, color: LINE_COLOR_NORMAL },
-    ]
-  }
-  const topY = scaleFn(domainMax)
-  const bottomY = scaleFn(domainMin)
-  const span = bottomY - topY || 1
-  const offsetFor = (temp: number) => Math.min(1, Math.max(0, (scaleFn(temp) - topY) / span))
-
-  const stops: GradientStop[] = [{ offset: 0, color: highT != null ? LINE_COLOR_HIGH : LINE_COLOR_NORMAL }]
-  if (highT != null) {
-    stops.push({ offset: offsetFor(highT), color: LINE_COLOR_HIGH })
-    stops.push({ offset: offsetFor(highT), color: LINE_COLOR_NORMAL })
-  }
-  if (lowT != null) {
-    stops.push({ offset: offsetFor(lowT), color: LINE_COLOR_NORMAL })
-    stops.push({ offset: offsetFor(lowT), color: LINE_COLOR_LOW })
-  }
-  stops.push({ offset: 1, color: lowT != null ? LINE_COLOR_LOW : LINE_COLOR_NORMAL })
-
-  // SVG gradients require non-decreasing offsets — clamp in case a
-  // threshold sits outside the (padded) visible domain.
-  for (let i = 1; i < stops.length; i++) {
-    if (stops[i].offset < stops[i - 1].offset) stops[i].offset = stops[i - 1].offset
-  }
-  return stops
+  plotTop: number,
+  plotBottom: number,
+): Column[] {
+  if (!points.length) return []
+  const pitch = points.length > 1 ? PLOT_W / points.length : PLOT_W
+  const width = Math.max(pitch * (1 - COLUMN_GAP_FRACTION), MIN_COLUMN_WIDTH)
+  // Clamped into the visible plot so a baseline temperature outside the
+  // current domain (a sensor that never gets near 0°C) still produces a
+  // sane one-directional column chart instead of one shooting past the edge.
+  const baselineY = Math.min(Math.max(scaleFn(BASELINE_TEMP), plotTop), plotBottom)
+  return points.map((p) => {
+    const py = scaleFn(p.t)
+    const top = Math.min(py, baselineY)
+    const height = Math.max(Math.abs(py - baselineY), MIN_COLUMN_HEIGHT)
+    const color = highT != null && p.t > highT ? COLUMN_COLOR_HIGH : lowT != null && p.t < lowT ? COLUMN_COLOR_LOW : COLUMN_COLOR_NORMAL
+    return { x: p.x - width / 2, y: top, width, height, color }
+  })
 }
 
-const gradientStops = computed(() =>
-  buildLineGradientStops(yScale, yDomain.value.min, yDomain.value.max, props.lowThreshold, props.highThreshold),
-)
+const columns = computed<Column[]>(() => {
+  const d = visible.value
+  if (!d.length) return []
+  const points = d.map((r) => ({ x: xScale(r.received_at), t: r.temperature }))
+  const decimated = decimateForRender(points, RENDER_POINT_BUDGET)
+  return buildColumns(decimated, yScale, props.lowThreshold, props.highThreshold, MARGIN.top, MARGIN.top + PLOT_H)
+})
 
 // ─── LIVE mode: oscilloscope-style sweep ──────────────────────────
-// Independent of the historical zoom/pan/linePath machinery above. The
+// Independent of the historical zoom/pan/columns machinery above. The
 // x-axis is real wall-clock time anchored at when LIVE (re)started, not a
 // normalized 0..1 window over a fetched dataset. `liveNow` is driven by
 // requestAnimationFrame — a genuine 30-60fps sweep, not a fixed-interval
@@ -466,9 +418,9 @@ function liveYScale(temp: number): number {
 // Recomputed only when livePoints/thresholds actually change (i.e. on a
 // real new measurement) — NOT on the 60fps `liveNow` tick, which only
 // drives the cheap shift transform below.
-const liveLinePath = computed(() => {
-  const pts = livePoints.value.map((p) => ({ x: liveRawX(p.t), y: liveYScale(p.temp) }))
-  return buildMonotonePath(pts)
+const liveColumns = computed<Column[]>(() => {
+  const points = livePoints.value.map((p) => ({ x: liveRawX(p.t), t: p.temp }))
+  return buildColumns(points, liveYScale, props.lowThreshold, props.highThreshold, MARGIN.top, MARGIN.top + PLOT_H)
 })
 
 // The last timestamp actually appended to livePoints — the ONLY reliable
@@ -537,10 +489,6 @@ const liveXTicks = computed(() => {
   }
   return ticks
 })
-
-const liveGradientStops = computed(() =>
-  buildLineGradientStops(liveYScale, liveYDomain.value.min, liveYDomain.value.max, props.lowThreshold, props.highThreshold),
-)
 
 watch(isLive, (live) => {
   if (live) {
@@ -1050,14 +998,11 @@ onUnmounted(() => {
           <clipPath id="plot-area-clip">
             <rect :x="MARGIN.left" :y="MARGIN.top" :width="PLOT_W" :height="PLOT_H" />
           </clipPath>
-          <linearGradient id="line-gradient" gradientUnits="userSpaceOnUse" :x1="MARGIN.left" :y1="MARGIN.top" :x2="MARGIN.left" :y2="MARGIN.top + PLOT_H">
-            <stop v-for="(s, i) in liveGradientStops" :key="i" :offset="s.offset" :stop-color="s.color" />
-          </linearGradient>
         </defs>
 
         <!-- Industrial SCADA/HMI look: uniform matte-black background, no
              color fills of any kind behind the graph — just a subtle grid
-             and the line/threshold colors. -->
+             and the bar/threshold colors. -->
         <rect x="0" y="0" :width="VB_W" :height="VB_H" class="chart-bg" />
 
         <!-- Grid stays fixed in place — only the data sweeps. -->
@@ -1123,13 +1068,22 @@ onUnmounted(() => {
 
         <!-- The sweep itself: clipped to the plot rect and shifted left as
              the window fills, so it visibly scrolls off at the left edge
-             like an oscilloscope trace. liveLinePath only recomputes when
-             a real point arrives; liveShiftPx (this transform) is the one
-             thing driven by the 60fps clock. The gradient stroke costs
-             nothing extra per frame — it's a static def, not per-point. -->
+             like an oscilloscope trace. Each measurement is its own
+             baseline-rooted column — liveColumns only recomputes when a
+             real point arrives; liveShiftPx (this transform) is the one
+             thing driven by the 60fps clock. -->
         <g clip-path="url(#plot-area-clip)">
           <g class="live-sweep" :transform="`translate(${liveShiftPx},0)`">
-            <path :d="liveLinePath" class="line-path" />
+            <rect
+              v-for="(col, i) in liveColumns"
+              :key="`live-col-${i}`"
+              :x="col.x"
+              :y="col.y"
+              :width="col.width"
+              :height="col.height"
+              :fill="col.color"
+              class="temp-column"
+            />
           </g>
         </g>
 
@@ -1164,15 +1118,9 @@ onUnmounted(() => {
         @touchstart="onTouchStart"
         @touchmove="onTouchMove"
       >
-        <defs>
-          <linearGradient id="line-gradient" gradientUnits="userSpaceOnUse" :x1="MARGIN.left" :y1="MARGIN.top" :x2="MARGIN.left" :y2="MARGIN.top + PLOT_H">
-            <stop v-for="(s, i) in gradientStops" :key="i" :offset="s.offset" :stop-color="s.color" />
-          </linearGradient>
-        </defs>
-
         <!-- Industrial SCADA/HMI look: uniform matte-black background, no
              color fills of any kind behind the graph — just a subtle grid
-             and the line/threshold colors. -->
+             and the bar/threshold colors. -->
         <rect x="0" y="0" :width="VB_W" :height="VB_H" class="chart-bg" />
 
         <!-- Grid — thin horizontal AND vertical lines, subtle. -->
@@ -1241,8 +1189,20 @@ onUnmounted(() => {
           {{ tick.label }}
         </text>
 
-        <!-- Line only — no fill behind the graph. -->
-        <path :d="linePath" class="line-path" />
+        <!-- The temperature itself: a true baseline column chart, ECMWF-
+             anomaly style — one independent column per measurement,
+             rooted at 0°C, growing up or down from that line. No path, no
+             staircase, no bridging between samples. -->
+        <rect
+          v-for="(col, i) in columns"
+          :key="`col-${i}`"
+          :x="col.x"
+          :y="col.y"
+          :width="col.width"
+          :height="col.height"
+          :fill="col.color"
+          class="temp-column"
+        />
 
         <!-- Alarm start times, colored by type, on their own two rows ABOVE
              the periodic X-axis row (never sharing it — that's what caused
@@ -1296,8 +1256,8 @@ onUnmounted(() => {
             class="crosshair"
             :class="{ locked: isPointLocked }"
           />
-          <!-- Painted after line-path/area-fill in DOM order, so it always
-               sits on top (SVG has no z-index; paint order = source order). -->
+          <!-- Painted after the columns in DOM order, so it always sits on top
+               (SVG has no z-index; paint order = source order). -->
           <circle
             :cx="xScale(hoveredReading.received_at)"
             :cy="yScale(hoveredReading.temperature)"
@@ -1438,14 +1398,13 @@ onUnmounted(() => {
 .y-label-high { fill: #ef4444; font-weight: 600; }
 .y-label-low { fill: #3b82f6; font-weight: 600; }
 
-.line-path {
-  fill: none;
-  stroke: url(#line-gradient);
-  stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
+/* Baseline column chart: deliberately NOT crispEdges — at real point
+   density the gap between columns is sub-pixel, and
+   shape-rendering:crispEdges snaps rectangle edges to whole device
+   pixels, which was silently swallowing that gap and fusing every column
+   back into one continuous shape. Ordinary anti-aliasing keeps a
+   sub-pixel gap visible as a faint seam instead. */
+.temp-column { shape-rendering: auto; }
 
 .chart-svg-live { cursor: default; }
 
