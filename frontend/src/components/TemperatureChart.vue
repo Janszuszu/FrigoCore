@@ -2,37 +2,32 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AlarmItem, ChartRange, MeasurementItem, SensorItem } from '@/types'
 
-const props = withDefaults(
-  defineProps<{
-    sensor: SensorItem
-    readings: MeasurementItem[] // ascending by received_at (oldest first)
-    range: ChartRange
-    highThreshold: number | null
-    lowThreshold: number | null
-    alarms: AlarmItem[] // this sensor's alarms overlapping the visible range
-    activeAlarmLabel: string | null
-    online: boolean
-    loading: boolean
-    // Purely a CSS/visual variant — no layout math, scale functions, or
-    // interaction logic differ between the two. 'default' is today's
-    // look, unchanged. 'engineering' is a calmer, quieter restyle (thinner
-    // line, near-invisible grid, smaller/muted type, neutral crosshair) —
-    // see the ".engineering ..." block in <style> for every difference.
-    variant?: 'default' | 'engineering'
-  }>(),
-  { variant: 'default' },
-)
+const props = defineProps<{
+  sensor: SensorItem
+  readings: MeasurementItem[] // ascending by received_at (oldest first)
+  range: ChartRange
+  highThreshold: number | null
+  lowThreshold: number | null
+  alarms: AlarmItem[] // this sensor's alarms overlapping the visible range
+  activeAlarmLabel: string | null
+  online: boolean
+  loading: boolean
+}>()
 
 const isLive = computed(() => props.range === 'LIVE')
 
 // ─── Layout constants (internal SVG coordinate space) ──────────────
-// No Y-axis labels. Alarm start times get their own two rows ABOVE the
-// regular periodic timeline row (never sharing it — that was the source
-// of the label-overlap bug) — the bottom margin fits: plot edge -> alarm
-// lane 1 (staggered/overflow) -> alarm lane 0 (primary) -> periodic ticks.
+// A small right-aligned Y-axis scale lives in the left margin — a trend
+// with no visible units at all (the previous state here) fails "axis
+// readability" on sight, before anyone touches it; real SCADA/HMI trends
+// always show engineering units at rest. Alarm start times get their own
+// two rows ABOVE the regular periodic timeline row (never sharing it —
+// that was the source of the label-overlap bug) — the bottom margin fits:
+// plot edge -> alarm lane 1 (staggered/overflow) -> alarm lane 0 (primary)
+// -> periodic ticks.
 const VB_W = 1000
 const VB_H = 340
-const MARGIN = { top: 16, right: 16, bottom: 70, left: 12 }
+const MARGIN = { top: 16, right: 16, bottom: 70, left: 46 }
 const PLOT_W = VB_W - MARGIN.left - MARGIN.right
 const PLOT_H = VB_H - MARGIN.top - MARGIN.bottom
 const XLABEL_Y = MARGIN.top + PLOT_H + 56
@@ -200,7 +195,10 @@ const tickCount = computed(() => {
   // ~1.5x a label's width to clear — not 1x, or the outermost ticks
   // collide with their neighbor at narrow/mobile widths.
   const maxTicks = Math.floor(plotWidthPx / (minLabelWidthPx.value * 1.5))
-  return Math.min(7, Math.max(2, maxTicks))
+  // Capped at 6, not 7 — a calmer, less busy vertical grid on wide desktop
+  // screens without losing resolution anywhere narrower (the width-driven
+  // formula above is still what actually binds on mobile/tablet).
+  return Math.min(6, Math.max(2, maxTicks))
 })
 
 const xTicks = computed(() => {
@@ -1034,7 +1032,7 @@ onUnmounted(() => {
     <!-- LIVE: always renders the sweep canvas, even with zero points yet —
          "start drawing from the left edge" means an empty, ready chart,
          not an error/empty state. -->
-    <div v-else-if="isLive" class="chart-wrap" :class="{ engineering: variant === 'engineering' }">
+    <div v-else-if="isLive" class="chart-wrap">
       <svg
         ref="svgEl"
         :viewBox="`0 0 ${VB_W} ${VB_H}`"
@@ -1081,6 +1079,20 @@ onUnmounted(() => {
           :y2="MARGIN.top + PLOT_H"
           class="grid-line"
         />
+
+        <!-- Y-axis scale — right-aligned in the left margin, small and
+             muted so it reads as structure, not data. HIGH/LOW ticks pick
+             up their alarm color so the boundary value itself is legible
+             at rest, no hover required. -->
+        <text
+          v-for="t in liveYTicks"
+          :key="`live-ylabel-${t.value}`"
+          :x="MARGIN.left - 8"
+          :y="liveYScale(t.value)"
+          class="axis-label y-label"
+          :class="{ 'y-label-high': t.isHigh, 'y-label-low': t.isLow }"
+        >{{ t.value.toFixed(liveYDomain.step < 1 ? 1 : 0) }}°</text>
+
         <line
           v-if="highThreshold != null"
           :x1="MARGIN.left"
@@ -1136,7 +1148,7 @@ onUnmounted(() => {
 
     <div v-else-if="validReadings.length < 2" class="state-message">Za mało danych do wykresu</div>
 
-    <div v-else class="chart-wrap" :class="{ engineering: variant === 'engineering' }">
+    <div v-else class="chart-wrap">
       <button v-if="isZoomed" type="button" class="reset-zoom" @click="resetZoom">Reset zoom ↺</button>
       <svg
         ref="svgEl"
@@ -1182,6 +1194,19 @@ onUnmounted(() => {
           :y2="MARGIN.top + PLOT_H"
           class="grid-line"
         />
+
+        <!-- Y-axis scale — right-aligned in the left margin, small and
+             muted so it reads as structure, not data. HIGH/LOW ticks pick
+             up their alarm color so the boundary value itself is legible
+             at rest, no hover required. -->
+        <text
+          v-for="t in yTicks"
+          :key="`ylabel-${t.value}`"
+          :x="MARGIN.left - 8"
+          :y="yScale(t.value)"
+          class="axis-label y-label"
+          :class="{ 'y-label-high': t.isHigh, 'y-label-low': t.isLow }"
+        >{{ t.value.toFixed(yDomain.step < 1 ? 1 : 0) }}°</text>
 
         <!-- Threshold lines (visually distinct from grid: dashed + color).
              The dashed lines and the line's own color transitions are the
@@ -1324,15 +1349,16 @@ onUnmounted(() => {
   top: 10px;
   right: 10px;
   z-index: 3;
-  background: #081421;
-  border: 1px solid #29455e;
+  background: #0c0e11;
+  border: 1px solid #2a3138;
   border-radius: 6px;
-  color: #b9c9e6;
+  color: #8b95a1;
   font-size: 12px;
+  font-weight: 400;
   padding: 5px 12px;
   cursor: pointer;
 }
-.reset-zoom:hover { border-color: #00cce3; color: #00e5ef; }
+.reset-zoom:hover { border-color: #4a5560; color: #d5dce2; }
 
 .state-message,
 .empty-state {
@@ -1374,31 +1400,48 @@ onUnmounted(() => {
 }
 .chart-svg:active { cursor: grabbing; }
 
-/* Industrial SCADA/HMI look: one uniform matte-black/graphite background,
-   no color fills of any kind behind the graph — just a subtle grid and
-   the line/threshold colors (green/red/blue). */
+/* ─── Industrial SCADA/HMI look ──────────────────────────────────────
+   One uniform matte-black/graphite background, no color fills of any
+   kind behind the graph, a grid you have to look for, and the data line
+   as the only thing that reads as "color" — everything else here is
+   deliberately quiet so nothing competes with the measurement itself. */
 .chart-bg { fill: #08090b; }
 
-.grid-line { stroke: #1c2126; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.grid-line { stroke: #232931; stroke-width: 1; opacity: 0.45; vector-effect: non-scaling-stroke; }
 
 .threshold-line {
-  stroke-width: 1.4;
-  stroke-dasharray: 7 5;
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
   vector-effect: non-scaling-stroke;
-  opacity: 0.75;
+  opacity: 0.55;
 }
 .threshold-high { stroke: #ef4444; }
 .threshold-low { stroke: #3b82f6; }
 
-.axis-label { fill: #9cadc7; font-size: 16.5px; }
+.axis-label {
+  fill: #626d79;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
 .x-label { text-anchor: middle; }
 .x-label-first { text-anchor: start; }
 .x-label-last { text-anchor: end; }
 
+/* Y-axis scale, right-aligned into the left margin. HIGH/LOW ticks pick
+   up their alarm color so the boundary value is legible at rest — the
+   only accent color allowed to appear in "chrome" rather than the data
+   line itself, and only because it's the same semantic color as the
+   threshold line it labels. */
+.y-label { text-anchor: end; dominant-baseline: middle; }
+.y-label-high { fill: #ef4444; font-weight: 600; }
+.y-label-low { fill: #3b82f6; font-weight: 600; }
+
 .line-path {
   fill: none;
   stroke: url(#line-gradient);
-  stroke-width: 3.2;
+  stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
@@ -1406,14 +1449,15 @@ onUnmounted(() => {
 
 .chart-svg-live { cursor: default; }
 
-/* Alarm start times, colored by type, sharing the X-axis label row — these
-   text elements ARE the clickable alarm markers now. */
-.marker-time { font-weight: 700; pointer-events: none; }
+/* Alarm start times, colored by type, on their own rows above the
+   periodic X-axis row — these text elements ARE the clickable alarm
+   markers now. */
+.marker-time { font-weight: 600; pointer-events: none; }
 .marker-high.marker-time { fill: #ef4444; }
 .marker-low.marker-time { fill: #3b82f6; }
 .marker-offline.marker-time { fill: #8fa1ba; }
 
-.marker-pill { opacity: 0.22; }
+.marker-pill { opacity: 0.16; }
 .marker-pill.marker-high { fill: #ef4444; }
 .marker-pill.marker-low { fill: #3b82f6; }
 .marker-pill.marker-offline { fill: #8fa1ba; }
@@ -1431,35 +1475,38 @@ onUnmounted(() => {
   -webkit-touch-callout: none;
 }
 
-.crosshair { stroke: #8fa1ba; stroke-width: 1; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; opacity: 0.6; }
-.crosshair.locked { stroke: #0edbe5; opacity: 0.85; }
-.hover-dot { fill: #0edbe5; stroke: #071620; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.hover-dot.locked { stroke: #eafeff; stroke-width: 1.5; }
+/* Crosshair/hover-dot are neutral grays, not an accent color — the only
+   "color" anywhere in this chart is the data line and the alarm-state
+   red/blue, both of which mean something. A cursor doesn't need to. */
+.crosshair { stroke: #3a4149; stroke-width: 1; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; opacity: 0.55; }
+.crosshair.locked { stroke: #d5dce2; opacity: 0.9; }
+.hover-dot { fill: #e9edf1; stroke: #0a0b0d; stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+.hover-dot.locked { fill: #ffffff; stroke: #0a0b0d; stroke-width: 1.5; }
 
 .tooltip {
   position: absolute;
   z-index: 4;
   max-width: calc(100% - 12px);
   box-sizing: border-box;
-  background: #0a1827;
-  border: 1px solid #26516b;
+  background: #0c0e11;
+  border: 1px solid #23282e;
   border-radius: 8px;
   padding: 14px 16px;
   pointer-events: none;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
 }
-.tooltip-title { font-size: 14px; font-weight: 600; color: #00dde1; text-transform: uppercase; margin-bottom: 9px; letter-spacing: 0.03em; }
-.tooltip-title.marker-high { color: #ff6875; }
-.tooltip-title.marker-low { color: #4ea8ff; }
-.tooltip-title.marker-offline { color: #8fa1ba; }
+.tooltip-title { font-size: 13px; font-weight: 500; color: #a8b1bb; text-transform: uppercase; margin-bottom: 9px; letter-spacing: 0.04em; }
+.tooltip-title.marker-high { color: #ef4444; }
+.tooltip-title.marker-low { color: #3b82f6; }
+.tooltip-title.marker-offline { color: #7b8792; }
 .tooltip dl { display: grid; grid-template-columns: auto auto; gap: 5px 16px; margin: 0; }
-.tooltip dt { font-size: 13px; color: #8fa1ba; }
-.tooltip dd { margin: 0; font-size: 13px; color: #e8effa; text-align: right; font-variant-numeric: tabular-nums; }
-.tooltip dd.status-bad { color: #ff6875; }
+.tooltip dt { font-size: 13px; color: #626d79; }
+.tooltip dd { margin: 0; font-size: 13px; color: #e9edf1; font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; }
+.tooltip dd.status-bad { color: #ef4444; }
 
 .point-tooltip { min-width: 150px; }
-.tooltip-temp { font-size: 24px; font-weight: 700; color: #0edbe5; line-height: 1; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
-.tooltip-date, .tooltip-time { font-size: 13px; color: #9aabc5; }
+.tooltip-temp { font-size: 22px; font-weight: 600; color: #e9edf1; line-height: 1; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+.tooltip-date, .tooltip-time { font-size: 13px; color: #626d79; }
 
 /* Alarm popup: a centered modal, not anchored to the marker — dark
    backdrop, ~80-90% viewport width on mobile (capped on larger screens),
@@ -1480,8 +1527,8 @@ onUnmounted(() => {
   width: min(88vw, 420px);
   max-height: 85vh;
   overflow: auto;
-  background: #0a1827;
-  border: 1px solid #26516b;
+  background: #0c0e11;
+  border: 1px solid #23282e;
   border-radius: 14px;
   padding: 24px 20px 20px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
@@ -1495,61 +1542,26 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0d2436;
-  border: 1px solid #26516b;
+  background: #14171b;
+  border: 1px solid #262c33;
   border-radius: 50%;
-  color: #b9c9e6;
+  color: #8b95a1;
   font-size: 15px;
   line-height: 1;
   cursor: pointer;
 }
-.alarm-modal-close:hover { border-color: #00cce3; color: #00e5ef; }
-.alarm-modal .tooltip-title { font-size: 16px; margin: 0 26px 16px 0; }
+.alarm-modal-close:hover { border-color: #4a5560; color: #d5dce2; }
+.alarm-modal .tooltip-title { font-size: 15px; margin: 0 26px 16px 0; }
 .alarm-modal dl { display: grid; grid-template-columns: auto auto; gap: 10px 20px; margin: 0; }
-.alarm-modal dt { font-size: 14px; color: #8fa1ba; }
-.alarm-modal dd { margin: 0; font-size: 14px; color: #e8effa; text-align: right; font-variant-numeric: tabular-nums; }
-
-/* ─── "Engineering" variant ──────────────────────────────────────────
-   Purely visual — every rule below only ever changes stroke-width,
-   opacity, color, or typography. No selector here touches layout,
-   position, or size in a way that could move a hit-target or change
-   where zoom/pan/marker math thinks something is; that logic is
-   entirely unaware this variant exists. The goal: a calmer, quieter
-   trend where the data line is the only thing that pulls the eye —
-   thinner line, a grid you have to look for, small muted type, and no
-   off-palette accent colors (the default theme's cyan crosshair/hover/
-   tooltip are replaced with neutral grays here). Alarm-state colors
-   (line green/red/blue, threshold red/blue) are intentionally the same
-   hues as the default theme — those carry safety meaning and shouldn't
-   change with a cosmetic preference. */
-.engineering .grid-line { stroke: #262c33; opacity: 0.4; }
-.engineering .threshold-line { stroke-width: 1; stroke-dasharray: 5 4; opacity: 0.55; }
-.engineering .axis-label { fill: #626d79; font-size: 12.5px; font-weight: 400; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
-.engineering .line-path { stroke-width: 1.75; }
-.engineering .marker-time { font-weight: 600; }
-.engineering .marker-pill { opacity: 0.14; }
-.engineering .crosshair { stroke: #3a4149; opacity: 0.55; }
-.engineering .crosshair.locked { stroke: #d5dce2; opacity: 0.9; }
-.engineering .hover-dot { fill: #e9edf1; stroke: #0a0b0d; stroke-width: 1.25; }
-.engineering .hover-dot.locked { fill: #ffffff; stroke: #0a0b0d; }
-.engineering .reset-zoom { background: #0c0e11; border-color: #2a3138; color: #8b95a1; font-weight: 400; }
-.engineering .reset-zoom:hover { border-color: #4a5560; color: #d5dce2; }
-.engineering .tooltip { background: #0c0e11; border: 1px solid #23282e; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45); }
-.engineering .tooltip-title { color: #a8b1bb; font-weight: 500; letter-spacing: 0.04em; }
-.engineering .tooltip-title.marker-high { color: #ef4444; }
-.engineering .tooltip-title.marker-low { color: #3b82f6; }
-.engineering .tooltip-title.marker-offline { color: #7b8792; }
-.engineering .tooltip dt { color: #626d79; }
-.engineering .tooltip dd { color: #e9edf1; font-weight: 400; }
-.engineering .tooltip-temp { color: #e9edf1; font-weight: 600; }
-.engineering .tooltip-date, .engineering .tooltip-time { color: #626d79; }
-.engineering .alarm-modal { background: #0c0e11; border-color: #23282e; }
-.engineering .alarm-modal-close { background: #14171b; border-color: #262c33; color: #8b95a1; }
-.engineering .alarm-modal-close:hover { border-color: #4a5560; color: #d5dce2; }
+.alarm-modal dt { font-size: 14px; color: #626d79; }
+.alarm-modal dd { margin: 0; font-size: 14px; color: #e9edf1; font-weight: 400; text-align: right; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 800px) {
-  .axis-label { font-size: 20px; }
-  .engineering .axis-label { font-size: 14.5px; }
+  /* Smaller than the old default (20px) but deliberately not as small as
+     this typeface can go on desktop — "mobile readability" is an explicit
+     requirement, and axis text is the first thing to become illegible on
+     a phone, not the place to chase minimalism. */
+  .axis-label { font-size: 17px; }
   .tooltip { padding: 12px 14px; }
   .tooltip dt, .tooltip dd { font-size: 12px; }
   .tooltip-temp { font-size: 20px; }

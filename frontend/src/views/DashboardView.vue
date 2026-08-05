@@ -12,20 +12,6 @@ const selectedObjectId=ref(""), selectedSensorId=ref(""), range=ref<ChartRange>(
 const alarmConfigs=ref<AlarmConfigItem[]>([]);
 const isChartFullscreen=ref(false);
 
-// Chart visual variant — a second, purely-cosmetic "Engineering" restyle
-// (thinner line, near-invisible grid, quieter type) so it can be compared
-// against today's look before picking one. Persisted so a reload doesn't
-// silently drop a tester's choice.
-type ChartVariant = "default" | "engineering";
-const CHART_VARIANT_KEY = "frigocore-chart-variant";
-const chartVariant = ref<ChartVariant>(
-  localStorage.getItem(CHART_VARIANT_KEY) === "engineering" ? "engineering" : "default"
-);
-function toggleChartVariant() {
-  chartVariant.value = chartVariant.value === "default" ? "engineering" : "default";
-  localStorage.setItem(CHART_VARIANT_KEY, chartVariant.value);
-}
-
 // Fullscreen wraps the chart + range selector together (not just the
 // TemperatureChart component) because the range selector must stay
 // visible while fullscreen, per spec.
@@ -179,22 +165,11 @@ watch(selectedObjectId,pickObject);
        :active-alarm-label="activeAlarmLabel"
        :online="online()"
        :loading="sensorsStore.rangeLoading"
-       :variant="chartVariant"
      />
      <div class="ranges">
       <div class="range-buttons">
        <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
       </div>
-      <button
-        class="variant-toggle-btn"
-        type="button"
-        :aria-label="chartVariant==='engineering' ? 'Switch to default chart style' : 'Switch to Engineering chart style'"
-        :title="chartVariant==='engineering' ? 'Default style' : 'Engineering style'"
-        @click="toggleChartVariant"
-      >
-       <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13" /></svg>
-       <span>{{chartVariant==='engineering' ? 'Engineering' : 'Default'}}</span>
-      </button>
       <button v-if="!isChartFullscreen" class="fullscreen-btn" type="button" aria-label="Fullscreen" @click="toggleFullscreen">
        <svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" /></svg>
        <span>Fullscreen</span>
@@ -276,11 +251,10 @@ watch(selectedObjectId,pickObject);
   color:#afc0dc;font-size:13px;font-weight:600;letter-spacing:.02em;cursor:pointer;
 }
 .ranges .active{border-color:#00cce3;color:#00e5ef;background:#063142}
-.fullscreen-btn,.exit-fullscreen-btn,.variant-toggle-btn{color:#b9c9e6}
-.fullscreen-btn svg,.exit-fullscreen-btn svg,.variant-toggle-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.fullscreen-btn,.exit-fullscreen-btn{color:#b9c9e6}
+.fullscreen-btn svg,.exit-fullscreen-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .fullscreen-btn:hover{border-color:#00cce3;color:#00e5ef}
 .exit-fullscreen-btn:hover{border-color:#ff6875;color:#ff8b93}
-.variant-toggle-btn:hover{border-color:#00cce3;color:#00e5ef}
 .empty{text-align:center;padding:100px;color:#8fa1ba}
 
 /* Fullscreen: SCADA-style floating toolbar. It overlays the chart itself,
@@ -303,8 +277,8 @@ watch(selectedObjectId,pickObject);
  .dashboard{padding:16px}.selectors{grid-template-columns:1fr;gap:12px}.chart-panel{height:clamp(260px,64vw,340px);padding:16px}
  /* Narrow screens: collapse the toggle button to icon-only so the row
     never wraps or scrolls, in both normal and fullscreen mode. */
- .fullscreen-btn span,.exit-fullscreen-btn span,.variant-toggle-btn span{display:none}
- .fullscreen-btn,.exit-fullscreen-btn,.variant-toggle-btn{width:40px;padding:0}
+ .fullscreen-btn span,.exit-fullscreen-btn span{display:none}
+ .fullscreen-btn,.exit-fullscreen-btn{width:40px;padding:0}
  .ranges{gap:6px}
  .range-buttons{gap:6px}
  .chart-fullscreen-root.fullscreen .ranges{top:8px;right:8px;gap:6px;padding:5px 6px}
