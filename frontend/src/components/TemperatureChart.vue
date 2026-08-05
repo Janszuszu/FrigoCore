@@ -2,17 +2,26 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AlarmItem, ChartRange, MeasurementItem, SensorItem } from '@/types'
 
-const props = defineProps<{
-  sensor: SensorItem
-  readings: MeasurementItem[] // ascending by received_at (oldest first)
-  range: ChartRange
-  highThreshold: number | null
-  lowThreshold: number | null
-  alarms: AlarmItem[] // this sensor's alarms overlapping the visible range
-  activeAlarmLabel: string | null
-  online: boolean
-  loading: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    sensor: SensorItem
+    readings: MeasurementItem[] // ascending by received_at (oldest first)
+    range: ChartRange
+    highThreshold: number | null
+    lowThreshold: number | null
+    alarms: AlarmItem[] // this sensor's alarms overlapping the visible range
+    activeAlarmLabel: string | null
+    online: boolean
+    loading: boolean
+    // Purely a CSS/visual variant — no layout math, scale functions, or
+    // interaction logic differ between the two. 'default' is today's
+    // look, unchanged. 'engineering' is a calmer, quieter restyle (thinner
+    // line, near-invisible grid, smaller/muted type, neutral crosshair) —
+    // see the ".engineering ..." block in <style> for every difference.
+    variant?: 'default' | 'engineering'
+  }>(),
+  { variant: 'default' },
+)
 
 const isLive = computed(() => props.range === 'LIVE')
 
@@ -1025,7 +1034,7 @@ onUnmounted(() => {
     <!-- LIVE: always renders the sweep canvas, even with zero points yet —
          "start drawing from the left edge" means an empty, ready chart,
          not an error/empty state. -->
-    <div v-else-if="isLive" class="chart-wrap">
+    <div v-else-if="isLive" class="chart-wrap" :class="{ engineering: variant === 'engineering' }">
       <svg
         ref="svgEl"
         :viewBox="`0 0 ${VB_W} ${VB_H}`"
@@ -1127,7 +1136,7 @@ onUnmounted(() => {
 
     <div v-else-if="validReadings.length < 2" class="state-message">Za mało danych do wykresu</div>
 
-    <div v-else class="chart-wrap">
+    <div v-else class="chart-wrap" :class="{ engineering: variant === 'engineering' }">
       <button v-if="isZoomed" type="button" class="reset-zoom" @click="resetZoom">Reset zoom ↺</button>
       <svg
         ref="svgEl"
@@ -1500,8 +1509,47 @@ onUnmounted(() => {
 .alarm-modal dt { font-size: 14px; color: #8fa1ba; }
 .alarm-modal dd { margin: 0; font-size: 14px; color: #e8effa; text-align: right; font-variant-numeric: tabular-nums; }
 
+/* ─── "Engineering" variant ──────────────────────────────────────────
+   Purely visual — every rule below only ever changes stroke-width,
+   opacity, color, or typography. No selector here touches layout,
+   position, or size in a way that could move a hit-target or change
+   where zoom/pan/marker math thinks something is; that logic is
+   entirely unaware this variant exists. The goal: a calmer, quieter
+   trend where the data line is the only thing that pulls the eye —
+   thinner line, a grid you have to look for, small muted type, and no
+   off-palette accent colors (the default theme's cyan crosshair/hover/
+   tooltip are replaced with neutral grays here). Alarm-state colors
+   (line green/red/blue, threshold red/blue) are intentionally the same
+   hues as the default theme — those carry safety meaning and shouldn't
+   change with a cosmetic preference. */
+.engineering .grid-line { stroke: #262c33; opacity: 0.4; }
+.engineering .threshold-line { stroke-width: 1; stroke-dasharray: 5 4; opacity: 0.55; }
+.engineering .axis-label { fill: #626d79; font-size: 12.5px; font-weight: 400; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.engineering .line-path { stroke-width: 1.75; }
+.engineering .marker-time { font-weight: 600; }
+.engineering .marker-pill { opacity: 0.14; }
+.engineering .crosshair { stroke: #3a4149; opacity: 0.55; }
+.engineering .crosshair.locked { stroke: #d5dce2; opacity: 0.9; }
+.engineering .hover-dot { fill: #e9edf1; stroke: #0a0b0d; stroke-width: 1.25; }
+.engineering .hover-dot.locked { fill: #ffffff; stroke: #0a0b0d; }
+.engineering .reset-zoom { background: #0c0e11; border-color: #2a3138; color: #8b95a1; font-weight: 400; }
+.engineering .reset-zoom:hover { border-color: #4a5560; color: #d5dce2; }
+.engineering .tooltip { background: #0c0e11; border: 1px solid #23282e; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45); }
+.engineering .tooltip-title { color: #a8b1bb; font-weight: 500; letter-spacing: 0.04em; }
+.engineering .tooltip-title.marker-high { color: #ef4444; }
+.engineering .tooltip-title.marker-low { color: #3b82f6; }
+.engineering .tooltip-title.marker-offline { color: #7b8792; }
+.engineering .tooltip dt { color: #626d79; }
+.engineering .tooltip dd { color: #e9edf1; font-weight: 400; }
+.engineering .tooltip-temp { color: #e9edf1; font-weight: 600; }
+.engineering .tooltip-date, .engineering .tooltip-time { color: #626d79; }
+.engineering .alarm-modal { background: #0c0e11; border-color: #23282e; }
+.engineering .alarm-modal-close { background: #14171b; border-color: #262c33; color: #8b95a1; }
+.engineering .alarm-modal-close:hover { border-color: #4a5560; color: #d5dce2; }
+
 @media (max-width: 800px) {
   .axis-label { font-size: 20px; }
+  .engineering .axis-label { font-size: 14.5px; }
   .tooltip { padding: 12px 14px; }
   .tooltip dt, .tooltip dd { font-size: 12px; }
   .tooltip-temp { font-size: 20px; }
