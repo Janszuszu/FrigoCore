@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useSensorsStore } from "@/stores/sensors";
 import { useAlarmsStore } from "@/stores/alarms";
@@ -11,6 +11,12 @@ const objectsStore=useObjectsStore(), sensorsStore=useSensorsStore(), alarmsStor
 const selectedObjectId=ref(""), selectedSensorId=ref(""), range=ref<ChartRange>("24H");
 const alarmConfigs=ref<AlarmConfigItem[]>([]);
 const isChartFullscreen=ref(false);
+// The chart no longer lives on the Dashboard itself — it only exists in the
+// DOM while the fullscreen view is open (see openChart/onFullscreenChange).
+// Separate from isChartFullscreen (which mirrors the real Fullscreen API
+// state): showChart mounts the chart panel BEFORE requestFullscreen() is
+// called, since that call needs an already-rendered element to target.
+const showChart=ref(false);
 
 // Fullscreen wraps the chart + range selector together (not just the
 // TemperatureChart component) because the range selector must stay
@@ -39,8 +45,15 @@ function releaseOrientation() {
 
 function onFullscreenChange() {
   isChartFullscreen.value = document.fullscreenElement === fullscreenRoot.value;
-  if (isChartFullscreen.value) requestLandscape();
-  else releaseOrientation();
+  if (isChartFullscreen.value) {
+    requestLandscape();
+  } else {
+    releaseOrientation();
+    // Exiting fullscreen (Escape, the Exit Fullscreen button, swiping away
+    // on mobile, ...) is also how the chart leaves the Dashboard again —
+    // there's no other embedded position for it to fall back into.
+    showChart.value = false;
+  }
 }
 
 async function toggleFullscreen() {
@@ -54,8 +67,20 @@ async function toggleFullscreen() {
     // Fullscreen can be denied by a Permissions Policy (embedding context,
     // browser/enterprise policy) — fail silently rather than surface an
     // unhandled rejection; isChartFullscreen just stays in sync with
-    // reality via the fullscreenchange listener either way.
+    // reality via the fullscreenchange listener either way. showChart stays
+    // true in that case, so the chart is still usable as a large in-page
+    // panel instead of becoming completely unreachable.
   }
+}
+
+// Entry point for the "Chart" icon button next to the temperature card:
+// mount the chart (still selected object/sensor, default 24H per spec),
+// wait for it to actually exist in the DOM, then request fullscreen on it.
+async function openChart() {
+  applyRange("24H");
+  showChart.value = true;
+  await nextTick();
+  await toggleFullscreen();
 }
 
 const sensor=computed(()=>sensorsStore.selectedSensor);
@@ -115,6 +140,9 @@ watch(selectedObjectId,pickObject);
   <div class="selectors"><label>OBIEKT<select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select></label><label>SENSOR<select v-model="selectedSensorId" @change="pickSensor" :disabled="!selectedObjectId"><option value="">Wybierz sensor</option><option v-for="item in sensorsStore.sensors" :key="item.id" :value="item.id">{{item.name}}</option></select></label></div>
   <template v-if="sensor">
    <article class="temperature-panel">
+    <button class="chart-open-btn" type="button" aria-label="Wykres" @click="openChart">
+     <svg viewBox="0 0 24 24"><path d="M4 20V13M11 20V8M18 20V4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <div class="hero">
      <div class="hero-temp"><span class="temp-value">{{temperature(sensor.current_temperature)}}</span><span class="temp-delta">↓ 0.3°</span></div>
      <div class="hero-meta"><span class="sensor-name">{{sensor.name}}</span><span class="object-name">{{selectedObject?.name}}</span></div>
@@ -152,7 +180,7 @@ watch(selectedObjectId,pickObject);
      <span class="status-value">{{date(sensor.last_message_at)}}</span>
     </div>
    </article>
-   <article class="chart-panel">
+   <article v-if="showChart" class="chart-panel">
     <div ref="fullscreenRoot" class="chart-fullscreen-root" :class="{fullscreen:isChartFullscreen}">
      <TemperatureChart
        v-if="sensor"
@@ -195,7 +223,22 @@ watch(selectedObjectId,pickObject);
    nested cards — sections are separated by spacing/background, not borders,
    and stat items are divided by a single hairline rather than boxed. Sizes
    scale up via clamp() and two min-width breakpoints reuse the same markup. */
-.temperature-panel{padding:0;border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.temperature-panel{position:relative;padding:0;border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+
+/* Opens the chart, fullscreen, for the currently selected sensor — the
+   only way to reach historical data now that the chart no longer sits
+   embedded on the Dashboard. Same visual language as the fullscreen/exit
+   pill buttons on the chart itself (dark pill, cyan on hover), just round
+   and icon-only since it lives in the corner of a card, not a toolbar. */
+.chart-open-btn{
+  position:absolute;top:14px;right:14px;z-index:1;
+  display:flex;align-items:center;justify-content:center;
+  width:38px;height:38px;flex:none;
+  background:#091725;border:1px solid #263e56;border-radius:10px;
+  color:#afc0dc;cursor:pointer;
+}
+.chart-open-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.chart-open-btn:hover{border-color:#00cce3;color:#00e5ef}
 
 .hero{padding:20px 20px 16px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px}
 .hero-temp{display:flex;align-items:baseline;justify-content:center;gap:10px;flex-wrap:wrap}

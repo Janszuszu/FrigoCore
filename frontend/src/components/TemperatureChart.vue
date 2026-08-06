@@ -17,22 +17,17 @@ const props = defineProps<{
 const isLive = computed(() => props.range === 'LIVE')
 
 // ─── Layout constants (internal SVG coordinate space) ──────────────
-// A small right-aligned Y-axis scale lives in the left margin — a trend
-// with no visible units at all (the previous state here) fails "axis
-// readability" on sight, before anyone touches it; real SCADA/HMI trends
-// always show engineering units at rest. Alarm start times get their own
-// two rows ABOVE the regular periodic timeline row (never sharing it —
-// that was the source of the label-overlap bug) — the bottom margin fits:
-// plot edge -> alarm lane 1 (staggered/overflow) -> alarm lane 0 (primary)
-// -> periodic ticks.
+// No Y-axis scale and no separate alarm-marker row anymore — the exact
+// value is a tap away (point tooltip), and an alarm is opened by tapping
+// the alarm-colored column itself (see tryAlarmPopupFromHover), not a
+// dedicated strip below the chart. The bottom margin only needs to fit
+// one row of periodic time labels; the left margin is just edge padding.
 const VB_W = 1000
 const VB_H = 340
-const MARGIN = { top: 16, right: 16, bottom: 70, left: 46 }
+const MARGIN = { top: 16, right: 16, bottom: 36, left: 16 }
 const PLOT_W = VB_W - MARGIN.left - MARGIN.right
 const PLOT_H = VB_H - MARGIN.top - MARGIN.bottom
-const XLABEL_Y = MARGIN.top + PLOT_H + 56
-// Lane 0 = primary (closer to the periodic row), lane 1 = staggered/overflow.
-const ALARM_LABEL_ROW_Y = [MARGIN.top + PLOT_H + 36, MARGIN.top + PLOT_H + 18]
+const XLABEL_Y = MARGIN.top + PLOT_H + 24
 
 // ─── Data ────────────────────────────────────────────────────────
 const validReadings = computed(() =>
@@ -162,21 +157,6 @@ function xScaleMs(t: number): number {
 const containerWidthPx = ref(390)
 const containerHeightPx = ref(300)
 let containerResizeObserver: ResizeObserver | null = null
-
-// Marker touch targets are a rect (not just the text's own tight bbox)
-// solved from the CURRENT container scale so the real rendered target is
-// genuinely >=44x44 CSS px regardless of viewBox non-uniform scaling — a
-// fixed viewBox-unit size would render lopsided/undersized once stretched
-// to the container's actual aspect ratio.
-const MARKER_TOUCH_TARGET_PX = 44
-const markerHitHalfW = computed(() => {
-  const scaleX = containerWidthPx.value / VB_W
-  return scaleX > 0 ? MARKER_TOUCH_TARGET_PX / 2 / scaleX : 40
-})
-const markerHitHalfH = computed(() => {
-  const scaleY = containerHeightPx.value / VB_H
-  return scaleY > 0 ? MARKER_TOUCH_TARGET_PX / 2 / scaleY : 40
-})
 
 // Rough per-format label width (real px) — wide enough that adjacent
 // labels never touch even at the larger mobile font-size.
@@ -535,80 +515,53 @@ watch(
 )
 
 
-// ─── Alarm timeline markers — colored start-time labels on the X-axis ──
+// ─── Alarm periods — the chart itself is the interaction surface now ──
+// There is no separate marker strip anymore: an alarm popup opens by
+// tapping/clicking the red or blue column that belongs to it, directly on
+// the plot (see tryAlarmPopupFromHover). This just indexes each alarm's
+// [start, end] time window (and the min/max reached during it) so a
+// clicked column's reading can be matched back to the alarm it belongs to.
 const ALARM_CLASS: Record<string, string> = {
   high_temperature: 'marker-high',
   low_temperature: 'marker-low',
   offline: 'marker-offline',
 }
 
-function formatMarkerTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
-}
-
-const markers = computed(() => {
-  const { start, end } = xDomain.value
+const alarmPeriods = computed(() => {
   return props.alarms
+    .filter((alarm) => alarm.alarm_type === 'high_temperature' || alarm.alarm_type === 'low_temperature')
     .map((alarm) => {
       const startMs = new Date(alarm.triggered_at ?? alarm.detected_at).getTime()
-      const endMs = alarm.resolved_at ? new Date(alarm.resolved_at).getTime() : null
-      if (endMs != null && endMs < start) return null
-      if (startMs > end) return null
-      const windowEnd = endMs ?? Date.now()
+      const endMs = alarm.resolved_at ? new Date(alarm.resolved_at).getTime() : Date.now()
       const inWindow = validReadings.value.filter((r) => {
         const t = new Date(r.received_at).getTime()
-        return t >= startMs && t <= windowEnd
+        return t >= startMs && t <= endMs
       })
       const temps = inWindow.map((r) => r.temperature)
       return {
         alarm,
-        x1: xScaleMs(startMs),
-        label: formatMarkerTime(startMs),
+        startMs,
+        endMs,
         cls: ALARM_CLASS[alarm.alarm_type] ?? 'marker-offline',
         maxTemp: temps.length ? Math.max(...temps) : null,
         minTemp: temps.length ? Math.min(...temps) : null,
       }
     })
-    .filter((m): m is NonNullable<typeof m> => m !== null)
 })
 
-// ─── Alarm label collision avoidance ───────────────────────────────
-// Alarm start-time labels get their own two rows above the periodic X-axis
-// row (see ALARM_LABEL_ROW_Y) so they can never overlap the regular
-// timeline labels — that's structural (different Y), not something this
-// needs to compute. What this DOES handle is alarm labels colliding with
-// EACH OTHER: walk them in time order, and greedily place each one in the
-// first lane where it clears a minimum gap from the last label already
-// placed in that lane. A label that collides in both lanes is hidden
-// entirely rather than rendered overlapping — per spec, readability beats
-// showing every single alarm.
-const ALARM_LABEL_MIN_GAP_PX = 46
-const alarmLabelMinGapVb = computed(() => {
-  const scaleX = containerWidthPx.value / VB_W
-  return scaleX > 0 ? ALARM_LABEL_MIN_GAP_PX / scaleX : 60
-})
-
-interface MarkerLayout {
-  marker: (typeof markers.value)[number]
-  lane: 0 | 1
-  visible: boolean
+// Given a clicked/tapped reading, decides which alarm (if any) it belongs
+// to — by re-deriving HIGH/LOW from the reading's own temperature against
+// the thresholds (the exact same rule buildColumns uses to color that
+// column), then finding the alarm period of that type whose window
+// contains the reading's timestamp. A green column never matches anything.
+function findAlarmForReading(reading: MeasurementItem & { temperature: number }) {
+  const isHigh = props.highThreshold != null && reading.temperature > props.highThreshold
+  const isLow = props.lowThreshold != null && reading.temperature < props.lowThreshold
+  if (!isHigh && !isLow) return null
+  const wantType = isHigh ? 'high_temperature' : 'low_temperature'
+  const t = new Date(reading.received_at).getTime()
+  return alarmPeriods.value.find((p) => p.alarm.alarm_type === wantType && t >= p.startMs && t <= p.endMs) ?? null
 }
-
-const markerLayout = computed<MarkerLayout[]>(() => {
-  const sorted = [...markers.value].sort((a, b) => a.x1 - b.x1)
-  const minGap = alarmLabelMinGapVb.value
-  const laneLastX = [-Infinity, -Infinity]
-  return sorted.map((marker) => {
-    const lane = laneLastX.findIndex((lastX) => marker.x1 - lastX >= minGap)
-    if (lane === -1) return { marker, lane: 0, visible: false }
-    laneLastX[lane] = marker.x1
-    return { marker, lane: lane as 0 | 1, visible: true }
-  })
-})
-
-// Separate computed (rather than v-if alongside v-for on the same
-// template element) purely so vue-tsc can narrow `entry` cleanly.
-const visibleMarkerLayout = computed(() => markerLayout.value.filter((entry) => entry.visible))
 
 function formatDuration(startIso: string, endIso: string | null): string {
   const startMs = new Date(startIso).getTime()
@@ -635,7 +588,14 @@ function alarmTypeLabel(type: string): string {
 const svgEl = ref<SVGSVGElement | null>(null)
 const hoverIndex = ref<number | null>(null)
 const isPointLocked = ref(false)
-const hoveredMarker = ref<(typeof markers.value)[number] | null>(null)
+const hoveredMarker = ref<(typeof alarmPeriods.value)[number] | null>(null)
+// Captured at the START of a pointerdown (before hoveredMarker gets
+// cleared below), so tryAlarmPopupFromHover can tell "the popup that was
+// open when this press began was for THIS SAME alarm" — the only way to
+// correctly toggle-close on a second tap of the same column, now that the
+// alarm click flows through the chart's own pointer pipeline instead of a
+// separate marker element with its own stopPropagation'd handler.
+const pointerDownAlarmId = ref<string | null>(null)
 const tooltipPos = ref({ x: 0, y: 0 })
 
 function clearSelection() {
@@ -682,6 +642,13 @@ function nearestIndex(svgX: number): number | null {
 const PAN_THRESHOLD_PX = 10
 
 const dragging = ref(false)
+// Distinct from `dragging` (which just means "mouse button is down since
+// this chart started tracking it"): true only once a mousemove actually
+// paned the view. A plain click (press+release with no movement in
+// between) never sets this, which is exactly what tryAlarmPopupFromHover
+// needs to tell "the user clicked a column" apart from "the user dragged
+// the chart and happened to release over a column".
+const dragMoved = ref(false)
 const dragStartX = ref(0)
 const dragStartZoom = ref({ start: 0, end: 1 })
 const touchOrigin = ref({ x: 0, y: 0 })
@@ -733,12 +700,14 @@ function tryReleasePointer(target: EventTarget | null, pointerId: number) {
 
 function onPointerDown(e: PointerEvent) {
   if (isLive.value) return // zoom/pan/selection all disabled while LIVE
+  pointerDownAlarmId.value = hoveredMarker.value?.alarm.id ?? null
   hoveredMarker.value = null
   dragStartZoom.value = { start: zoomStart.value, end: zoomEnd.value }
   tryCapturePointer(e.target, e.pointerId)
 
   if (e.pointerType === 'mouse') {
     dragging.value = true
+    dragMoved.value = false
     dragStartX.value = e.clientX
     return
   }
@@ -757,6 +726,7 @@ function onPointerMove(e: PointerEvent) {
 
   if (e.pointerType === 'mouse') {
     if (dragging.value) {
+      dragMoved.value = true
       hoverIndex.value = null
       const width = svgEl.value?.getBoundingClientRect().width || 1
       applyPanFraction((e.clientX - dragStartX.value) / width)
@@ -782,7 +752,30 @@ function onPointerMove(e: PointerEvent) {
   applyPanFraction((e.clientX - touchOrigin.value.x) / width)
 }
 
+// The chart is the alarm-interaction surface: a plain click (mouse) or a
+// tap that never turned into a pan (touch) checks whatever reading is
+// currently selected — already computed by selectAt during this same
+// press, exactly like the point tooltip — and opens that alarm's popup if
+// the reading falls in a HIGH or LOW alarm window. A second tap on the
+// same alarm's column toggles it closed again (see pointerDownAlarmId).
+function tryAlarmPopupFromHover() {
+  if (isLive.value) return // no alarm-column interaction in LIVE (no columns are clicked-selectable there)
+  if (hoverIndex.value == null) return
+  const reading = visible.value[hoverIndex.value]
+  if (!reading || typeof reading.temperature !== 'number') return
+  const period = findAlarmForReading(reading as MeasurementItem & { temperature: number })
+  if (!period) return
+  if (pointerDownAlarmId.value === period.alarm.id) {
+    hoveredMarker.value = null
+  } else {
+    hoveredMarker.value = period
+    clearSelection()
+  }
+}
+
 function onPointerUp(e: PointerEvent) {
+  const wasTap = e.pointerType === 'mouse' ? !dragMoved.value : !touchIsPanning.value
+  if (wasTap) tryAlarmPopupFromHover()
   dragging.value = false
   touchIsPanning.value = false
   tryReleasePointer(e.target, e.pointerId)
@@ -916,26 +909,9 @@ const tooltipStyle = computed(() => {
 // at once. `.stop` on the template binding does that. Tapping the
 // already-open alarm's marker again closes its popup (toggle); tapping a
 // different marker replaces it, so only one popup ever exists.
-function selectMarker(m: (typeof markers.value)[number]) {
-  if (isMarkerSelected(m)) {
-    hoveredMarker.value = null
-    return
-  }
-  hoveredMarker.value = m
-  clearSelection()
-}
-// Compares by the underlying alarm's id, not object identity — `markers`
-// is a computed that maps a fresh array of objects every time it
-// recomputes (e.g. a new alarm arriving over WS), which would otherwise
-// silently break the "selected" highlight for an alarm the user still
-// has open, even though it's still the same alarm.
-function isMarkerSelected(m: (typeof markers.value)[number]): boolean {
-  return hoveredMarker.value?.alarm.id === m.alarm.id
-}
-
-// A locked (touch-selected) point tooltip or an open marker tooltip only
-// close on: another selection (handled in selectAt/selectMarker), the
-// chart's data changing (handled in the readings watcher), or a tap
+// A locked (touch-selected) point tooltip or an open alarm popup only
+// close on: another selection (handled in selectAt/tryAlarmPopupFromHover),
+// the chart's data changing (handled in the readings watcher), or a tap
 // outside the chart entirely — handled here.
 function onDocumentPointerDown(e: PointerEvent) {
   if (rootEl.value && rootEl.value.contains(e.target as Node)) return
@@ -1024,19 +1000,6 @@ onUnmounted(() => {
           :y2="MARGIN.top + PLOT_H"
           class="grid-line"
         />
-
-        <!-- Y-axis scale — right-aligned in the left margin, small and
-             muted so it reads as structure, not data. HIGH/LOW ticks pick
-             up their alarm color so the boundary value itself is legible
-             at rest, no hover required. -->
-        <text
-          v-for="t in liveYTicks"
-          :key="`live-ylabel-${t.value}`"
-          :x="MARGIN.left - 8"
-          :y="liveYScale(t.value)"
-          class="axis-label y-label"
-          :class="{ 'y-label-high': t.isHigh, 'y-label-low': t.isLow }"
-        >{{ t.value.toFixed(liveYDomain.step < 1 ? 1 : 0) }}°</text>
 
         <line
           v-if="highThreshold != null"
@@ -1143,19 +1106,6 @@ onUnmounted(() => {
           class="grid-line"
         />
 
-        <!-- Y-axis scale — right-aligned in the left margin, small and
-             muted so it reads as structure, not data. HIGH/LOW ticks pick
-             up their alarm color so the boundary value itself is legible
-             at rest, no hover required. -->
-        <text
-          v-for="t in yTicks"
-          :key="`ylabel-${t.value}`"
-          :x="MARGIN.left - 8"
-          :y="yScale(t.value)"
-          class="axis-label y-label"
-          :class="{ 'y-label-high': t.isHigh, 'y-label-low': t.isLow }"
-        >{{ t.value.toFixed(yDomain.step < 1 ? 1 : 0) }}°</text>
-
         <!-- Threshold lines (visually distinct from grid: dashed + color).
              The dashed lines and the line's own color transitions are the
              only alarm indicators — no zone shading, no area fill. -->
@@ -1203,48 +1153,6 @@ onUnmounted(() => {
           :fill="col.color"
           class="temp-column"
         />
-
-        <!-- Alarm start times, colored by type, on their own two rows ABOVE
-             the periodic X-axis row (never sharing it — that's what caused
-             the overlap). These labels ARE the clickable alarm markers (no
-             separate icon strip). markerLayout has already resolved
-             collisions: each visible label sits in a lane clear of its
-             neighbors, and anything that couldn't fit is hidden rather than
-             rendered on top of another label. Each visible one is: the
-             colored time label, a selected-state background pill, and a
-             much-larger invisible rect purely for touch/click hit-testing
-             (>=44px regardless of viewBox scale). -->
-        <g
-          v-for="(entry, i) in visibleMarkerLayout"
-          :key="`marker-${i}`"
-          class="marker-group"
-          :class="{ selected: isMarkerSelected(entry.marker) }"
-        >
-          <rect
-            v-if="isMarkerSelected(entry.marker)"
-            :x="entry.marker.x1 - markerHitHalfW * 0.55"
-            :y="ALARM_LABEL_ROW_Y[entry.lane] - 14"
-            :width="markerHitHalfW * 1.1"
-            height="20"
-            rx="5"
-            class="marker-pill"
-            :class="entry.marker.cls"
-          />
-          <text
-            :x="entry.marker.x1"
-            :y="ALARM_LABEL_ROW_Y[entry.lane]"
-            class="axis-label x-label marker-time"
-            :class="entry.marker.cls"
-          >{{ entry.marker.label }}</text>
-          <rect
-            :x="entry.marker.x1 - markerHitHalfW"
-            :y="ALARM_LABEL_ROW_Y[entry.lane] - markerHitHalfH"
-            :width="markerHitHalfW * 2"
-            :height="markerHitHalfH * 2"
-            class="marker-hit"
-            @pointerdown.stop="selectMarker(entry.marker)"
-          />
-        </g>
 
         <!-- Crosshair -->
         <template v-if="hoveredReading">
@@ -1389,15 +1297,6 @@ onUnmounted(() => {
 .x-label-first { text-anchor: start; }
 .x-label-last { text-anchor: end; }
 
-/* Y-axis scale, right-aligned into the left margin. HIGH/LOW ticks pick
-   up their alarm color so the boundary value is legible at rest — the
-   only accent color allowed to appear in "chrome" rather than the data
-   line itself, and only because it's the same semantic color as the
-   threshold line it labels. */
-.y-label { text-anchor: end; dominant-baseline: middle; }
-.y-label-high { fill: #ef4444; font-weight: 600; }
-.y-label-low { fill: #3b82f6; font-weight: 600; }
-
 /* Baseline column chart: deliberately NOT crispEdges — at real point
    density the gap between columns is sub-pixel, and
    shape-rendering:crispEdges snaps rectangle edges to whole device
@@ -1407,32 +1306,6 @@ onUnmounted(() => {
 .temp-column { shape-rendering: auto; }
 
 .chart-svg-live { cursor: default; }
-
-/* Alarm start times, colored by type, on their own rows above the
-   periodic X-axis row — these text elements ARE the clickable alarm
-   markers now. */
-.marker-time { font-weight: 600; pointer-events: none; }
-.marker-high.marker-time { fill: #ef4444; }
-.marker-low.marker-time { fill: #3b82f6; }
-.marker-offline.marker-time { fill: #8fa1ba; }
-
-.marker-pill { opacity: 0.16; }
-.marker-pill.marker-high { fill: #ef4444; }
-.marker-pill.marker-low { fill: #3b82f6; }
-.marker-pill.marker-offline { fill: #8fa1ba; }
-
-/* The actual tap/click/hover target — deliberately much bigger than the
-   visible label so it reads as a proper (>=44px) touch target on mobile.
-   Explicitly kills text-selection and the long-press callout/context-menu
-   a browser would otherwise show over what looks like selectable text. */
-.marker-hit {
-  fill: transparent;
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-}
 
 /* Crosshair/hover-dot are neutral grays, not an accent color — the only
    "color" anywhere in this chart is the data line and the alarm-state
