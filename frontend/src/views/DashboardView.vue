@@ -10,29 +10,45 @@ import TemperatureChart from "@/components/TemperatureChart.vue";
 const objectsStore=useObjectsStore(), sensorsStore=useSensorsStore(), alarmsStore=useAlarmsStore();
 const selectedObjectId=ref(""), range=ref<ChartRange>("24H");
 const alarmConfigs=ref<AlarmConfigItem[]>([]);
-// The chart is a full-viewport overlay that slides in from the left when a
-// sensor's temperature is tapped, and slides back out on close — it's not
-// a separate page/route, just a transition state over the same dashboard.
+// The chart is a full-viewport panel that mounts when a sensor's
+// temperature is tapped and unmounts on close — no slide/transition, just
+// plain v-if. Real Fullscreen is requested on open (see openChartFor); the
+// panel itself is still a full-viewport overlay even if that's denied
+// (Permissions Policy, unsupported, etc.) so it never becomes unusable.
 const showChart=ref(false);
 const fullscreenRoot=ref<HTMLElement|null>(null);
+const isChartFullscreen=ref(false);
 
-// Touch-primary device (phone/tablet), not a mouse-driven desktop. This is
-// a device CAPABILITY, not something that changes mid-session, so it's a
-// plain constant, not reactive state. It's what gates everything below:
-// desktop never requests real Fullscreen and never shows the rotate
-// prompt — it renders the chart exactly as it always has.
-const isTouchDevice = typeof window!=="undefined" && window.matchMedia("(pointer: coarse)").matches;
-const landscapeMql = typeof window!=="undefined" ? window.matchMedia("(orientation: landscape)") : null;
-const isLandscape = ref(landscapeMql?.matches ?? true);
-function updateOrientation(){ isLandscape.value = landscapeMql?.matches ?? true; }
+type OrientationLock = { lock?: (o: string) => Promise<void>; unlock?: () => void };
+function getOrientation(): OrientationLock | undefined {
+  return (screen as unknown as { orientation?: OrientationLock }).orientation;
+}
+async function requestLandscape() {
+  try { await getOrientation()?.lock?.("landscape"); }
+  catch { /* Not supported (e.g. iPhone Safari) or rejected — ignore, fullscreen itself still works. */ }
+}
+function releaseOrientation() {
+  try { getOrientation()?.unlock?.(); } catch { /* ignore */ }
+}
+
+function onFullscreenChange() {
+  isChartFullscreen.value = document.fullscreenElement === fullscreenRoot.value;
+  if (isChartFullscreen.value) {
+    requestLandscape();
+  } else {
+    releaseOrientation();
+    // Exiting fullscreen (Escape, swiping away on mobile, ...) is also how
+    // the chart panel closes — there's no other embedded position for it
+    // to fall back into.
+    showChart.value = false;
+  }
+}
 
 async function requestChartFullscreen(){
-  if(!isTouchDevice) return;
   try{ await fullscreenRoot.value?.requestFullscreen?.(); }
-  catch{ /* Permissions Policy denial, unsupported, etc. — the chart is still
-            fully usable without real Fullscreen, just with browser chrome
-            visible; the rotate-prompt/orientation gate below is independent
-            of whether this actually succeeded. */ }
+  catch{ /* Permissions Policy denial, unsupported, etc. — fail silently, the
+            chart is still fully usable as a large in-page panel instead of
+            becoming unreachable. */ }
 }
 async function exitChartFullscreen(){
   if(document.fullscreenElement){
@@ -86,9 +102,6 @@ async function closeChart(){
   showChart.value=false;
   await exitChartFullscreen();
 }
-function onKeydown(e:KeyboardEvent){
-  if(e.key==="Escape"&&showChart.value) closeChart();
-}
 
 async function pickObject(){
   closeChart();
@@ -102,24 +115,10 @@ async function pickObject(){
 onMounted(async()=>{
   await objectsStore.fetchObjects();
   if(objectsStore.activeObjects[0]){selectedObjectId.value=objectsStore.activeObjects[0].id;pickObject()}
-  document.addEventListener("keydown", onKeydown);
-  // Both listeners target the same update — matchMedia's own "change" event
-  // is the semantically correct one, but a plain window "resize" is kept
-  // alongside it as a fallback (mirrors the same belt-and-suspenders
-  // pattern TemperatureChart.vue uses for its own ResizeObserver), since a
-  // real device rotation always fires resize even in environments where
-  // the MediaQueryList change event has been observed to be unreliable.
-  // orientationchange is a third, mobile-browser-specific signal for the
-  // same event — belt and suspenders, all three just call the same update.
-  landscapeMql?.addEventListener("change", updateOrientation);
-  window.addEventListener("resize", updateOrientation);
-  window.addEventListener("orientationchange", updateOrientation);
+  document.addEventListener("fullscreenchange", onFullscreenChange);
 });
 onUnmounted(()=>{
-  document.removeEventListener("keydown", onKeydown);
-  landscapeMql?.removeEventListener("change", updateOrientation);
-  window.removeEventListener("resize", updateOrientation);
-  window.removeEventListener("orientationchange", updateOrientation);
+  document.removeEventListener("fullscreenchange", onFullscreenChange);
 });
 watch(selectedObjectId,pickObject);
 </script>
@@ -142,51 +141,36 @@ watch(selectedObjectId,pickObject);
   <div v-else-if="selectedObjectId" class="empty">Brak sensorów dla wybranego obiektu.</div>
   <div v-else class="empty">Wybierz obiekt, aby zobaczyć dane.</div>
 
-  <Transition name="chart-slide">
-   <div v-if="showChart && sensor" ref="fullscreenRoot" class="chart-overlay">
-    <div class="ranges">
-     <button class="back-btn" type="button" aria-label="Wróć" @click="closeChart">
-      <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span>Wróć</span>
-     </button>
-     <div class="chart-stats">
-      <span class="chart-stat"><b>MIN</b> {{temperature(stats.min)}}</span>
-      <span class="chart-stat-sep" aria-hidden="true">|</span>
-      <span class="chart-stat"><b>AVG</b> {{temperature(stats.avg)}}</span>
-      <span class="chart-stat-sep" aria-hidden="true">|</span>
-      <span class="chart-stat"><b>MAX</b> {{temperature(stats.max)}}</span>
-     </div>
-     <div class="range-buttons">
-      <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
-     </div>
+  <div v-if="showChart && sensor" ref="fullscreenRoot" class="chart-overlay">
+   <div class="ranges">
+    <button class="back-btn" type="button" aria-label="Wróć" @click="closeChart">
+     <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+     <span>Wróć</span>
+    </button>
+    <div class="chart-stats">
+     <span class="chart-stat"><b>MIN</b> {{temperature(stats.min)}}</span>
+     <span class="chart-stat-sep" aria-hidden="true">|</span>
+     <span class="chart-stat"><b>AVG</b> {{temperature(stats.avg)}}</span>
+     <span class="chart-stat-sep" aria-hidden="true">|</span>
+     <span class="chart-stat"><b>MAX</b> {{temperature(stats.max)}}</span>
     </div>
-
-    <!-- On a touch device held in portrait, the chart itself is never
-         reflowed or rotated — it's the SAME landscape chart every device
-         gets, just not shown until the device actually IS in landscape.
-         Desktop (isTouchDevice false) always takes this else-branch. -->
-    <div v-if="isTouchDevice && !isLandscape" class="rotate-prompt">
-     <svg class="rotate-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="7" y="2" width="10" height="20" rx="2"/>
-      <path d="M12 18h.01"/>
-     </svg>
-     <p>Obróć telefon w poziomo,<br>aby zobaczyć wykres</p>
+    <div class="range-buttons">
+     <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
     </div>
-    <TemperatureChart
-      v-else
-      :sensor="sensor"
-      :readings="readings"
-      :range="range"
-      :high-threshold="highThreshold"
-      :low-threshold="lowThreshold"
-      :alarms="sensorAlarms"
-      :active-alarm-label="activeAlarmLabel"
-      :online="online()"
-      :loading="sensorsStore.rangeLoading"
-      @target-columns="onTargetColumns"
-    />
    </div>
-  </Transition>
+   <TemperatureChart
+     :sensor="sensor"
+     :readings="readings"
+     :range="range"
+     :high-threshold="highThreshold"
+     :low-threshold="lowThreshold"
+     :alarms="sensorAlarms"
+     :active-alarm-label="activeAlarmLabel"
+     :online="online()"
+     :loading="sensorsStore.rangeLoading"
+     @target-columns="onTargetColumns"
+   />
+  </div>
  </section>
 </template>
 <style scoped>
@@ -232,29 +216,15 @@ watch(selectedObjectId,pickObject);
 .empty{text-align:center;padding:100px;color:#8fa1ba}
 
 /* ---------- Chart overlay ----------
-   A full-viewport panel, not a modal over a dimmed backdrop — it slides in
-   from the left like navigating to a new page (translateX only, no scale
-   or rotation). On desktop this is the whole story. On a touch device,
-   opening the chart also requests real Fullscreen (see
-   requestChartFullscreen) and the chart itself only renders once the
-   device is actually in landscape — a rotate-device prompt shows instead
-   otherwise (see .rotate-prompt). Nothing here is rotated or reflowed by
-   CSS: it's the exact same landscape chart on every device, just gated on
-   real orientation instead of simulated. */
+   A plain full-viewport panel — mounted with v-if (no transition/animation
+   component) when a sensor's temperature is tapped, unmounted the same way
+   on close. Real Fullscreen is requested on open (requestChartFullscreen)
+   and released on close; if that's denied by the browser the panel still
+   renders at full-viewport size via this CSS, so it's never unusable. */
 .chart-overlay{
   position:fixed;inset:0;z-index:40;background:#07121e;overflow:hidden;
   padding:4px;display:flex;flex-direction:column;
 }
-.chart-slide-enter-active,.chart-slide-leave-active{transition:transform 280ms ease-in-out,opacity 280ms ease-in-out}
-.chart-slide-enter-from,.chart-slide-leave-to{transform:translateX(-100%);opacity:0}
-
-.rotate-prompt{
-  flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:20px;color:#cdd9ee;text-align:center;padding:24px;
-}
-.rotate-icon{width:56px;height:56px;color:#07c9f3;animation:rotate-hint 1.8s ease-in-out infinite}
-@keyframes rotate-hint{0%,100%{transform:rotate(0deg)}50%{transform:rotate(90deg)}}
-.rotate-prompt p{font-size:16px;line-height:1.5;margin:0}
 
 /* Floating toolbar: back button, MIN/AVG/MAX, range buttons — pinned along
    the top edge so the chart underneath still occupies almost the entire
@@ -308,8 +278,6 @@ watch(selectedObjectId,pickObject);
  .ranges{top:8px;left:8px;right:8px;gap:6px;padding:6px 10px}
  .range-buttons{gap:6px}
  .chart-stats{font-size:11px;gap:6px}
- .rotate-icon{width:48px;height:48px}
- .rotate-prompt p{font-size:14px}
 }
 
 /* Short landscape (~375-430px tall once rotated): trim the floating
