@@ -99,8 +99,6 @@ const activeAlarmLabel=computed(()=>{
 });
 
 function temperature(value:number|null|undefined){return value==null?"—":`${value.toFixed(1)} °C`}
-function date(value:string|null|undefined){return value?new Date(value).toLocaleString("pl-PL"):"—"}
-function time(value:string|null|undefined){return value?new Date(value).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}):"—"}
 function online(){const last=sensor.value?.last_message_at;if(!last||!sensor.value)return false;return Date.now()-new Date(last).getTime()<sensor.value.offline_timeout_seconds*1000}
 
 async function loadAlarmConfigs(sensorId:string){
@@ -140,44 +138,15 @@ watch(selectedObjectId,pickObject);
   <div class="selectors"><label>OBIEKT<select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select></label><label>SENSOR<select v-model="selectedSensorId" @change="pickSensor" :disabled="!selectedObjectId"><option value="">Wybierz sensor</option><option v-for="item in sensorsStore.sensors" :key="item.id" :value="item.id">{{item.name}}</option></select></label></div>
   <template v-if="sensor">
    <article class="temperature-panel">
-    <button class="chart-open-btn" type="button" aria-label="Wykres" @click="openChart">
-     <svg viewBox="0 0 24 24"><path d="M4 20V13M11 20V8M18 20V4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
     <div class="hero">
-     <div class="hero-temp"><span class="temp-value">{{temperature(sensor.current_temperature)}}</span><span class="temp-delta">↓ 0.3°</span></div>
-     <div class="hero-meta"><span class="sensor-name">{{sensor.name}}</span><span class="object-name">{{selectedObject?.name}}</span></div>
-    </div>
-    <div class="stats-row">
-     <div class="stat">
-      <svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 13l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div class="stat-body">
-       <span class="stat-label">MIN</span>
-       <span class="stat-value">{{temperature(stats.min)}}</span>
-       <span class="stat-time">{{time(readings[0]?.received_at)}}</span>
-      </div>
+     <button class="chart-cta" type="button" aria-label="Otwórz wykres" @click="openChart">
+      <svg class="chart-cta-icon" viewBox="0 0 24 24"><path d="M4 20V13M11 20V8M18 20V4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="chart-cta-label">CHART</span>
+     </button>
+     <div class="hero-readout">
+      <div class="hero-temp"><span class="temp-value">{{temperature(sensor.current_temperature)}}</span><span class="temp-delta">↓ 0.3°</span></div>
+      <div class="hero-meta"><span class="sensor-name">{{sensor.name}}</span><span class="object-name">{{selectedObject?.name}}</span></div>
      </div>
-     <span class="stat-sep" aria-hidden="true"></span>
-     <div class="stat">
-      <svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12c2-4 4 4 6 0s4-4 6 0 4 4 4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div class="stat-body">
-       <span class="stat-label">AVG</span>
-       <span class="stat-value">{{temperature(stats.avg)}}</span>
-      </div>
-     </div>
-     <span class="stat-sep" aria-hidden="true"></span>
-     <div class="stat">
-      <svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div class="stat-body">
-       <span class="stat-label">MAX</span>
-       <span class="stat-value">{{temperature(stats.max)}}</span>
-       <span class="stat-time">{{time(readings[readings.length-1]?.received_at)}}</span>
-      </div>
-     </div>
-    </div>
-    <div class="status-bar">
-     <svg class="clock-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-     <span class="status-label">Ostatnia aktualizacja</span>
-     <span class="status-value">{{date(sensor.last_message_at)}}</span>
     </div>
    </article>
    <article v-if="showChart" class="chart-panel">
@@ -195,20 +164,26 @@ watch(selectedObjectId,pickObject);
        :loading="sensorsStore.rangeLoading"
      />
      <div class="ranges">
-      <div class="range-buttons">
-       <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
+      <div class="chart-stats">
+       <span class="chart-stat"><b>MIN</b> {{temperature(stats.min)}}</span>
+       <span class="chart-stat-sep" aria-hidden="true">|</span>
+       <span class="chart-stat"><b>AVG</b> {{temperature(stats.avg)}}</span>
+       <span class="chart-stat-sep" aria-hidden="true">|</span>
+       <span class="chart-stat"><b>MAX</b> {{temperature(stats.max)}}</span>
       </div>
-      <button v-if="!isChartFullscreen" class="fullscreen-btn" type="button" aria-label="Fullscreen" @click="toggleFullscreen">
-       <svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" /></svg>
-       <span>Fullscreen</span>
-      </button>
-      <template v-else>
-       <span class="toolbar-spacer" aria-hidden="true"></span>
-       <button class="exit-fullscreen-btn" type="button" aria-label="Exit fullscreen" @click="toggleFullscreen">
+      <div class="range-controls">
+       <div class="range-buttons">
+        <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
+       </div>
+       <button v-if="!isChartFullscreen" class="fullscreen-btn" type="button" aria-label="Fullscreen" @click="toggleFullscreen">
+        <svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" /></svg>
+        <span>Fullscreen</span>
+       </button>
+       <button v-else class="exit-fullscreen-btn" type="button" aria-label="Exit fullscreen" @click="toggleFullscreen">
         <svg viewBox="0 0 24 24"><path d="M3 8V3h5M21 8V3h-5M3 16v5h5M21 16v5h-5" /></svg>
         <span>Exit Fullscreen</span>
        </button>
-      </template>
+      </div>
      </div>
     </div>
    </article>
@@ -218,29 +193,30 @@ watch(selectedObjectId,pickObject);
 <style scoped>
 .dashboard{padding:21px 25px 10px;max-width:1280px;margin:auto}.selectors{display:grid;grid-template-columns:405px 388px 1fr;gap:25px;align-items:end;margin-bottom:21px}.selectors label{font-size:14px;color:#aab9cf;display:grid;gap:8px}.selectors select{appearance:none;height:48px;border:1px solid #2b4b67;border-radius:7px;background:#081421 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23b8c9e8' stroke-width='2'/%3E%3C/svg%3E") no-repeat calc(100% - 17px) center;color:#e8effa;font-size:17px;padding:0 48px 0 18px}.temperature-panel,.chart-panel{background:radial-gradient(circle at 45% 30%,#0d1d2d,#07121e 70%);border:1px solid #172d42}
 
-/* ---------- Summary card (Current temp / Min-Avg-Max / Last update) ----------
-   Mobile-first: one card, three sections (hero, stats row, status bar), no
-   nested cards — sections are separated by spacing/background, not borders,
-   and stat items are divided by a single hairline rather than boxed. Sizes
-   scale up via clamp() and two min-width breakpoints reuse the same markup. */
-.temperature-panel{position:relative;padding:0;border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+/* ---------- Summary card (Current temp + the one way into the chart) ----------
+   Dashboard philosophy: only "what's happening right now" — no MIN/AVG/MAX,
+   no last-update panel, those moved into the fullscreen chart toolbar. Just
+   the big Chart button and the current reading, side by side. */
+.temperature-panel{padding:0;border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
 
-/* Opens the chart, fullscreen, for the currently selected sensor — the
-   only way to reach historical data now that the chart no longer sits
-   embedded on the Dashboard. Same visual language as the fullscreen/exit
-   pill buttons on the chart itself (dark pill, cyan on hover), just round
-   and icon-only since it lives in the corner of a card, not a toolbar. */
-.chart-open-btn{
-  position:absolute;top:14px;right:14px;z-index:1;
-  display:flex;align-items:center;justify-content:center;
-  width:38px;height:38px;flex:none;
-  background:#091725;border:1px solid #263e56;border-radius:10px;
-  color:#afc0dc;cursor:pointer;
+.hero{padding:20px 18px;display:flex;align-items:center;gap:16px}
+.hero-readout{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px}
+
+/* The Chart button: always visible, roughly the same visual weight as the
+   temperature reading next to it (same cyan accent, comparably large) —
+   the one and only way to reach historical data now that it no longer
+   sits embedded on the page. */
+.chart-cta{
+  flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  width:clamp(76px,20vw,100px);padding:14px 8px;
+  background:rgba(7,201,243,0.08);border:1.5px solid #07c9f3;border-radius:14px;
+  color:#07c9f3;cursor:pointer;
 }
-.chart-open-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.chart-open-btn:hover{border-color:#00cce3;color:#00e5ef}
+.chart-cta-icon{width:clamp(26px,7vw,34px);height:clamp(26px,7vw,34px);flex:none;fill:none;stroke:currentColor}
+.chart-cta-label{font-size:11px;font-weight:700;letter-spacing:.08em}
+.chart-cta:hover{background:rgba(7,201,243,0.16)}
+.chart-cta:active{background:rgba(7,201,243,0.24)}
 
-.hero{padding:20px 20px 16px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px}
 .hero-temp{display:flex;align-items:baseline;justify-content:center;gap:10px;flex-wrap:wrap}
 .temp-value{font-size:clamp(40px,11vw,64px);font-weight:700;letter-spacing:-2px;color:#07c9f3;line-height:1}
 .temp-delta{font-size:clamp(13px,3vw,15px);color:#00d6ee;font-weight:600}
@@ -249,26 +225,9 @@ watch(selectedObjectId,pickObject);
 .object-name{color:#9aabc5;font-size:13px;position:relative;padding-left:12px}
 .object-name::before{content:"";position:absolute;left:0;top:50%;translate:0 -50%;width:3px;height:3px;border-radius:50%;background:#3a5470}
 
-.stats-row{display:flex;align-items:stretch;justify-content:space-between;gap:4px;padding:14px 16px;margin:0 12px;border-top:1px solid #172d42}
-.stat{display:flex;align-items:center;gap:8px;min-width:0;flex:1;justify-content:center}
-.stat-icon{width:18px;height:18px;color:#4f7396;flex:none}
-.stat-body{display:flex;flex-direction:column;gap:1px;min-width:0}
-.stat-label{font-size:10px;color:#7d90ac;text-transform:uppercase;letter-spacing:.05em}
-.stat-value{font-size:clamp(14px,4vw,16px);color:#e8effa;font-weight:600;white-space:nowrap}
-.stat-time{font-size:11px;color:#7d90ac}
-.stat-sep{width:1px;flex:none;background:#172d42;align-self:stretch;margin:2px 0}
-
-.status-bar{display:flex;align-items:center;gap:8px;padding:10px 20px;background:#0a1826;font-size:12px;color:#9aabc5;flex-wrap:wrap}
-.clock-icon{width:14px;height:14px;color:#4f7396;flex:none}
-.status-value{color:#c6d3e8;font-weight:600}
-
-/* Tablet/desktop >=600px: a bit more breathing room, hero and stats slightly larger */
+/* Tablet/desktop >=600px: a bit more breathing room */
 @media(min-width:600px){
- .hero{padding:26px 28px 20px;gap:10px}
- .stats-row{padding:16px 24px;margin:0 16px}
- .stat{gap:10px}
- .stat-icon{width:20px;height:20px}
- .status-bar{padding:12px 28px}
+ .hero{padding:26px 28px}
 }
 
 .chart-panel{height:clamp(460px,66vh,640px);margin-top:8px;border-radius:12px;padding:22px;display:flex;flex-direction:column}
@@ -281,11 +240,12 @@ watch(selectedObjectId,pickObject);
 .chart-fullscreen-root.fullscreen{position:fixed;inset:0;flex:none;width:100vw;height:100vh;height:100dvh;padding:4px;background:#07121e;z-index:40}
 
 /* Control strip lives BELOW the chart now — chart is the dominant element,
-   controls are a secondary, thumb-reachable row underneath it. One shared
-   pill style for range buttons and the fullscreen/exit toggle keeps them
-   visually identical; only alignment changes between normal (centered)
-   and fullscreen (right-aligned) mode. */
-.ranges{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;flex:none}
+   this is a secondary, thumb-reachable row underneath it. MIN/AVG/MAX (for
+   the currently selected range) sit on the left, range buttons + the
+   fullscreen toggle are grouped on the right — the only two groups, so
+   space-between keeps them apart regardless of how wide the row is. */
+.ranges{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:14px;flex:none;flex-wrap:wrap}
+.range-controls{display:flex;align-items:center;gap:10px;flex:none}
 .range-buttons{display:flex;gap:10px}
 .ranges button,.fullscreen-btn,.exit-fullscreen-btn{
   display:flex;align-items:center;justify-content:center;gap:7px;
@@ -300,31 +260,36 @@ watch(selectedObjectId,pickObject);
 .exit-fullscreen-btn:hover{border-color:#ff6875;color:#ff8b93}
 .empty{text-align:center;padding:100px;color:#8fa1ba}
 
+/* MIN/AVG/MAX for the currently selected range — lives only here, in the
+   chart toolbar, never on the bare Dashboard. */
+.chart-stats{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:13px;color:#afc0dc;font-variant-numeric:tabular-nums}
+.chart-stat b{color:#e8effa;font-weight:700;letter-spacing:.04em;margin-right:4px}
+.chart-stat-sep{color:#3a5470}
+
 /* Fullscreen: SCADA-style floating toolbar. It overlays the chart itself,
-   pinned to the top-right corner, so the chart underneath can occupy
+   pinned along the top edge, so the chart underneath can still occupy
    almost the entire screen. Semi-transparent + blurred so it stays
-   legible without fully hiding the plot behind it; the Y axis lives on
-   the left and X axis labels sit at the bottom, so a top-right pill
-   never covers either. */
+   legible without fully hiding the plot behind it; the Y axis is gone and
+   X axis labels sit at the bottom, so a top strip never covers either. */
 .chart-fullscreen-root.fullscreen .ranges{
-  position:absolute;top:14px;right:14px;z-index:41;
-  margin-top:0;padding:6px 8px;flex:none;justify-content:flex-end;
-  background:rgba(7,18,30,0.8);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  position:absolute;top:14px;left:14px;right:14px;z-index:41;
+  margin-top:0;padding:8px 14px;flex:none;
+  background:rgba(7,18,30,0.85);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
   border:1px solid rgba(38,62,86,0.7);border-radius:12px;
   box-shadow:0 8px 24px rgba(0,0,0,0.35);
 }
-.chart-fullscreen-root.fullscreen .toolbar-spacer{display:none}
 
 @media(max-width:1100px){.dashboard{max-width:100%}.chart-panel{height:clamp(420px,58vh,560px)}}
 @media(max-width:800px){
  .dashboard{padding:16px}.selectors{grid-template-columns:1fr;gap:12px}.chart-panel{height:clamp(260px,64vw,340px);padding:16px}
- /* Narrow screens: collapse the toggle button to icon-only so the row
-    never wraps or scrolls, in both normal and fullscreen mode. */
+ /* Narrow screens: collapse the toggle button to icon-only, and shrink the
+    stats text, so the row degrades to wrapping instead of overflowing. */
  .fullscreen-btn span,.exit-fullscreen-btn span{display:none}
  .fullscreen-btn,.exit-fullscreen-btn{width:40px;padding:0}
- .ranges{gap:6px}
+ .ranges{gap:8px}
  .range-buttons{gap:6px}
- .chart-fullscreen-root.fullscreen .ranges{top:8px;right:8px;gap:6px;padding:5px 6px}
+ .chart-stats{font-size:11px;gap:6px}
+ .chart-fullscreen-root.fullscreen .ranges{top:8px;left:8px;right:8px;gap:6px;padding:6px 10px}
 }
 
 /* Short landscape phones (~375-430px tall once rotated): trim the floating
@@ -332,7 +297,7 @@ watch(selectedObjectId,pickObject);
    shrinking tap targets past comfortable thumb use. */
 @media(max-height:430px){
  .chart-fullscreen-root.fullscreen{padding:2px}
- .chart-fullscreen-root.fullscreen .ranges{top:6px;right:6px;padding:4px 5px}
+ .chart-fullscreen-root.fullscreen .ranges{top:6px;left:6px;right:6px;padding:5px 8px}
  .chart-fullscreen-root.fullscreen .ranges button,
  .chart-fullscreen-root.fullscreen .fullscreen-btn,
  .chart-fullscreen-root.fullscreen .exit-fullscreen-btn{height:36px}
