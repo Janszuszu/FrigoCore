@@ -350,13 +350,38 @@ function buildColumns(
   })
 }
 
-const columns = computed<Column[]>(() => {
+// ─── Rendered points: uniform index spacing, not timestamp spacing ────
+// Aggregation buckets are equal TIME intervals, but the actual min/max
+// reading picked from within each bucket can land anywhere inside that
+// window — so positioning bars at their real timestamp produced a visibly
+// irregular rhythm (bars bunching where samples happened to cluster near a
+// bucket edge, gapping elsewhere), even though the buckets themselves are
+// even. Real timestamps still decide WHICH points survive decimation and
+// their chronological order (via xScale below, used only as a sortable
+// tie-breaker) and still drive every label/tooltip; only the on-screen X
+// position is now `index / count` across the plot, so every bar and every
+// gap between bars is exactly the same size. This is also the single
+// source of truth for hit-testing (nearestIndex) and the crosshair
+// (hoveredX), so the thing you point at is always the thing drawn there —
+// LIVE's sweep is untouched and keeps its own real-time positioning below.
+interface RenderedPoint {
+  x: number
+  t: number
+  reading: MeasurementItem & { temperature: number }
+}
+
+const renderedPoints = computed<RenderedPoint[]>(() => {
   const d = visible.value
   if (!d.length) return []
-  const points = d.map((r) => ({ x: xScale(r.received_at), t: r.temperature }))
+  const points = d.map((r) => ({ x: xScale(r.received_at), t: r.temperature, reading: r }))
   const decimated = decimateForRender(points, targetColumns.value)
-  return buildColumns(decimated, yScale, props.lowThreshold, props.highThreshold, MARGIN.top, MARGIN.top + PLOT_H)
+  const pitch = PLOT_W / decimated.length
+  return decimated.map((p, i) => ({ x: MARGIN.left + (i + 0.5) * pitch, t: p.t, reading: p.reading }))
 })
+
+const columns = computed<Column[]>(() =>
+  buildColumns(renderedPoints.value, yScale, props.lowThreshold, props.highThreshold, MARGIN.top, MARGIN.top + PLOT_H),
+)
 
 // ─── LIVE mode: oscilloscope-style sweep ──────────────────────────
 // Independent of the historical zoom/pan/columns machinery above. The
@@ -644,13 +669,12 @@ function svgPoint(clientX: number, clientY: number): { x: number; y: number } | 
 }
 
 function nearestIndex(svgX: number): number | null {
-  const d = visible.value
-  if (!d.length) return null
+  const pts = renderedPoints.value
+  if (!pts.length) return null
   let best = 0
   let bestDist = Infinity
-  for (let i = 0; i < d.length; i++) {
-    const px = xScale(d[i].received_at)
-    const dist = Math.abs(px - svgX)
+  for (let i = 0; i < pts.length; i++) {
+    const dist = Math.abs(pts[i].x - svgX)
     if (dist < bestDist) {
       bestDist = dist
       best = i
@@ -789,10 +813,9 @@ function onPointerMove(e: PointerEvent) {
 // same alarm's column toggles it closed again (see pointerDownAlarmId).
 function tryAlarmPopupFromHover() {
   if (isLive.value) return // no alarm-column interaction in LIVE (no columns are clicked-selectable there)
-  if (hoverIndex.value == null) return
-  const reading = visible.value[hoverIndex.value]
+  const reading = hoveredReading.value
   if (!reading || typeof reading.temperature !== 'number') return
-  const period = findAlarmForReading(reading as MeasurementItem & { temperature: number })
+  const period = findAlarmForReading(reading)
   if (!period) return
   if (pointerDownAlarmId.value === period.alarm.id) {
     hoveredMarker.value = null
@@ -893,7 +916,15 @@ function onTouchMove(e: TouchEvent) {
 }
 
 // ─── Tooltip content ──────────────────────────────────────────────
-const hoveredReading = computed(() => (hoverIndex.value != null ? visible.value[hoverIndex.value] : null))
+// Both read from renderedPoints — the same evenly-spaced array the bars
+// themselves are drawn from — so the crosshair/tooltip/alarm-click always
+// refer to the exact bar under the cursor, never a neighbor.
+const hoveredReading = computed(() =>
+  hoverIndex.value != null ? renderedPoints.value[hoverIndex.value]?.reading ?? null : null,
+)
+const hoveredX = computed(() =>
+  hoverIndex.value != null ? renderedPoints.value[hoverIndex.value]?.x ?? null : null,
+)
 
 function fmtTemp(v: number | null | undefined): string {
   return v == null ? '—' : `${v.toFixed(1)} °C`
@@ -1185,10 +1216,10 @@ onUnmounted(() => {
         />
 
         <!-- Crosshair -->
-        <template v-if="hoveredReading">
+        <template v-if="hoveredReading && hoveredX != null">
           <line
-            :x1="xScale(hoveredReading.received_at)"
-            :x2="xScale(hoveredReading.received_at)"
+            :x1="hoveredX"
+            :x2="hoveredX"
             :y1="MARGIN.top"
             :y2="MARGIN.top + PLOT_H"
             class="crosshair"
@@ -1197,7 +1228,7 @@ onUnmounted(() => {
           <!-- Painted after the columns in DOM order, so it always sits on top
                (SVG has no z-index; paint order = source order). -->
           <circle
-            :cx="xScale(hoveredReading.received_at)"
+            :cx="hoveredX"
             :cy="yScale(hoveredReading.temperature)"
             :r="isPointLocked ? 6 : 4.5"
             class="hover-dot"
