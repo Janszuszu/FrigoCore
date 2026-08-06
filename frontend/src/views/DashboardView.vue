@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useSensorsStore } from "@/stores/sensors";
 import { useAlarmsStore } from "@/stores/alarms";
@@ -14,6 +14,31 @@ const alarmConfigs=ref<AlarmConfigItem[]>([]);
 // sensor's temperature is tapped, and slides back out on close — it's not
 // a separate page/route, just a transition state over the same dashboard.
 const showChart=ref(false);
+const fullscreenRoot=ref<HTMLElement|null>(null);
+
+// Touch-primary device (phone/tablet), not a mouse-driven desktop. This is
+// a device CAPABILITY, not something that changes mid-session, so it's a
+// plain constant, not reactive state. It's what gates everything below:
+// desktop never requests real Fullscreen and never shows the rotate
+// prompt — it renders the chart exactly as it always has.
+const isTouchDevice = typeof window!=="undefined" && window.matchMedia("(pointer: coarse)").matches;
+const landscapeMql = typeof window!=="undefined" ? window.matchMedia("(orientation: landscape)") : null;
+const isLandscape = ref(landscapeMql?.matches ?? true);
+function updateOrientation(){ isLandscape.value = landscapeMql?.matches ?? true; }
+
+async function requestChartFullscreen(){
+  if(!isTouchDevice) return;
+  try{ await fullscreenRoot.value?.requestFullscreen?.(); }
+  catch{ /* Permissions Policy denial, unsupported, etc. — the chart is still
+            fully usable without real Fullscreen, just with browser chrome
+            visible; the rotate-prompt/orientation gate below is independent
+            of whether this actually succeeded. */ }
+}
+async function exitChartFullscreen(){
+  if(document.fullscreenElement){
+    try{ await document.exitFullscreen(); } catch{ /* ignore */ }
+  }
+}
 
 const sensor=computed(()=>sensorsStore.selectedSensor);
 const readings=computed(()=>[...sensorsStore.measurements].reverse());
@@ -54,9 +79,12 @@ async function openChartFor(item:SensorItem){
   sensorsStore.selectSensor(item,"24H");
   await loadAlarmConfigs(item.id);
   showChart.value=true;
+  await nextTick();
+  await requestChartFullscreen();
 }
-function closeChart(){
+async function closeChart(){
   showChart.value=false;
+  await exitChartFullscreen();
 }
 function onKeydown(e:KeyboardEvent){
   if(e.key==="Escape"&&showChart.value) closeChart();
@@ -75,8 +103,24 @@ onMounted(async()=>{
   await objectsStore.fetchObjects();
   if(objectsStore.activeObjects[0]){selectedObjectId.value=objectsStore.activeObjects[0].id;pickObject()}
   document.addEventListener("keydown", onKeydown);
+  // Both listeners target the same update — matchMedia's own "change" event
+  // is the semantically correct one, but a plain window "resize" is kept
+  // alongside it as a fallback (mirrors the same belt-and-suspenders
+  // pattern TemperatureChart.vue uses for its own ResizeObserver), since a
+  // real device rotation always fires resize even in environments where
+  // the MediaQueryList change event has been observed to be unreliable.
+  // orientationchange is a third, mobile-browser-specific signal for the
+  // same event — belt and suspenders, all three just call the same update.
+  landscapeMql?.addEventListener("change", updateOrientation);
+  window.addEventListener("resize", updateOrientation);
+  window.addEventListener("orientationchange", updateOrientation);
 });
-onUnmounted(()=>{document.removeEventListener("keydown", onKeydown)});
+onUnmounted(()=>{
+  document.removeEventListener("keydown", onKeydown);
+  landscapeMql?.removeEventListener("change", updateOrientation);
+  window.removeEventListener("resize", updateOrientation);
+  window.removeEventListener("orientationchange", updateOrientation);
+});
 watch(selectedObjectId,pickObject);
 </script>
 <template>
@@ -99,32 +143,7 @@ watch(selectedObjectId,pickObject);
   <div v-else class="empty">Wybierz obiekt, aby zobaczyć dane.</div>
 
   <Transition name="chart-slide">
-   <div v-if="showChart && sensor" class="chart-overlay">
-    <!-- The chart itself sits inside .chart-landscape-stage, which is
-         always laid out landscape — rotated via CSS on a portrait phone
-         (see the stylesheet) — so the slide-in transition only ever moves
-         an already-landscape block into view; there's no intermediate
-         portrait frame at any point in the animation. The toolbar is a
-         SIBLING, not nested inside the rotated stage: a 90° rotation turns
-         a horizontal top edge into a vertical one, so anything positioned
-         "top" inside the rotated frame would visually end up hugging a
-         side edge instead. Positioned against the never-rotated overlay,
-         it stays correctly pinned to the actual screen top regardless of
-         whether the stage beneath it is rotated. -->
-    <div class="chart-landscape-stage">
-     <TemperatureChart
-       :sensor="sensor"
-       :readings="readings"
-       :range="range"
-       :high-threshold="highThreshold"
-       :low-threshold="lowThreshold"
-       :alarms="sensorAlarms"
-       :active-alarm-label="activeAlarmLabel"
-       :online="online()"
-       :loading="sensorsStore.rangeLoading"
-       @target-columns="onTargetColumns"
-     />
-    </div>
+   <div v-if="showChart && sensor" ref="fullscreenRoot" class="chart-overlay">
     <div class="ranges">
      <button class="back-btn" type="button" aria-label="Wróć" @click="closeChart">
       <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -141,6 +160,31 @@ watch(selectedObjectId,pickObject);
       <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
      </div>
     </div>
+
+    <!-- On a touch device held in portrait, the chart itself is never
+         reflowed or rotated — it's the SAME landscape chart every device
+         gets, just not shown until the device actually IS in landscape.
+         Desktop (isTouchDevice false) always takes this else-branch. -->
+    <div v-if="isTouchDevice && !isLandscape" class="rotate-prompt">
+     <svg class="rotate-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="7" y="2" width="10" height="20" rx="2"/>
+      <path d="M12 18h.01"/>
+     </svg>
+     <p>Obróć telefon w poziomo,<br>aby zobaczyć wykres</p>
+    </div>
+    <TemperatureChart
+      v-else
+      :sensor="sensor"
+      :readings="readings"
+      :range="range"
+      :high-threshold="highThreshold"
+      :low-threshold="lowThreshold"
+      :alarms="sensorAlarms"
+      :active-alarm-label="activeAlarmLabel"
+      :online="online()"
+      :loading="sensorsStore.rangeLoading"
+      @target-columns="onTargetColumns"
+    />
    </div>
   </Transition>
  </section>
@@ -152,65 +196,65 @@ watch(selectedObjectId,pickObject);
    Every sensor for the selected object is on the page at once, each its
    own tile: object name on top (small, muted), the temperature itself
    large and center (and the ONLY way into that sensor's chart — no
-   separate button anymore), sensor name below it. */
-.sensor-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
+   separate button anymore), sensor name below it.
+
+   auto-fit, not auto-fill: auto-fill reserves a full grid track for every
+   column that COULD fit at the minimum size, even empty ones — with 1-2
+   real sensors on a wide screen that left 3-4 invisible empty tracks
+   eating most of the row, squeezing the real card down near its 240px
+   floor and reading as "tiny widget in a sea of blank space". auto-fit
+   collapses those empty tracks to zero, so real cards expand via 1fr to
+   actually use the available width — a lone sensor now reads as the
+   dominant hero tile the design always intended, and several sensors
+   settle into a proper multi-column overview instead of a cramped strip. */
+.sensor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:20px}
 .temperature-panel{padding:0;border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
 
-.hero{padding:22px 18px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.hero{padding:34px 28px;display:flex;flex-direction:column;align-items:center;gap:10px}
 
-.object-name-top{color:#9aabc5;font-size:13px;letter-spacing:.02em}
+.object-name-top{color:#9aabc5;font-size:14px;letter-spacing:.02em}
 
 /* The temperature is the tap target now — styled to invite a tap (subtle
    hover/active feedback) without looking like a boxed button; it should
-   still read first and foremost as "the current reading". */
+   still read first and foremost as "the current reading". Sized to
+   dominate the tile (a SCADA-style hero readout), not just sit in it. */
 .temp-cta{
-  background:none;border:none;padding:6px 10px;margin:2px 0;border-radius:12px;cursor:pointer;
-  display:flex;align-items:baseline;justify-content:center;gap:10px;flex-wrap:wrap;
+  background:none;border:none;padding:6px 14px;margin:2px 0;border-radius:12px;cursor:pointer;
+  display:flex;align-items:baseline;justify-content:center;gap:12px;flex-wrap:wrap;
 }
 .temp-cta:hover{background:rgba(7,201,243,0.08)}
 .temp-cta:active{background:rgba(7,201,243,0.16)}
-.temp-value{font-size:clamp(40px,11vw,64px);font-weight:700;letter-spacing:-2px;color:#07c9f3;line-height:1}
-.temp-delta{font-size:clamp(13px,3vw,15px);color:#00d6ee;font-weight:600}
+.temp-value{font-size:clamp(56px,8vw,92px);font-weight:700;letter-spacing:-2px;color:#07c9f3;line-height:1}
+.temp-delta{font-size:clamp(14px,2.2vw,17px);color:#00d6ee;font-weight:600}
 
-.sensor-name-bottom{color:#00dcea;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-
-@media(min-width:600px){
- .hero{padding:28px 24px}
-}
+.sensor-name-bottom{color:#00dcea;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 
 .empty{text-align:center;padding:100px;color:#8fa1ba}
 
 /* ---------- Chart overlay ----------
    A full-viewport panel, not a modal over a dimmed backdrop — it slides in
    from the left like navigating to a new page (translateX only, no scale
-   or rotation), and is the one and only "fullscreen" state now; there's no
-   separate embedded/fullscreen toggle to reason about anymore.
-
-   .chart-overlay itself only ever handles POSITION (the slide) — sizing,
-   padding and, critically, the portrait->landscape rotation all live one
-   level down on .chart-landscape-stage, so the slide transform and the
-   rotation never fight each other: the stage is already rotated (or not)
-   before the slide starts, and the slide just carries that whole block
-   in from the left as one rigid unit. That's what makes "no intermediate
-   portrait view" possible — the rotation isn't animated, only the position is. */
-.chart-overlay{position:fixed;inset:0;z-index:40;background:#07121e;overflow:hidden}
+   or rotation). On desktop this is the whole story. On a touch device,
+   opening the chart also requests real Fullscreen (see
+   requestChartFullscreen) and the chart itself only renders once the
+   device is actually in landscape — a rotate-device prompt shows instead
+   otherwise (see .rotate-prompt). Nothing here is rotated or reflowed by
+   CSS: it's the exact same landscape chart on every device, just gated on
+   real orientation instead of simulated. */
+.chart-overlay{
+  position:fixed;inset:0;z-index:40;background:#07121e;overflow:hidden;
+  padding:4px;display:flex;flex-direction:column;
+}
 .chart-slide-enter-active,.chart-slide-leave-active{transition:transform 280ms ease-in-out,opacity 280ms ease-in-out}
 .chart-slide-enter-from,.chart-slide-leave-to{transform:translateX(-100%);opacity:0}
 
-.chart-landscape-stage{position:absolute;inset:0;padding:4px;display:flex;flex-direction:column}
-
-/* On a portrait viewport (a phone held normally), simulate a landscape
-   screen with a pure CSS rotation instead of requesting a real device
-   orientation lock — the Orientation Lock API needs real Fullscreen mode
-   to succeed in most browsers and isn't implemented at all in iOS Safari,
-   so it can silently no-op and leave the chart squeezed into portrait on
-   a large share of phones. A CSS rotation works identically everywhere.
-   width/height are swapped (100vh/100vw) so the stage's own LOCAL layout
-   is landscape-shaped; the transform then rotates that whole box into the
-   real portrait viewport it needs to fill. */
-@media(orientation:portrait){
- .chart-landscape-stage{width:100vh;height:100vw;transform-origin:top left;transform:rotate(90deg) translateY(-100%)}
+.rotate-prompt{
+  flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:20px;color:#cdd9ee;text-align:center;padding:24px;
 }
+.rotate-icon{width:56px;height:56px;color:#07c9f3;animation:rotate-hint 1.8s ease-in-out infinite}
+@keyframes rotate-hint{0%,100%{transform:rotate(0deg)}50%{transform:rotate(90deg)}}
+.rotate-prompt p{font-size:16px;line-height:1.5;margin:0}
 
 /* Floating toolbar: back button, MIN/AVG/MAX, range buttons — pinned along
    the top edge so the chart underneath still occupies almost the entire
@@ -241,24 +285,38 @@ watch(selectedObjectId,pickObject);
 .chart-stat-sep{color:#3a5470}
 
 @media(max-width:1100px){.dashboard{max-width:100%}}
+
+/* ---------- Mobile dashboard ----------
+   A deliberately different composition, not the desktop one scaled down:
+   near-full-bleed width (small fixed padding instead of the desktop
+   grid's gutters), one tile per row, and a temperature sized as a genuine
+   vw-driven hero number (clamped for very narrow/wide phones) rather than
+   inheriting the desktop clamp's proportions. */
+@media(max-width:640px){
+ .dashboard{padding:10px}
+ .selectors{grid-template-columns:1fr;gap:12px}
+ .sensor-grid{grid-template-columns:1fr;gap:12px}
+ .hero{padding:36px 16px}
+ .temp-value{font-size:clamp(58px,17vw,84px)}
+ .temp-delta{font-size:15px}
+ .object-name-top,.sensor-name-bottom{font-size:15px}
+}
+
 @media(max-width:800px){
- .dashboard{padding:16px}.selectors{grid-template-columns:1fr;gap:12px}
- .sensor-grid{grid-template-columns:1fr}
  .back-btn span{display:none}
  .back-btn{width:40px;padding:0}
  .ranges{top:8px;left:8px;right:8px;gap:6px;padding:6px 10px}
  .range-buttons{gap:6px}
  .chart-stats{font-size:11px;gap:6px}
+ .rotate-icon{width:48px;height:48px}
+ .rotate-prompt p{font-size:14px}
 }
 
-/* Short landscape (~375-430px along the short axis): trim the floating
+/* Short landscape (~375-430px tall once rotated): trim the floating
    toolbar further to keep the chart close to the 90-95% target without
-   shrinking tap targets past comfortable thumb use. Two ways to land here:
-   a real landscape-oriented viewport that's short (max-height), or a
-   portrait phone whose WIDTH becomes the simulated landscape's short axis
-   once .chart-landscape-stage rotates it (orientation:portrait + max-width). */
-@media(max-height:430px),(orientation:portrait) and (max-width:430px){
- .chart-landscape-stage{padding:2px}
+   shrinking tap targets past comfortable thumb use. */
+@media(max-height:430px){
+ .chart-overlay{padding:2px}
  .ranges{top:6px;left:6px;right:6px;padding:5px 8px}
  .ranges button,.back-btn{height:36px}
 }
