@@ -392,7 +392,15 @@ async def list_measurements_aggregated(
         .limit(MAX_AGGREGATION_ROWS)
     )
     rows = list(result.scalars().all())
-    return _decimate_measurements(rows, target_points)
+    decimated = _decimate_measurements(rows, target_points)
+    # The plain /measurements endpoint returns newest-first, and the
+    # frontend's readings computed (DashboardView.vue) always .reverse()s
+    # that into oldest-first before handing it to the chart. Match that
+    # same newest-first contract here so the existing reverse() keeps
+    # producing correctly-ordered, ascending data for the chart's xDomain —
+    # returning ascending here instead silently double-reverses it.
+    decimated.reverse()
+    return decimated
 
 
 # ===================================================================
