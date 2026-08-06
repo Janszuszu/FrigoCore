@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AlarmItem, ChartRange, MeasurementItem, SensorItem } from '@/types'
+import { targetColumnsForWidth } from '@/utils/chartColumns'
 
 const props = defineProps<{
   sensor: SensorItem
@@ -12,6 +13,10 @@ const props = defineProps<{
   activeAlarmLabel: string | null
   online: boolean
   loading: boolean
+}>()
+
+const emit = defineEmits<{
+  (e: 'target-columns', count: number): void
 }>()
 
 const isLive = computed(() => props.range === 'LIVE')
@@ -181,6 +186,29 @@ const tickCount = computed(() => {
   return Math.min(6, Math.max(2, maxTicks))
 })
 
+// ─── Adaptive column target — driven by the same measured width as
+// tickCount above, not a fixed per-range point budget. Every device gets
+// roughly the same column density (~9px pitch) regardless of how much
+// historical data is actually loaded: this is what's reported to the
+// parent (see the watcher below, which feeds sensorsStore.setTargetColumns
+// so the *next* fetch asks the backend to aggregate to this count), and
+// decimateForRender below is only a safety net for whatever arrives before
+// that correction lands (or for LIVE, which never refetches).
+const targetColumns = computed(() => {
+  const plotWidthPx = containerWidthPx.value * (PLOT_W / VB_W)
+  return targetColumnsForWidth(plotWidthPx)
+})
+
+let targetColumnsEmitTimer: ReturnType<typeof setTimeout> | null = null
+watch(
+  targetColumns,
+  (count) => {
+    if (targetColumnsEmitTimer != null) clearTimeout(targetColumnsEmitTimer)
+    targetColumnsEmitTimer = setTimeout(() => emit('target-columns', count), 250)
+  },
+  { immediate: true },
+)
+
 const xTicks = computed(() => {
   const { start, end } = xDomain.value
   const count = tickCount.value
@@ -229,13 +257,13 @@ function formatAxisTime(ms: number, spanMs: number): string {
 }
 
 // ─── Render-point decimation ────────────────────────────────────────
-// Keeps the rendered column count tractable with 10k+ historical points
-// without touching the domain/tooltip/marker logic, which still use the
-// full-fidelity `visible` array. Min/max-per-bucket by temperature (not a
-// stride/average) so real excursions above/below a threshold are never
-// decimated away.
-const RENDER_POINT_BUDGET = 2000
-
+// Keeps the rendered column count tractable without touching the
+// domain/tooltip/marker logic, which still use the full-fidelity `visible`
+// array. Min/max-per-bucket by temperature (not a stride/average) so real
+// excursions above/below a threshold are never decimated away. For
+// historical ranges the backend already aggregates down to ~targetColumns
+// before this ever runs, so this is mainly a safety net (a stale fetch
+// still in flight when the target changed, LIVE's WS-only buffer, etc.).
 function decimateForRender<T extends { x: number; t: number }>(points: T[], maxPoints: number): T[] {
   if (points.length <= maxPoints) return points
   const bucketSize = Math.ceil(points.length / (maxPoints / 2))
@@ -326,7 +354,7 @@ const columns = computed<Column[]>(() => {
   const d = visible.value
   if (!d.length) return []
   const points = d.map((r) => ({ x: xScale(r.received_at), t: r.temperature }))
-  const decimated = decimateForRender(points, RENDER_POINT_BUDGET)
+  const decimated = decimateForRender(points, targetColumns.value)
   return buildColumns(decimated, yScale, props.lowThreshold, props.highThreshold, MARGIN.top, MARGIN.top + PLOT_H)
 })
 
@@ -400,7 +428,8 @@ function liveYScale(temp: number): number {
 // drives the cheap shift transform below.
 const liveColumns = computed<Column[]>(() => {
   const points = livePoints.value.map((p) => ({ x: liveRawX(p.t), t: p.temp }))
-  return buildColumns(points, liveYScale, props.lowThreshold, props.highThreshold, MARGIN.top, MARGIN.top + PLOT_H)
+  const decimated = decimateForRender(points, targetColumns.value)
+  return buildColumns(decimated, liveYScale, props.lowThreshold, props.highThreshold, MARGIN.top, MARGIN.top + PLOT_H)
 })
 
 // The last timestamp actually appended to livePoints — the ONLY reliable
@@ -946,6 +975,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', measureContainer)
   containerResizeObserver?.disconnect()
   stopLiveClock()
+  if (targetColumnsEmitTimer != null) clearTimeout(targetColumnsEmitTimer)
 })
 </script>
 

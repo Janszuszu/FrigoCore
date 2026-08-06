@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { apiSensors, apiMeasurements } from "@/api";
 import type { ChartRange, SensorItem, MeasurementItem, SensorCreate, SensorUpdate } from "@/types";
+import { targetColumnsForWidth } from "@/utils/chartColumns";
 
 // How far back each preset range reaches.
 const RANGE_DURATION_MS: Record<Exclude<ChartRange, "LIVE">, number> = {
@@ -10,11 +11,12 @@ const RANGE_DURATION_MS: Record<Exclude<ChartRange, "LIVE">, number> = {
   "7D": 7 * 24 * 60 * 60 * 1000,
 };
 
-// Safety cap so a wide range (e.g. 7D on a fast-publishing sensor) can't
-// trigger unbounded pagination against the API.
-const PAGE_SIZE = 500;
-const MAX_PAGES = 8;
 const LIVE_CAP = 200;
+
+// Only refetch when the chart's measured width implies a meaningfully
+// different column target (e.g. a real breakpoint/orientation change),
+// not on every sub-pixel ResizeObserver tick.
+const TARGET_COLUMNS_REFETCH_DELTA = 0.15;
 
 export const useSensorsStore = defineStore("sensors", () => {
   const sensors = ref<SensorItem[]>([]);
@@ -24,6 +26,12 @@ export const useSensorsStore = defineStore("sensors", () => {
   const rangeLoading = ref(false);
   const error = ref<string | null>(null);
   const currentRange = ref<ChartRange>("24H");
+  // Estimated up front from the viewport (the chart hasn't mounted/measured
+  // itself yet at store-creation time); corrected via setTargetColumns once
+  // the chart reports its real rendered width.
+  const targetColumns = ref(
+    targetColumnsForWidth(typeof window !== "undefined" ? window.innerWidth : 900),
+  );
 
   async function fetchSensors(objectId: string) {
     loading.value = true;
@@ -47,33 +55,11 @@ export const useSensorsStore = defineStore("sensors", () => {
   }
 
   /**
-   * Fetch measurements covering [since, until] by paginating the existing
-   * /measurements endpoint (skip/limit, already supported server-side) —
-   * no backend changes. Pages until the range is covered or MAX_PAGES is
-   * hit, whichever comes first.
+   * Fetches [since, until] already aggregated server-side down to
+   * ~targetColumns points — the backend decides how many raw rows that
+   * takes, not the frontend, so there's no client-side pagination loop
+   * here anymore.
    */
-  async function fetchMeasurementsSince(
-    sensorId: string,
-    sinceMs: number,
-    untilMs: number,
-  ): Promise<MeasurementItem[]> {
-    const collected: MeasurementItem[] = [];
-    let skip = 0;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const batch = await apiMeasurements.list(sensorId, PAGE_SIZE, skip);
-      if (!batch.length) break;
-      collected.push(...batch);
-      const oldest = batch[batch.length - 1];
-      const oldestMs = new Date(oldest.received_at).getTime();
-      if (oldestMs <= sinceMs || batch.length < PAGE_SIZE) break;
-      skip += PAGE_SIZE;
-    }
-    return collected.filter((m) => {
-      const t = new Date(m.received_at).getTime();
-      return t >= sinceMs && t <= untilMs;
-    });
-  }
-
   async function fetchMeasurementsForRange(range: ChartRange) {
     const sensor = selectedSensor.value;
     if (!sensor) return;
@@ -89,11 +75,31 @@ export const useSensorsStore = defineStore("sensors", () => {
     try {
       const now = Date.now();
       const sinceMs = now - RANGE_DURATION_MS[range];
-      measurements.value = await fetchMeasurementsSince(sensor.id, sinceMs, now);
+      measurements.value = await apiMeasurements.listAggregated(
+        sensor.id,
+        sinceMs,
+        now,
+        targetColumns.value,
+      );
     } catch {
       measurements.value = [];
     } finally {
       rangeLoading.value = false;
+    }
+  }
+
+  /**
+   * Called by the chart whenever its measured width implies a different
+   * target column count. Only refetches when the change is big enough to
+   * matter (see TARGET_COLUMNS_REFETCH_DELTA) — otherwise just remembers
+   * the value for the next range change.
+   */
+  function setTargetColumns(count: number) {
+    const prev = targetColumns.value;
+    targetColumns.value = count;
+    const changedEnough = Math.abs(count - prev) / prev > TARGET_COLUMNS_REFETCH_DELTA;
+    if (changedEnough && selectedSensor.value && currentRange.value !== "LIVE") {
+      fetchMeasurementsForRange(currentRange.value);
     }
   }
 
@@ -146,9 +152,11 @@ export const useSensorsStore = defineStore("sensors", () => {
     rangeLoading,
     error,
     currentRange,
+    targetColumns,
     fetchSensors,
     selectSensor,
     fetchMeasurementsForRange,
+    setTargetColumns,
     createSensor,
     updateSensor,
     deleteSensor,

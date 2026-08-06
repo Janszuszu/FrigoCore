@@ -110,6 +110,10 @@ function applyRange(r:ChartRange){
   sensorsStore.fetchMeasurementsForRange(r);
 }
 
+function onTargetColumns(n:number){
+  sensorsStore.setTargetColumns(n);
+}
+
 async function pickObject(){
   selectedSensorId.value="";
   sensorsStore.selectSensor(null);
@@ -162,6 +166,7 @@ watch(selectedObjectId,pickObject);
        :active-alarm-label="activeAlarmLabel"
        :online="online()"
        :loading="sensorsStore.rangeLoading"
+       @target-columns="onTargetColumns"
      />
      <div class="ranges">
       <div class="chart-stats">

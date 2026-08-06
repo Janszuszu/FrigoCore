@@ -76,6 +76,17 @@ export const apiMeasurements = {
     request<MeasurementItem[]>(
       `/sensors/${sensorId}/measurements?limit=${limit}&skip=${skip}`
     ),
+  listAggregated: (
+    sensorId: string,
+    sinceMs: number,
+    untilMs: number,
+    targetColumns: number
+  ) =>
+    request<MeasurementItem[]>(
+      `/sensors/${sensorId}/measurements/aggregated?since=${encodeURIComponent(
+        new Date(sinceMs).toISOString()
+      )}&until=${encodeURIComponent(new Date(untilMs).toISOString())}&target_points=${targetColumns}`
+    ),
 };
 
 // ─── Alarms ────────────────────────────────────────────────────────

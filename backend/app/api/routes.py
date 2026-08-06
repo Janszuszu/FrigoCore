@@ -5,6 +5,7 @@ OpenAPI documented, Pydantic-validated, async SQLAlchemy.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -324,6 +325,74 @@ async def list_measurements(
         .limit(limit)
     )
     return result.scalars().all()
+
+
+# Hard ceiling on rows pulled from the DB for a single aggregation request,
+# regardless of the requested time window. The API has no auth/firewall in
+# front of it, so this is what stands between a `since` far in the past and
+# an unbounded table scan — chosen generously above any realistic reporting
+# rate over the widest supported range (7D) so real charts never get
+# truncated by it.
+MAX_AGGREGATION_ROWS = 100_000
+
+
+def _decimate_measurements(rows: list[Measurement], target_points: int) -> list[Measurement]:
+    """Reduce `rows` (ascending by received_at) to ~target_points by taking
+    the min and max temperature per time bucket, preserving real excursions
+    instead of averaging them away. Mirrors the chart's original
+    client-side decimation, now run server-side so the frontend never has
+    to fetch more than it will actually render."""
+    if len(rows) <= target_points:
+        return rows
+    bucket_size = math.ceil(len(rows) / max(target_points / 2, 1))
+    result: list[Measurement] = []
+    for i in range(0, len(rows), bucket_size):
+        bucket = rows[i : i + bucket_size]
+        if not bucket:
+            continue
+        min_r = min(bucket, key=lambda r: r.temperature)
+        max_r = max(bucket, key=lambda r: r.temperature)
+        if min_r is max_r:
+            result.append(min_r)
+        elif min_r.received_at <= max_r.received_at:
+            result.append(min_r)
+            result.append(max_r)
+        else:
+            result.append(max_r)
+            result.append(min_r)
+    return result
+
+
+@measurements_router.get("/{sensor_id}/measurements/aggregated", response_model=list[MeasurementResponse])
+async def list_measurements_aggregated(
+    sensor_id: UUID,
+    since: datetime = Query(...),
+    until: datetime | None = Query(None),
+    target_points: int = Query(80, ge=10, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> list[Measurement]:
+    """Chart data endpoint. Aggregates readings in [since, until] down to
+    ~target_points columns instead of returning a fixed number of raw
+    points — the frontend sizes target_points from its actual rendered
+    chart width, so a phone and a desktop chart get comparable column
+    density instead of one being sparse or the other overcrowded.
+    """
+    sensor = await db.get(Sensor, sensor_id)
+    if sensor is None:
+        raise HTTPException(status_code=404, detail="Sensor not found")
+    until_dt = until or datetime.now(timezone.utc)
+    result = await db.execute(
+        select(Measurement)
+        .where(
+            Measurement.sensor_id == sensor_id,
+            Measurement.received_at >= since,
+            Measurement.received_at <= until_dt,
+        )
+        .order_by(Measurement.received_at.asc())
+        .limit(MAX_AGGREGATION_ROWS)
+    )
+    rows = list(result.scalars().all())
+    return _decimate_measurements(rows, target_points)
 
 
 # ===================================================================
