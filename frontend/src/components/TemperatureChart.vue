@@ -324,6 +324,16 @@ interface Column {
 const BASELINE_TEMP = 0
 const COLUMN_GAP_FRACTION = 0.32
 const MIN_COLUMN_WIDTH = 0.6
+// A ceiling on the pitch-derived width — without it, a single point (the
+// pitch fallback below is PLOT_W for count<=1) rendered a column filling
+// nearly the entire plot, and since it's centered on that one point's own
+// x, half its (huge) width could land off-screen. LIVE hits this on every
+// very first sample, before a second point makes the pitch sane again;
+// historical ranges hit it only in the rare single-reading-in-range case.
+// PLOT_W/8 keeps a lone column looking like a normal, readable bar instead
+// of a wall, without affecting any normal multi-column render (which is
+// already far narrower than this).
+const MAX_COLUMN_WIDTH = PLOT_W / 8
 const MIN_COLUMN_HEIGHT = 1.5
 
 function buildColumns(
@@ -336,7 +346,7 @@ function buildColumns(
 ): Column[] {
   if (!points.length) return []
   const pitch = points.length > 1 ? PLOT_W / points.length : PLOT_W
-  const width = Math.max(pitch * (1 - COLUMN_GAP_FRACTION), MIN_COLUMN_WIDTH)
+  const width = Math.min(Math.max(pitch * (1 - COLUMN_GAP_FRACTION), MIN_COLUMN_WIDTH), MAX_COLUMN_WIDTH)
   // Clamped into the visible plot so a baseline temperature outside the
   // current domain (a sensor that never gets near 0°C) still produces a
   // sane one-directional column chart instead of one shooting past the edge.
