@@ -995,11 +995,21 @@ function onDocumentPointerDown(e: PointerEvent) {
 // measurement, since ResizeObserver has been observed to not fire in at
 // least one environment despite the element's own layout genuinely
 // having changed. Cheap and harmless to keep both.
+//
+// offsetWidth/offsetHeight, not getBoundingClientRect() — the dashboard
+// can place this component inside a CSS-rotated container (simulating a
+// landscape screen on a portrait phone; see DashboardView's
+// .chart-landscape-stage). getBoundingClientRect() reports the rotated,
+// on-screen box (portrait-shaped in that case), which would size the
+// adaptive column count for the wrong orientation. offsetWidth/Height are
+// unaffected by an ancestor's transform — they reflect this element's own
+// layout box, which is what the column-density math actually needs.
 function measureContainer() {
   if (!rootEl.value) return
-  const rect = rootEl.value.getBoundingClientRect()
-  if (rect.width) containerWidthPx.value = rect.width
-  if (rect.height) containerHeightPx.value = rect.height
+  const width = rootEl.value.offsetWidth
+  const height = rootEl.value.offsetHeight
+  if (width) containerWidthPx.value = width
+  if (height) containerHeightPx.value = height
 }
 
 onMounted(() => {

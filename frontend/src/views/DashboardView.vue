@@ -100,6 +100,31 @@ watch(selectedObjectId,pickObject);
 
   <Transition name="chart-slide">
    <div v-if="showChart && sensor" class="chart-overlay">
+    <!-- The chart itself sits inside .chart-landscape-stage, which is
+         always laid out landscape — rotated via CSS on a portrait phone
+         (see the stylesheet) — so the slide-in transition only ever moves
+         an already-landscape block into view; there's no intermediate
+         portrait frame at any point in the animation. The toolbar is a
+         SIBLING, not nested inside the rotated stage: a 90° rotation turns
+         a horizontal top edge into a vertical one, so anything positioned
+         "top" inside the rotated frame would visually end up hugging a
+         side edge instead. Positioned against the never-rotated overlay,
+         it stays correctly pinned to the actual screen top regardless of
+         whether the stage beneath it is rotated. -->
+    <div class="chart-landscape-stage">
+     <TemperatureChart
+       :sensor="sensor"
+       :readings="readings"
+       :range="range"
+       :high-threshold="highThreshold"
+       :low-threshold="lowThreshold"
+       :alarms="sensorAlarms"
+       :active-alarm-label="activeAlarmLabel"
+       :online="online()"
+       :loading="sensorsStore.rangeLoading"
+       @target-columns="onTargetColumns"
+     />
+    </div>
     <div class="ranges">
      <button class="back-btn" type="button" aria-label="Wróć" @click="closeChart">
       <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -116,18 +141,6 @@ watch(selectedObjectId,pickObject);
       <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
      </div>
     </div>
-    <TemperatureChart
-      :sensor="sensor"
-      :readings="readings"
-      :range="range"
-      :high-threshold="highThreshold"
-      :low-threshold="lowThreshold"
-      :alarms="sensorAlarms"
-      :active-alarm-label="activeAlarmLabel"
-      :online="online()"
-      :loading="sensorsStore.rangeLoading"
-      @target-columns="onTargetColumns"
-    />
    </div>
   </Transition>
  </section>
@@ -171,13 +184,33 @@ watch(selectedObjectId,pickObject);
    A full-viewport panel, not a modal over a dimmed backdrop — it slides in
    from the left like navigating to a new page (translateX only, no scale
    or rotation), and is the one and only "fullscreen" state now; there's no
-   separate embedded/fullscreen toggle to reason about anymore. */
-.chart-overlay{
-  position:fixed;inset:0;z-index:40;background:#07121e;
-  padding:4px;display:flex;flex-direction:column;
-}
+   separate embedded/fullscreen toggle to reason about anymore.
+
+   .chart-overlay itself only ever handles POSITION (the slide) — sizing,
+   padding and, critically, the portrait->landscape rotation all live one
+   level down on .chart-landscape-stage, so the slide transform and the
+   rotation never fight each other: the stage is already rotated (or not)
+   before the slide starts, and the slide just carries that whole block
+   in from the left as one rigid unit. That's what makes "no intermediate
+   portrait view" possible — the rotation isn't animated, only the position is. */
+.chart-overlay{position:fixed;inset:0;z-index:40;background:#07121e;overflow:hidden}
 .chart-slide-enter-active,.chart-slide-leave-active{transition:transform 280ms ease-in-out,opacity 280ms ease-in-out}
 .chart-slide-enter-from,.chart-slide-leave-to{transform:translateX(-100%);opacity:0}
+
+.chart-landscape-stage{position:absolute;inset:0;padding:4px;display:flex;flex-direction:column}
+
+/* On a portrait viewport (a phone held normally), simulate a landscape
+   screen with a pure CSS rotation instead of requesting a real device
+   orientation lock — the Orientation Lock API needs real Fullscreen mode
+   to succeed in most browsers and isn't implemented at all in iOS Safari,
+   so it can silently no-op and leave the chart squeezed into portrait on
+   a large share of phones. A CSS rotation works identically everywhere.
+   width/height are swapped (100vh/100vw) so the stage's own LOCAL layout
+   is landscape-shaped; the transform then rotates that whole box into the
+   real portrait viewport it needs to fill. */
+@media(orientation:portrait){
+ .chart-landscape-stage{width:100vh;height:100vw;transform-origin:top left;transform:rotate(90deg) translateY(-100%)}
+}
 
 /* Floating toolbar: back button, MIN/AVG/MAX, range buttons — pinned along
    the top edge so the chart underneath still occupies almost the entire
@@ -218,11 +251,14 @@ watch(selectedObjectId,pickObject);
  .chart-stats{font-size:11px;gap:6px}
 }
 
-/* Short landscape phones (~375-430px tall once rotated): trim the floating
+/* Short landscape (~375-430px along the short axis): trim the floating
    toolbar further to keep the chart close to the 90-95% target without
-   shrinking tap targets past comfortable thumb use. */
-@media(max-height:430px){
- .chart-overlay{padding:2px}
+   shrinking tap targets past comfortable thumb use. Two ways to land here:
+   a real landscape-oriented viewport that's short (max-height), or a
+   portrait phone whose WIDTH becomes the simulated landscape's short axis
+   once .chart-landscape-stage rotates it (orientation:portrait + max-width). */
+@media(max-height:430px),(orientation:portrait) and (max-width:430px){
+ .chart-landscape-stage{padding:2px}
  .ranges{top:6px;left:6px;right:6px;padding:5px 8px}
  .ranges button,.back-btn{height:36px}
 }
