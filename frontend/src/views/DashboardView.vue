@@ -357,13 +357,15 @@ watch(selectedObjectId,pickObject);
  .dashboard{padding:10px}
  .selectors{grid-template-columns:1fr;gap:12px}
  .sensor-grid{grid-template-columns:1fr;gap:12px}
- .sensor-row{padding:16px 14px;gap:12px}
- .card-icon{width:42px;height:42px}
- .card-icon svg{width:19px;height:19px}
- .card-name{font-size:14px}
- .card-desc{font-size:12px}
- .card-value b{font-size:clamp(22px,8vw,30px)}
- .card-value small{font-size:13px}
+ .sensor-row{padding:18px 16px;gap:14px}
+ .card-icon{width:54px;height:54px}
+ .card-icon svg{width:25px;height:25px}
+ .card-name{font-size:18px}
+ .card-desc{font-size:14px}
+ .card-status{font-size:14px}
+ .card-status i{width:9px;height:9px}
+ .card-value b{font-size:clamp(34px,11vw,46px)}
+ .card-value small{font-size:17px}
 }
 
 @media(max-width:800px){

@@ -81,25 +81,36 @@ svg { fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; st
    meta cluster (LIVE, alarm, clock+date) still fits one row without
    forcing the brand text to shrink back down. */
 @media (max-width:700px){
-  .app-header{height:76px;padding:0 10px;gap:10px}
-  .brand{gap:10px}
-  .brand span{font-size:19px}
-  .brand svg{width:26px;height:30px}
-  .menu-button svg{width:26px;height:26px}
+  .app-header{height:96px;padding:0 12px;gap:8px}
+  .brand{gap:8px}
+  .brand span{font-size:22px}
+  .brand svg{width:30px;height:34px}
+  .menu-button svg{width:28px;height:28px}
   .header-meta{gap:8px}
-  .live-chip{height:34px;padding:0 8px;font-size:13px;gap:5px}
-  .alarm-button{width:36px;height:36px}.alarm-button svg{width:20px;height:20px}
+  .live-chip{height:38px;padding:0 9px;font-size:14px;gap:5px}
+  .alarm-button{width:42px;height:42px}.alarm-button svg{width:22px;height:22px}
   .time-block{display:flex;flex-direction:column;align-items:flex-end;gap:1px}
   .clock svg{display:none}
-  .clock{font-size:15px;font-weight:600}
-  .header-date{font-size:11px;color:#8ea1be}
+  .clock{font-size:17px;font-weight:600}
+  .header-date{font-size:12px;color:#8ea1be}
   .bottom-nav button{min-width:0;font-size:10px}.bottom-nav{height:70px}.app-content{overflow-x:hidden}
 }
 
-/* Very narrow phones (old/small devices, <360px) — the date is the one
-   element that can drop without losing anything the user can't get from
-   opening the drawer; everything else already earned its space above. */
+/* Very narrow phones (old/small devices, <360px) — the 700px tier's
+   sizing is tuned for 360-700px and overflows a 320px row by ~22px.
+   Dropping the date frees some space; the rest comes from trimming
+   (not gutting) the elements around it, so this tier is still visibly
+   larger than the pre-enlargement baseline, just not as generous as
+   360px+ gets. */
 @media (max-width:359px){
   .header-date{display:none}
+  .app-header{padding:0 8px;gap:6px}
+  .brand{gap:6px}
+  .brand span{font-size:18px}
+  .brand svg{width:26px;height:30px}
+  .header-meta{gap:6px}
+  .live-chip{padding:0 7px;font-size:13px}
+  .alarm-button{width:38px;height:38px}.alarm-button svg{width:20px;height:20px}
+  .clock{font-size:15px}
 }
 </style>
