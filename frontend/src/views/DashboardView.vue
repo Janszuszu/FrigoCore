@@ -60,7 +60,6 @@ const sensor=computed(()=>sensorsStore.selectedSensor);
 const readings=computed(()=>[...sensorsStore.measurements].reverse());
 const validTemps=computed(()=>readings.value.filter((x): x is MeasurementItem & {temperature:number}=>typeof x.temperature==='number'&&!isNaN(x.temperature)));
 const stats=computed(()=>{const temps=validTemps.value.map(x=>x.temperature);return temps.length?{min:Math.min(...temps),max:Math.max(...temps),avg:temps.reduce((a,b)=>a+b,0)/temps.length}:{min:null,max:null,avg:null}});
-const selectedObject=computed(()=>objectsStore.objects.find(x=>x.id===selectedObjectId.value));
 
 const highThreshold=computed(()=>{const c=alarmConfigs.value.find(c=>c.alarm_type==='high_temperature');return c?.is_enabled?c.threshold_value:null});
 const lowThreshold=computed(()=>{const c=alarmConfigs.value.find(c=>c.alarm_type==='low_temperature');return c?.is_enabled?c.threshold_value:null});
@@ -129,10 +128,8 @@ watch(selectedObjectId,pickObject);
   <div v-if="selectedObjectId && sensorsStore.sensors.length" class="sensor-grid">
    <article v-for="item in sensorsStore.sensors" :key="item.id" class="temperature-panel">
     <div class="hero">
-     <span class="object-name-top">{{selectedObject?.name}}</span>
      <button class="temp-cta" type="button" :aria-label="`Otwórz wykres — ${item.name}`" @click="openChartFor(item)">
       <span class="temp-value">{{temperature(item.current_temperature)}}</span>
-      <span class="temp-delta">↓ 0.3°</span>
      </button>
      <span class="sensor-name-bottom">{{item.name}}</span>
     </div>
@@ -196,20 +193,19 @@ watch(selectedObjectId,pickObject);
 
 .hero{padding:34px 28px;display:flex;flex-direction:column;align-items:center;gap:10px}
 
-.object-name-top{color:#9aabc5;font-size:14px;letter-spacing:.02em}
-
 /* The temperature is the tap target now — styled to invite a tap (subtle
    hover/active feedback) without looking like a boxed button; it should
    still read first and foremost as "the current reading". Sized to
-   dominate the tile (a SCADA-style hero readout), not just sit in it. */
+   dominate the tile (a SCADA-style hero readout), not just sit in it.
+   nowrap: the reading ("22.3 °C") is one text node — without this, a
+   narrow tile can wrap the space before "°C" onto its own line. */
 .temp-cta{
   background:none;border:none;padding:6px 14px;margin:2px 0;border-radius:12px;cursor:pointer;
-  display:flex;align-items:baseline;justify-content:center;gap:12px;flex-wrap:wrap;
+  display:flex;align-items:baseline;justify-content:center;
 }
 .temp-cta:hover{background:rgba(7,201,243,0.08)}
 .temp-cta:active{background:rgba(7,201,243,0.16)}
-.temp-value{font-size:clamp(56px,8vw,92px);font-weight:700;letter-spacing:-2px;color:#07c9f3;line-height:1}
-.temp-delta{font-size:clamp(14px,2.2vw,17px);color:#00d6ee;font-weight:600}
+.temp-value{font-size:clamp(56px,8vw,92px);font-weight:700;letter-spacing:-2px;color:#07c9f3;line-height:1;white-space:nowrap}
 
 .sensor-name-bottom{color:#00dcea;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 
@@ -259,17 +255,20 @@ watch(selectedObjectId,pickObject);
 /* ---------- Mobile dashboard ----------
    A deliberately different composition, not the desktop one scaled down:
    near-full-bleed width (small fixed padding instead of the desktop
-   grid's gutters), one tile per row, and a temperature sized as a genuine
-   vw-driven hero number (clamped for very narrow/wide phones) rather than
-   inheriting the desktop clamp's proportions. */
-@media(max-width:640px){
+   grid's gutters), one tile per row (always — never the 2-column squeeze
+   auto-fit would otherwise produce once two-plus sensors fit 360px-wide
+   tracks side by side), and a temperature sized as a genuine vw-driven
+   hero number (clamped for very narrow/wide phones) rather than
+   inheriting the desktop clamp's proportions.
+   Breakpoint matches the header's own mobile switch (700px) so both
+   never disagree about what "mobile" means on the same screen. */
+@media(max-width:700px){
  .dashboard{padding:10px}
  .selectors{grid-template-columns:1fr;gap:12px}
  .sensor-grid{grid-template-columns:1fr;gap:12px}
- .hero{padding:36px 16px}
- .temp-value{font-size:clamp(58px,17vw,84px)}
- .temp-delta{font-size:15px}
- .object-name-top,.sensor-name-bottom{font-size:15px}
+ .hero{padding:32px 16px}
+ .temp-value{font-size:clamp(52px,15vw,80px)}
+ .sensor-name-bottom{font-size:18px;letter-spacing:.03em}
 }
 
 @media(max-width:800px){
