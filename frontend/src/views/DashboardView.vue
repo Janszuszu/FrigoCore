@@ -7,6 +7,8 @@ import { apiAlarmConfigs } from "@/api";
 import type { AlarmConfigItem, ChartRange, MeasurementItem, SensorItem } from "@/types";
 import TemperatureChart from "@/components/TemperatureChart.vue";
 
+defineProps<{ time: string; date: string }>();
+
 const objectsStore=useObjectsStore(), sensorsStore=useSensorsStore(), alarmsStore=useAlarmsStore();
 const selectedObjectId=ref(""), range=ref<ChartRange>("24H");
 const alarmConfigs=ref<AlarmConfigItem[]>([]);
@@ -162,7 +164,10 @@ watch(selectedObjectId,pickObject);
 </script>
 <template>
  <section class="dashboard">
-  <div class="selectors"><label>OBIEKT<select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select></label></div>
+  <div class="selectors">
+   <label>OBIEKT<select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select></label>
+   <div class="dashboard-time" aria-label="Aktualna data i godzina"><span>{{ time }}</span><span>{{ date }}</span></div>
+  </div>
 
   <div v-if="selectedObjectId && sensorsStore.sensors.length" class="sensor-grid">
    <article v-for="item in sensorsStore.sensors" :key="item.id" class="temperature-panel">
@@ -213,11 +218,11 @@ watch(selectedObjectId,pickObject);
      <span>Wróć</span>
     </button>
     <div class="chart-stats">
-     <span class="chart-stat"><b>MIN</b> {{temperature(stats.min)}}</span>
+      <span class="chart-stat min"><b>MIN</b> {{temperature(stats.min)}}</span>
      <span class="chart-stat-sep" aria-hidden="true">|</span>
-     <span class="chart-stat"><b>AVG</b> {{temperature(stats.avg)}}</span>
+      <span class="chart-stat avg"><b>AVG</b> {{temperature(stats.avg)}}</span>
      <span class="chart-stat-sep" aria-hidden="true">|</span>
-     <span class="chart-stat"><b>MAX</b> {{temperature(stats.max)}}</span>
+      <span class="chart-stat max"><b>MAX</b> {{temperature(stats.max)}}</span>
     </div>
     <div class="range-buttons">
      <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
@@ -239,7 +244,7 @@ watch(selectedObjectId,pickObject);
  </section>
 </template>
 <style scoped>
-.dashboard{padding:21px 25px 10px;max-width:1280px;margin:auto}.selectors{display:grid;grid-template-columns:405px 1fr;gap:25px;align-items:end;margin-bottom:21px}.selectors label{font-size:14px;color:#aab9cf;display:grid;gap:8px}.selectors select{appearance:none;height:48px;border:1px solid #2b4b67;border-radius:7px;background:#081421 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23b8c9e8' stroke-width='2'/%3E%3C/svg%3E") no-repeat calc(100% - 17px) center;color:#e8effa;font-size:17px;padding:0 48px 0 18px}.temperature-panel{background:radial-gradient(circle at 45% 30%,#0d1d2d,#07121e 70%);border:1px solid #172d42}
+.dashboard{padding:21px 25px 10px;max-width:1280px;margin:auto}.selectors{display:grid;grid-template-columns:405px 1fr;gap:25px;align-items:end;margin-bottom:21px}.selectors label{font-size:14px;color:#aab9cf;display:grid;gap:8px}.selectors select{appearance:none;height:48px;border:1px solid #2b4b67;border-radius:7px;background:#081421 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23b8c9e8' stroke-width='2'/%3E%3C/svg%3E") no-repeat calc(100% - 17px) center;color:#e8effa;font-size:17px;padding:0 48px 0 18px}.dashboard-time{justify-self:end;display:flex;flex-direction:column;align-items:flex-end;gap:3px;color:#d8dfec;font-variant-numeric:tabular-nums}.dashboard-time span:first-child{font-size:17px;font-weight:600}.dashboard-time span:last-child{font-size:13px;color:#8ea1be}.temperature-panel{background:radial-gradient(circle at 45% 30%,#0d1d2d,#07121e 70%);border:1px solid #172d42}
 
 /* ---------- Sensor tiles ----------
    Every sensor for the selected object is on the page at once, each its
@@ -267,7 +272,7 @@ watch(selectedObjectId,pickObject);
    decides how many cells sit per line at a given viewport. */
 .sensor-row{
   width:100%;background:none;border:0;margin:0;padding:0;
-  display:grid;grid-template-columns:88px minmax(0,1fr) 88px;grid-template-rows:minmax(104px,1fr) auto;
+  display:grid;grid-template-columns:88px minmax(0,1fr) 88px;grid-template-rows:minmax(82px,1fr) auto;
   align-items:center;
   font:inherit;color:inherit;text-align:left;cursor:pointer;
 }
@@ -282,7 +287,7 @@ watch(selectedObjectId,pickObject);
 .card-icon svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 
 .card-body{display:contents}
-.card-name{grid-column:1/-1;grid-row:2;padding:12px 18px;border-top:1px solid rgba(43,75,103,.72);color:#e8effa;font-size:14px;font-weight:700;letter-spacing:.02em;overflow-wrap:anywhere;text-align:center;text-transform:uppercase}
+.card-name{grid-column:1/-1;grid-row:2;padding:9px 18px;border-top:1px solid rgba(43,75,103,.72);color:#e8effa;font-size:14px;font-weight:700;letter-spacing:.02em;overflow-wrap:anywhere;text-align:center;text-transform:uppercase}
 .card-status{grid-column:3;grid-row:1;justify-self:center;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#00e77b;white-space:nowrap}
 .card-status i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
 .card-status.alarm{color:#ff717a}
@@ -331,8 +336,11 @@ watch(selectedObjectId,pickObject);
 .range-buttons .active{border-color:#00cce3;color:#00e5ef;background:#063142}
 
 /* MIN/AVG/MAX for the currently selected range. */
-.chart-stats{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:13px;color:#afc0dc;font-variant-numeric:tabular-nums}
+.chart-stats{order:1;margin-right:auto;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:13px;color:#afc0dc;font-variant-numeric:tabular-nums}
+.range-buttons{order:2}
+.back-btn{order:3}
 .chart-stat b{color:#e8effa;font-weight:700;letter-spacing:.04em;margin-right:4px}
+.chart-stat.min b{color:#ffc457}.chart-stat.avg b{color:#00e77b}.chart-stat.max b{color:#ff717a}
 .chart-stat-sep{color:#3a5470}
 
 @media(max-width:1100px){.dashboard{max-width:100%}}
@@ -349,12 +357,13 @@ watch(selectedObjectId,pickObject);
    never disagree about what "mobile" means on the same screen. */
 @media(max-width:700px){
  .dashboard{padding:10px}
- .selectors{grid-template-columns:1fr;gap:12px}
+ .selectors{grid-template-columns:minmax(0,1fr) auto;gap:12px}
+ .dashboard-time{padding-bottom:2px}
  .sensor-grid{grid-template-columns:1fr;gap:12px}
- .sensor-row{grid-template-columns:70px minmax(0,1fr) 84px;grid-template-rows:minmax(96px,1fr) auto}
+ .sensor-row{grid-template-columns:70px minmax(0,1fr) 84px;grid-template-rows:minmax(80px,1fr) auto}
  .card-icon{width:46px;height:46px}
  .card-icon svg{width:22px;height:22px}
- .card-name{padding:11px 12px;font-size:13px}
+ .card-name{padding:8px 12px;font-size:13px}
  .card-status{font-size:11px}
  .card-status i{width:8px;height:8px}
  .card-value b{font-size:clamp(34px,12vw,46px)}
