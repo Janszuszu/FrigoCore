@@ -308,20 +308,13 @@ interface Column {
 // This is NOT a line chart redrawn as rectangles — there is no path, no
 // bridging, no per-neighbor sizing, nothing derived from the shape of a
 // curve. Every column is independent, identical width, constant spacing,
-// rooted at a fixed reference temperature (0°C) rather than the bottom of
-// the plot. That's the part that actually matters: because the baseline
-// sits inside the domain instead of at its floor, a column grows UP from
-// it for a reading >= 0°C and DOWN from it for a reading < 0°C — exactly
-// like an ECMWF anomaly bar grows up for a positive anomaly and down for
-// a negative one. Rooting every column at the plot's bottom edge instead
-// (an earlier attempt) traces the exact same silhouette as the old line
-// chart, just filled in solid — which is why it still read as "a line
-// wearing rectangles" even once the rectangles themselves were correct.
+// rooted at the bottom edge of the plot. This makes the visible bars use
+// the entire chart height for the selected temperature domain instead of
+// leaving a large, misleading empty area below normal refrigeration values.
 //
 // A missing sample is simply a missing column — width/spacing come from
 // `PLOT_W / column count`, never from the calendar time to a neighbor, so
 // a sensor's offline gap can't stretch or balloon the columns next to it.
-const BASELINE_TEMP = 0
 const COLUMN_GAP_FRACTION = 0.32
 const MIN_COLUMN_WIDTH = 0.6
 // A ceiling on the pitch-derived width — without it, a single point (the
@@ -347,10 +340,7 @@ function buildColumns(
   if (!points.length) return []
   const pitch = points.length > 1 ? PLOT_W / points.length : PLOT_W
   const width = Math.min(Math.max(pitch * (1 - COLUMN_GAP_FRACTION), MIN_COLUMN_WIDTH), MAX_COLUMN_WIDTH)
-  // Clamped into the visible plot so a baseline temperature outside the
-  // current domain (a sensor that never gets near 0°C) still produces a
-  // sane one-directional column chart instead of one shooting past the edge.
-  const baselineY = Math.min(Math.max(scaleFn(BASELINE_TEMP), plotTop), plotBottom)
+  const baselineY = plotBottom
   return points.map((p) => {
     const py = scaleFn(p.t)
     const top = Math.min(py, baselineY)
@@ -835,6 +825,14 @@ function tryAlarmPopupFromHover() {
   }
 }
 
+function openAlarmForReading(reading: (MeasurementItem & { temperature: number }) | undefined) {
+  if (!reading) return
+  const period = findAlarmForReading(reading)
+  if (!period) return
+  hoveredMarker.value = period
+  clearSelection()
+}
+
 function onPointerUp(e: PointerEvent) {
   const wasTap = e.pointerType === 'mouse' ? !dragMoved.value : !touchIsPanning.value
   if (wasTap) tryAlarmPopupFromHover()
@@ -1233,6 +1231,7 @@ onUnmounted(() => {
           :height="col.height"
           :fill="col.color"
           class="temp-column"
+          @click.stop="openAlarmForReading(renderedPoints[i]?.reading)"
         />
 
         <!-- Crosshair -->
