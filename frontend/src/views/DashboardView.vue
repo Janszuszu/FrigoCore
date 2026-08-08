@@ -82,6 +82,8 @@ function temperatureValue(value:number|null|undefined){return value==null?"—":
 function parseUtc(iso:string){return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso)?iso:`${iso}Z`).getTime()}
 function isOnline(item:SensorItem|null){const last=item?.last_message_at;if(!last||!item)return false;return Date.now()-parseUtc(last)<item.offline_timeout_seconds*1000}
 function online(){return isOnline(sensor.value)}
+function displayTemperatureValue(item:SensorItem){return isOnline(item)?temperatureValue(item.current_temperature):"—"}
+function hasLiveTemperature(item:SensorItem){return isOnline(item)&&item.current_temperature!=null}
 
 // ---------- Sensor card display helpers ----------
 // A sensor only has a `name` — no separate type/description/status field —
@@ -171,7 +173,7 @@ watch(selectedObjectId,pickObject);
 
   <div v-if="selectedObjectId && sensorsStore.sensors.length" class="sensor-grid">
    <article v-for="item in sensorsStore.sensors" :key="item.id" class="temperature-panel">
-    <button class="sensor-row" type="button" :aria-label="`Otwórz wykres — ${item.name}, ${temperature(item.current_temperature)}`" @click="openChartFor(item)">
+    <button class="sensor-row" type="button" :aria-label="`Otwórz wykres — ${item.name}, ${isOnline(item)?temperature(item.current_temperature):'offline'}`" @click="openChartFor(item)">
      <span class="card-icon">
       <svg v-if="sensorIconKind(item.name)==='fan'" viewBox="0 0 24 24">
        <path d="M12 12C10 9 9 5 12 2C15 5 14 9 12 12Z"/>
@@ -204,7 +206,7 @@ watch(selectedObjectId,pickObject);
       <span class="card-name">{{item.name}}</span>
       <span :class="['card-status', cardStatus(item).cls]"><i></i>{{cardStatus(item).text}}</span>
      </span>
-     <span class="card-value"><b>{{temperatureValue(item.current_temperature)}}</b><small v-if="item.current_temperature!=null">°C</small></span>
+     <span :class="['card-value', { offline: !isOnline(item) }]"><b>{{displayTemperatureValue(item)}}</b><small v-if="hasLiveTemperature(item)">°C</small></span>
     </button>
    </article>
   </div>
@@ -298,6 +300,7 @@ watch(selectedObjectId,pickObject);
 .card-value{grid-column:2;grid-row:1;justify-self:center;display:flex;align-items:baseline;gap:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .card-value b{font-size:clamp(34px,5.4vw,54px);font-weight:700;letter-spacing:-1px;color:#07c9f3;line-height:1}
 .card-value small{font-size:18px;font-weight:600;color:#07c9f3}
+.card-value.offline b{color:#7f91aa}
 
 .empty{text-align:center;padding:100px;color:#8fa1ba}
 
