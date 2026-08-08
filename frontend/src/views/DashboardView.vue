@@ -165,8 +165,8 @@ watch(selectedObjectId,pickObject);
 <template>
  <section class="dashboard">
   <div class="selectors">
-   <label>OBIEKT<select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select></label>
-   <div class="dashboard-time" aria-label="Aktualna data i godzina"><span>{{ time }}</span><span>{{ date }}</span></div>
+   <div class="selector-heading"><span class="selector-label">OBIEKT</span><div class="dashboard-time" aria-label="Aktualna data i godzina"><span class="dashboard-date">{{ date }}</span><span class="dashboard-clock">{{ time }}</span></div></div>
+   <select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select>
   </div>
 
   <div v-if="selectedObjectId && sensorsStore.sensors.length" class="sensor-grid">
@@ -244,7 +244,7 @@ watch(selectedObjectId,pickObject);
  </section>
 </template>
 <style scoped>
-.dashboard{padding:21px 25px 10px;max-width:1280px;margin:auto}.selectors{display:grid;grid-template-columns:405px 1fr;gap:25px;align-items:start;margin-bottom:21px}.selectors label{font-size:14px;color:#aab9cf;display:grid;gap:8px}.selectors select{appearance:none;height:48px;border:1px solid #2b4b67;border-radius:7px;background:#081421 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23b8c9e8' stroke-width='2'/%3E%3C/svg%3E") no-repeat calc(100% - 17px) center;color:#e8effa;font-size:17px;padding:0 48px 0 18px}.dashboard-time{justify-self:end;display:flex;align-items:baseline;gap:9px;color:#d8dfec;font-variant-numeric:tabular-nums;line-height:17px}.dashboard-time span:first-child{font-size:17px;font-weight:600}.dashboard-time span:last-child{font-size:13px;color:#8ea1be}.temperature-panel{background:radial-gradient(circle at 45% 30%,#0d1d2d,#07121e 70%);border:1px solid #172d42}
+.dashboard{padding:21px 25px 10px;max-width:1280px;margin:auto}.selectors{display:grid;gap:8px;margin-bottom:21px}.selector-heading{display:flex;align-items:baseline;justify-content:space-between;gap:16px}.selector-label{font-size:14px;color:#aab9cf}.selectors select{width:100%;appearance:none;height:48px;border:1px solid #2b4b67;border-radius:7px;background:#081421 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23b8c9e8' stroke-width='2'/%3E%3C/svg%3E") no-repeat calc(100% - 17px) center;color:#e8effa;font-size:17px;padding:0 48px 0 18px}.dashboard-time{display:flex;align-items:baseline;gap:9px;color:#d8dfec;font-variant-numeric:tabular-nums;line-height:17px}.dashboard-date{font-size:13px;color:#8ea1be}.dashboard-clock{font-size:17px;font-weight:600}.temperature-panel{background:radial-gradient(circle at 45% 30%,#0d1d2d,#07121e 70%);border:1px solid #172d42}
 
 /* ---------- Sensor tiles ----------
    Every sensor for the selected object is on the page at once, each its
@@ -357,7 +357,7 @@ watch(selectedObjectId,pickObject);
    never disagree about what "mobile" means on the same screen. */
 @media(max-width:700px){
  .dashboard{padding:10px}
- .selectors{grid-template-columns:minmax(0,1fr) auto;gap:12px}
+ .selectors{gap:8px}
  .sensor-grid{grid-template-columns:1fr;gap:12px}
  .sensor-row{grid-template-columns:70px minmax(0,1fr) 84px;grid-template-rows:minmax(80px,1fr) auto}
  .card-icon{width:46px;height:46px}
