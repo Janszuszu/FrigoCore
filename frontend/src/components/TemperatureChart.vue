@@ -380,7 +380,14 @@ const renderedPoints = computed<RenderedPoint[]>(() => {
 })
 
 const columns = computed<Column[]>(() =>
-  buildColumns(renderedPoints.value, yScale, props.lowThreshold, props.highThreshold, MARGIN.top, MARGIN.top + PLOT_H),
+  buildColumns(renderedPoints.value, yScale, props.lowThreshold, props.highThreshold, MARGIN.top, MARGIN.top + PLOT_H)
+    .map((column, index) => ({
+      ...column,
+      // A coloured column means an actual alarm record, not merely a value
+      // that happens to sit beyond a configured threshold. Both high and low
+      // temperature alarms use red so the visual signal is unambiguous.
+      color: findAlarmForReading(renderedPoints.value[index]?.reading) ? COLUMN_COLOR_HIGH : COLUMN_COLOR_NORMAL,
+    })),
 )
 
 // ─── LIVE mode: oscilloscope-style sweep ──────────────────────────
