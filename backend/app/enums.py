@@ -25,6 +25,7 @@ class AlarmStatus(str, Enum):
     TRIGGERED = "triggered"  # Active alarm — sent to notification profile
     ACKNOWLEDGED = "acknowledged"  # Seen by a user
     RESOLVED = "resolved"  # Condition cleared
+    ARCHIVED = "archived"  # Hidden from the default history, retained for chart evidence
 
 
 class NotificationChannel(str, Enum):

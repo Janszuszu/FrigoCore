@@ -83,6 +83,9 @@ const mobileBadge = computed(() => (tab.value === "active" ? "ACTIVE" : "ACKNOWL
 async function acknowledgeOne(alarm: AlarmItem) {
   await alarmsStore.acknowledgeAlarm(alarm.id);
 }
+async function archiveOne(alarm: AlarmItem) {
+  await alarmsStore.archiveAlarm(alarm.id);
+}
 
 // Reset-all — always confirm before touching every active alarm.
 const showResetConfirm = ref(false);
@@ -159,6 +162,7 @@ function closeDetails() { detailsAlarm.value = null; }
       <div class="m-card-actions">
         <button class="m-btn m-btn-ghost" @click="openDetails(alarm)">Details</button>
         <button v-if="tab==='active' && alarm.status==='triggered'" class="m-btn m-btn-primary" @click="acknowledgeOne(alarm)">Acknowledge</button>
+        <button v-if="tab==='history'" class="m-btn m-btn-ghost" @click="archiveOne(alarm)">Ukryj</button>
       </div>
     </article>
   </div>

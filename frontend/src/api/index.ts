@@ -124,4 +124,9 @@ export const apiAlarms = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  archive: (id: string) =>
+    request<AlarmItem>(`/alarms/${id}/archive`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
 };

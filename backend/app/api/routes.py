@@ -303,6 +303,20 @@ async def acknowledge_alarm(
     return alarm
 
 
+@alarms_router.post("/{alarm_id}/archive", response_model=AlarmResponse)
+async def archive_alarm(alarm_id: UUID, db: AsyncSession = Depends(get_db)) -> Alarm:
+    """Hide a completed alarm without deleting its record or chart evidence."""
+    alarm = await db.get(Alarm, alarm_id)
+    if alarm is None:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+    if alarm.status not in (AlarmStatus.ACKNOWLEDGED, AlarmStatus.RESOLVED):
+        raise HTTPException(status_code=400, detail="Only completed alarms can be archived")
+    alarm.status = AlarmStatus.ARCHIVED
+    await db.commit()
+    await db.refresh(alarm)
+    return alarm
+
+
 # ===================================================================
 # Measurements
 # ===================================================================

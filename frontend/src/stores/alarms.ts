@@ -50,6 +50,16 @@ export const useAlarmsStore = defineStore("alarms", () => {
     }
   }
 
+  async function archiveAlarm(id: string) {
+    try {
+      const updated = await apiAlarms.archive(id);
+      const idx = alarms.value.findIndex((a) => a.id === id);
+      if (idx !== -1) alarms.value[idx] = updated;
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : "Failed to archive alarm";
+    }
+  }
+
   function addAlarmFromWs(alarm: AlarmItem) {
     const idx = alarms.value.findIndex((a) => a.id === alarm.id);
     if (idx !== -1) {
@@ -78,6 +88,7 @@ export const useAlarmsStore = defineStore("alarms", () => {
     pendingCount,
     fetchAlarms,
     acknowledgeAlarm,
+    archiveAlarm,
     addAlarmFromWs,
     setStatusFilter,
     setObjectFilter,
