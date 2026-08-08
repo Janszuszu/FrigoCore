@@ -1,19 +1,23 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from "vue";
 import { useWebSocket } from "./composables/useWebSocket";
+import { useAlarmsStore } from "./stores/alarms";
 import DashboardView from "./views/DashboardView.vue";
 import ObjectsView from "./views/ObjectsView.vue";
 import AlarmsView from "./views/AlarmsView.vue";
 
 const { connected } = useWebSocket();
+const alarmsStore = useAlarmsStore();
 const activeTab = ref<"dashboard" | "objects" | "alarms">("dashboard");
 const menuOpen = ref(false);
 const now = ref(new Date());
 let timer: ReturnType<typeof setInterval> | null = null;
 const time = computed(() => now.value.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
 const date = computed(() => now.value.toLocaleDateString("pl-PL"));
+const hasActiveAlarm = computed(() => alarmsStore.triggeredCount > 0 || alarmsStore.pendingCount > 0);
 
 onMounted(() => {
+  void alarmsStore.fetchAlarms();
   timer = setInterval(() => {
     now.value = new Date();
   }, 1000);
@@ -34,7 +38,7 @@ onUnmounted(() => {
       <div class="brand"><svg viewBox="0 0 24 24"><path d="m12 2 8 4.5v11L12 22l-8-4.5v-11L12 2Z"/><path d="m4 6.5 8 4.5 8-4.5M12 11v11" /></svg><span>FRIGO CORE</span></div>
       <div class="header-meta">
         <span :class="['live-chip', { offline: !connected }]"><i></i>{{ connected ? "LIVE" : "OFFLINE" }}</span>
-        <button class="alarm-button" aria-label="Alarmy" @click="activeTab = 'alarms'"><svg viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5m0 3h.01"/></svg><span>ACHTUNG</span></button>
+        <button :class="['alarm-button', { active: hasActiveAlarm }]" aria-label="Alarmy" @click="activeTab = 'alarms'"><i class="alarm-dot"></i><span>ALARM</span></button>
       </div>
     </header>
     <div v-if="menuOpen" class="drawer-backdrop" @click="menuOpen = false"></div>
@@ -65,7 +69,7 @@ button { font:inherit; } .menu-button { display:grid; place-items:center; color:
 svg { fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
 .brand { display:flex; align-items:center; gap:14px; color:#12e5e6; font-size:21px; letter-spacing:1px; font-weight:600; } .brand svg { width:29px; height:33px; stroke-width:1.7; }
 .header-meta { margin-left:auto; display:flex; align-items:center; gap:12px; color:#d8dfec; font-size:15px; white-space:nowrap; }.live-chip{box-sizing:border-box;width:112px;height:35px;padding:0 13px;border:1px solid #007b42;color:#00f08a;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:6px;font-size:14px;font-weight:600;}.live-chip i{width:8px;height:8px;border-radius:50%;background:#00e77b}.live-chip.offline{color:#ff7380;border-color:#962a38}.live-chip.offline i{background:#ee3d52}
-.alarm-button{box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;color:#ffb020;background:transparent;border:1px solid #4a3416;border-radius:6px;width:112px;height:35px;padding:0;cursor:pointer;font-size:14px;font-weight:600}.alarm-button svg{width:18px;height:18px}.alarm-button:hover{border-color:#ffb020;background:rgba(255,176,32,0.1)}
+.alarm-button{box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;color:#9e505b;background:rgba(116,28,39,.08);border:1px solid #5d2c35;border-radius:6px;width:112px;height:35px;padding:0;cursor:pointer;font-size:14px;font-weight:600;transition:color .18s,background .18s,border-color .18s}.alarm-dot{width:8px;height:8px;border-radius:50%;background:#a4424f;box-shadow:0 0 5px rgba(164,66,79,.35)}.alarm-button:hover{border-color:#9f4a57;background:rgba(142,38,51,.16)}.alarm-button.active{color:#fff0f1;border-color:#ff3145;background:#b3081c;animation:alarm-siren .8s steps(2,end) infinite}.alarm-button.active .alarm-dot{background:#fff;box-shadow:0 0 11px 4px rgba(255,255,255,.9);animation:alarm-beacon .8s steps(2,end) infinite}@keyframes alarm-siren{0%,100%{background:#b3081c;border-color:#ff5362;box-shadow:0 0 7px rgba(255,27,47,.65)}50%{background:#56000a;border-color:#a90013;box-shadow:none}}@keyframes alarm-beacon{0%,100%{opacity:1}50%{opacity:.28}}
 .app-content{flex:1;min-height:0;overflow:auto}.bottom-nav{height:89px;display:flex;justify-content:space-around;align-items:center;background:linear-gradient(90deg,#061321,#091829);border-top:1px solid #102235;flex:none}.bottom-nav button{background:none;border:0;color:#8ea1be;min-width:135px;display:flex;flex-direction:column;align-items:center;gap:7px;font-size:12px;cursor:pointer}.bottom-nav svg{width:24px;height:24px}.bottom-nav .active{color:#08e4e9}
 .drawer-backdrop{position:fixed;inset:0;background:#0008;z-index:9}.side-drawer{position:fixed;z-index:10;top:0;bottom:0;left:0;width:286px;transform:translateX(-100%);transition:transform .22s ease;background:#081421;border-right:1px solid #203b51;box-shadow:8px 0 28px #0008;padding:18px 10px}.side-drawer.open{transform:translateX(0)}.drawer-brand{height:55px;display:flex;align-items:center;gap:13px;padding:0 14px;margin-bottom:12px;color:#10e0e5;font-size:18px;font-weight:600;letter-spacing:.8px;border-bottom:1px solid #1a3042}.drawer-brand svg{width:27px;height:27px}.side-drawer button{width:100%;height:49px;display:flex;align-items:center;gap:20px;padding:0 16px;background:transparent;color:#c4d1e4;border:0;border-radius:0 24px 24px 0;font-size:16px;text-align:left;cursor:pointer}.side-drawer button:hover{background:#10283a}.side-drawer button.active{background:#083a48;color:#08e3e9}.side-drawer button svg{width:22px;height:22px}
 
@@ -87,6 +91,7 @@ svg { fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; st
   .alarm-button svg{width:15px;height:15px}
   .bottom-nav button{min-width:0;font-size:10px}.bottom-nav{height:70px}.app-content{overflow-x:hidden}
 }
+@media (prefers-reduced-motion: reduce){.alarm-button.active,.alarm-button.active .alarm-dot{animation:none}}
 
 /* Very narrow phones (old/small devices, <360px) — the 700px tier's
    sizing is tuned for 360-700px and overflows a 320px row by ~22px.

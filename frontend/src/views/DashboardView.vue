@@ -148,7 +148,7 @@ async function pickObject(){
   sensorsStore.selectSensor(null);
   if(selectedObjectId.value){
     await sensorsStore.fetchSensors(selectedObjectId.value);
-    await alarmsStore.fetchAlarms(selectedObjectId.value);
+    await alarmsStore.fetchAlarms();
   }
 }
 
