@@ -81,17 +81,17 @@ svg { fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; st
    meta cluster (LIVE, alarm, clock+date) still fits one row without
    forcing the brand text to shrink back down. */
 @media (max-width:700px){
-  .app-header{height:96px;padding:0 12px;gap:8px}
+  .app-header{height:88px;padding:0 11px;gap:8px}
   .brand{gap:8px}
-  .brand span{font-size:22px}
-  .brand svg{width:30px;height:34px}
-  .menu-button svg{width:28px;height:28px}
-  .header-meta{gap:8px}
-  .live-chip{height:38px;padding:0 9px;font-size:14px;gap:5px}
-  .alarm-button{width:42px;height:42px}.alarm-button svg{width:22px;height:22px}
+  .brand span{font-size:20px}
+  .brand svg{width:28px;height:31px}
+  .menu-button svg{width:26px;height:26px}
+  .header-meta{gap:7px}
+  .live-chip{height:35px;padding:0 8px;font-size:13px;gap:5px}
+  .alarm-button{width:39px;height:39px}.alarm-button svg{width:21px;height:21px}
   .time-block{display:flex;flex-direction:column;align-items:flex-end;gap:1px}
   .clock svg{display:none}
-  .clock{font-size:17px;font-weight:600}
+  .clock{font-size:16px;font-weight:600}
   .header-date{font-size:12px;color:#8ea1be}
   .bottom-nav button{min-width:0;font-size:10px}.bottom-nav{height:70px}.app-content{overflow-x:hidden}
 }
@@ -104,13 +104,13 @@ svg { fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; st
    360px+ gets. */
 @media (max-width:359px){
   .header-date{display:none}
-  .app-header{padding:0 8px;gap:6px}
+  .app-header{padding:0 7px;gap:6px}
   .brand{gap:6px}
-  .brand span{font-size:18px}
-  .brand svg{width:26px;height:30px}
+  .brand span{font-size:16px}
+  .brand svg{width:23px;height:27px}
   .header-meta{gap:6px}
-  .live-chip{padding:0 7px;font-size:13px}
-  .alarm-button{width:38px;height:38px}.alarm-button svg{width:20px;height:20px}
-  .clock{font-size:15px}
+  .live-chip{padding:0 6px;font-size:12px}
+  .alarm-button{width:35px;height:35px}.alarm-button svg{width:18px;height:18px}
+  .clock{font-size:13px}
 }
 </style>
