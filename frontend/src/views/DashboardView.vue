@@ -63,7 +63,8 @@ const stats=computed(()=>{const temps=validTemps.value.map(x=>x.temperature);ret
 
 const highThreshold=computed(()=>{const c=alarmConfigs.value.find(c=>c.alarm_type==='high_temperature');return c?.is_enabled?c.threshold_value:null});
 const lowThreshold=computed(()=>{const c=alarmConfigs.value.find(c=>c.alarm_type==='low_temperature');return c?.is_enabled?c.threshold_value:null});
-const sensorAlarms=computed(()=>alarmsStore.alarms.filter(a=>a.sensor_id===sensor.value?.id));
+function alarmsFor(sensorId:string|undefined){return alarmsStore.alarms.filter(a=>a.sensor_id===sensorId)}
+const sensorAlarms=computed(()=>alarmsFor(sensor.value?.id));
 const activeAlarm=computed(()=>sensorAlarms.value.find(a=>a.status==='triggered'||a.status==='pending')||null);
 const activeAlarmLabel=computed(()=>{
   if(!activeAlarm.value) return null;
@@ -71,7 +72,50 @@ const activeAlarmLabel=computed(()=>{
 });
 
 function temperature(value:number|null|undefined){return value==null?"—":`${value.toFixed(1)} °C`}
-function online(){const last=sensor.value?.last_message_at;if(!last||!sensor.value)return false;return Date.now()-new Date(last).getTime()<sensor.value.offline_timeout_seconds*1000}
+function temperatureValue(value:number|null|undefined){return value==null?"—":value.toFixed(1)}
+// The API's timestamps are UTC but sometimes serialize without an
+// offset/"Z" suffix — plain `new Date(iso)` would then parse them as local
+// time and throw every online/offline comparison off by the local UTC
+// offset (e.g. reading a sensor that reported 1 minute ago as OFFLINE).
+function parseUtc(iso:string){return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso)?iso:`${iso}Z`).getTime()}
+function isOnline(item:SensorItem|null){const last=item?.last_message_at;if(!last||!item)return false;return Date.now()-parseUtc(last)<item.offline_timeout_seconds*1000}
+function online(){return isOnline(sensor.value)}
+
+// ---------- Sensor card display helpers ----------
+// A sensor only has a `name` — no separate type/description/status field —
+// so the icon and subtitle line the reference card wants are derived from
+// that name (normalized to strip Polish diacritics for matching), and the
+// status dot is derived from the same online/alarm data already loaded for
+// the whole object. All client-side, all reusable for every object/sensor.
+function normalizeSensorName(name:string){
+  return name.toLowerCase()
+    .replaceAll('ł','l').replaceAll('ą','a').replaceAll('ę','e').replaceAll('ó','o')
+    .replaceAll('ś','s').replaceAll('ż','z').replaceAll('ź','z').replaceAll('ć','c').replaceAll('ń','n');
+}
+type SensorIconKind='fan'|'cylinder'|'snowflake'|'room'|'sun'|'thermometer';
+function sensorIconKind(name:string):SensorIconKind{
+  const n=normalizeSensorName(name);
+  if(n.includes('skraplacz')) return 'fan';
+  if(n.includes('tlocz')) return 'cylinder';
+  if(n.includes('parownik')) return 'snowflake';
+  if(n.includes('pomieszcz')||n.includes('komora')||n.includes('chlodni')||n.includes('mroz')) return 'room';
+  if(n.includes('zewnetrz')||n.includes('otoczeni')||n.includes('ambient')||n.includes('outdoor')) return 'sun';
+  return 'thermometer';
+}
+function sensorDescription(name:string){
+  const parts=name.split(' - ');
+  const last=(parts.length>1?parts[parts.length-1]:name.trim().split(/\s+/).pop())||name;
+  return last.charAt(0).toUpperCase()+last.slice(1).toLowerCase();
+}
+const ALARM_SHORT_LABEL:Record<string,string>={high_temperature:"HIGH TEMP",low_temperature:"LOW TEMP",offline:"OFFLINE"};
+function cardStatus(item:SensorItem){
+  const active=alarmsFor(item.id).find(a=>a.status==='triggered');
+  if(active) return {text:ALARM_SHORT_LABEL[active.alarm_type]||"ALARM",cls:'alarm'};
+  if(!isOnline(item)) return {text:'OFFLINE',cls:'offline'};
+  const pending=alarmsFor(item.id).find(a=>a.status==='pending'||a.status==='acknowledged');
+  if(pending) return {text:'PENDING',cls:'pending'};
+  return {text:'OK',cls:'ok'};
+}
 
 async function loadAlarmConfigs(sensorId:string){
   try{alarmConfigs.value=await apiAlarmConfigs.list(sensorId)}catch{alarmConfigs.value=[]}
@@ -86,9 +130,9 @@ function onTargetColumns(n:number){
   sensorsStore.setTargetColumns(n);
 }
 
-// Entry point is now the temperature itself, on whichever sensor card the
-// user taps — there's no separate "Chart" button and no sensor dropdown to
-// pick from first, every sensor for the object is already on the page.
+// Entry point is the whole sensor row now — tap anywhere on it — there's
+// no separate "Chart" button and no sensor dropdown to pick from first,
+// every sensor for the object is already on the page.
 async function openChartFor(item:SensorItem){
   range.value="24H";
   sensorsStore.selectSensor(item,"24H");
@@ -127,12 +171,42 @@ watch(selectedObjectId,pickObject);
 
   <div v-if="selectedObjectId && sensorsStore.sensors.length" class="sensor-grid">
    <article v-for="item in sensorsStore.sensors" :key="item.id" class="temperature-panel">
-    <div class="hero">
-     <button class="temp-cta" type="button" :aria-label="`Otwórz wykres — ${item.name}`" @click="openChartFor(item)">
-      <span class="temp-value">{{temperature(item.current_temperature)}}</span>
-     </button>
-     <span class="sensor-name-bottom">{{item.name}}</span>
-    </div>
+    <button class="sensor-row" type="button" :aria-label="`Otwórz wykres — ${item.name}, ${temperature(item.current_temperature)}`" @click="openChartFor(item)">
+     <span class="card-icon">
+      <svg v-if="sensorIconKind(item.name)==='fan'" viewBox="0 0 24 24">
+       <path d="M12 12C10 9 9 5 12 2C15 5 14 9 12 12Z"/>
+       <path d="M12 12C10 9 9 5 12 2C15 5 14 9 12 12Z" transform="rotate(120 12 12)"/>
+       <path d="M12 12C10 9 9 5 12 2C15 5 14 9 12 12Z" transform="rotate(240 12 12)"/>
+       <circle cx="12" cy="12" r="1.6"/>
+      </svg>
+      <svg v-else-if="sensorIconKind(item.name)==='cylinder'" viewBox="0 0 24 24">
+       <ellipse cx="12" cy="5.5" rx="6" ry="2.3"/>
+       <path d="M6 5.5v12c0 1.27 2.69 2.3 6 2.3s6-1.03 6-2.3v-12"/>
+       <path d="M6 11.5c0 1.27 2.69 2.3 6 2.3s6-1.03 6-2.3"/>
+      </svg>
+      <svg v-else-if="sensorIconKind(item.name)==='snowflake'" viewBox="0 0 24 24">
+       <path d="M12 2v20M4.5 6.5l15 11M19.5 6.5l-15 11"/>
+      </svg>
+      <svg v-else-if="sensorIconKind(item.name)==='room'" viewBox="0 0 24 24">
+       <path d="M4 11.5 12 4l8 7.5"/>
+       <path d="M6 10v9h12v-9"/>
+      </svg>
+      <svg v-else-if="sensorIconKind(item.name)==='sun'" viewBox="0 0 24 24">
+       <circle cx="12" cy="12" r="4"/>
+       <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>
+      </svg>
+      <svg v-else viewBox="0 0 24 24">
+       <path d="M10 14.2V4.5a2 2 0 0 1 4 0v9.7a4 4 0 1 1-4 0Z"/>
+       <path d="M12 7h2M12 10h2"/>
+      </svg>
+     </span>
+     <span class="card-body">
+      <span class="card-name">{{item.name}}</span>
+      <span class="card-desc">{{sensorDescription(item.name)}}</span>
+      <span :class="['card-status', cardStatus(item).cls]"><i></i>{{cardStatus(item).text}}</span>
+     </span>
+     <span class="card-value"><b>{{temperatureValue(item.current_temperature)}}</b><small v-if="item.current_temperature!=null">°C</small></span>
+    </button>
    </article>
   </div>
   <div v-else-if="selectedObjectId" class="empty">Brak sensorów dla wybranego obiektu.</div>
@@ -175,39 +249,56 @@ watch(selectedObjectId,pickObject);
 
 /* ---------- Sensor tiles ----------
    Every sensor for the selected object is on the page at once, each its
-   own tile: object name on top (small, muted), the temperature itself
-   large and center (and the ONLY way into that sensor's chart — no
-   separate button anymore), sensor name below it.
+   own tile: a single full-width row (icon, name/subtitle/status, value) —
+   never two tiles sharing a row, however many columns the grid below
+   happens to lay out at the current viewport width.
 
    auto-fit, not auto-fill: auto-fill reserves a full grid track for every
    column that COULD fit at the minimum size, even empty ones — with 1-2
    real sensors on a wide screen that left 3-4 invisible empty tracks
-   eating most of the row, squeezing the real card down near its 240px
+   eating most of the row, squeezing the real card down near its 360px
    floor and reading as "tiny widget in a sea of blank space". auto-fit
    collapses those empty tracks to zero, so real cards expand via 1fr to
-   actually use the available width — a lone sensor now reads as the
-   dominant hero tile the design always intended, and several sensors
-   settle into a proper multi-column overview instead of a cramped strip. */
+   actually use the available width — a lone sensor now reads as a proper
+   full-width row, and several sensors settle into a multi-column overview
+   instead of a cramped strip. */
 .sensor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:20px}
 .temperature-panel{padding:0;border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
 
-.hero{padding:34px 28px;display:flex;flex-direction:column;align-items:center;gap:10px}
-
-/* The temperature is the tap target now — styled to invite a tap (subtle
-   hover/active feedback) without looking like a boxed button; it should
-   still read first and foremost as "the current reading". Sized to
-   dominate the tile (a SCADA-style hero readout), not just sit in it.
-   nowrap: the reading ("22.3 °C") is one text node — without this, a
-   narrow tile can wrap the space before "°C" onto its own line. */
-.temp-cta{
-  background:none;border:none;padding:6px 14px;margin:2px 0;border-radius:12px;cursor:pointer;
-  display:flex;align-items:baseline;justify-content:center;
+/* The whole row is the tap target that opens the chart — icon + name +
+   subtitle + status on the left (all derived from the sensor's name and
+   its live online/alarm state, since that's all a sensor actually has),
+   value + unit pinned to the right via margin-left:auto. One row per
+   sensor, full width, in every grid cell — the grid itself (below)
+   decides how many cells sit per line at a given viewport. */
+.sensor-row{
+  width:100%;background:none;border:0;margin:0;padding:20px 22px;
+  display:flex;align-items:center;gap:16px;
+  font:inherit;color:inherit;text-align:left;cursor:pointer;
 }
-.temp-cta:hover{background:rgba(7,201,243,0.08)}
-.temp-cta:active{background:rgba(7,201,243,0.16)}
-.temp-value{font-size:clamp(56px,8vw,92px);font-weight:700;letter-spacing:-2px;color:#07c9f3;line-height:1;white-space:nowrap}
+.sensor-row:hover{background:rgba(7,201,243,0.06)}
+.sensor-row:active{background:rgba(7,201,243,0.12)}
 
-.sensor-name-bottom{color:#00dcea;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.card-icon{
+  flex:none;width:46px;height:46px;border-radius:50%;
+  display:grid;place-items:center;
+  background:rgba(7,201,243,0.08);border:1px solid rgba(7,201,243,0.35);color:#07c9f3;
+}
+.card-icon svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+.card-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.card-name{color:#e8effa;font-size:15px;font-weight:700;letter-spacing:.02em;overflow-wrap:anywhere}
+.card-desc{color:#8fa1ba;font-size:13px}
+.card-status{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#00e77b}
+.card-status i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.card-status.alarm{color:#ff717a}
+.card-status.offline,.card-status.pending{color:#ffb020}
+
+/* nowrap: the reading ("22.3" + "°C") must stay one line — without this a
+   narrow row can wrap the unit onto its own line. */
+.card-value{flex:none;margin-left:auto;padding-left:12px;display:flex;align-items:baseline;gap:4px;white-space:nowrap}
+.card-value b{font-size:clamp(26px,6vw,34px);font-weight:700;letter-spacing:-1px;color:#07c9f3;line-height:1}
+.card-value small{font-size:14px;font-weight:600;color:#07c9f3}
 
 .empty{text-align:center;padding:100px;color:#8fa1ba}
 
@@ -266,9 +357,13 @@ watch(selectedObjectId,pickObject);
  .dashboard{padding:10px}
  .selectors{grid-template-columns:1fr;gap:12px}
  .sensor-grid{grid-template-columns:1fr;gap:12px}
- .hero{padding:32px 16px}
- .temp-value{font-size:clamp(52px,15vw,80px)}
- .sensor-name-bottom{font-size:18px;letter-spacing:.03em}
+ .sensor-row{padding:16px 14px;gap:12px}
+ .card-icon{width:42px;height:42px}
+ .card-icon svg{width:19px;height:19px}
+ .card-name{font-size:14px}
+ .card-desc{font-size:12px}
+ .card-value b{font-size:clamp(22px,8vw,30px)}
+ .card-value small{font-size:13px}
 }
 
 @media(max-width:800px){
