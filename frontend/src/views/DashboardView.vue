@@ -287,7 +287,7 @@ watch(selectedObjectId,pickObject);
 .card-icon svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 
 .card-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
-.card-name{color:#e8effa;font-size:15px;font-weight:700;letter-spacing:.02em;overflow-wrap:anywhere}
+.card-name{color:#e8effa;font-size:15px;font-weight:700;letter-spacing:.02em;overflow-wrap:anywhere;text-transform:uppercase}
 .card-desc{color:#8fa1ba;font-size:13px}
 .card-status{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#00e77b}
 .card-status i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
