@@ -102,11 +102,6 @@ function sensorIconKind(name:string):SensorIconKind{
   if(n.includes('zewnetrz')||n.includes('otoczeni')||n.includes('ambient')||n.includes('outdoor')) return 'sun';
   return 'thermometer';
 }
-function sensorDescription(name:string){
-  const parts=name.split(' - ');
-  const last=(parts.length>1?parts[parts.length-1]:name.trim().split(/\s+/).pop())||name;
-  return last.charAt(0).toUpperCase()+last.slice(1).toLowerCase();
-}
 const ALARM_SHORT_LABEL:Record<string,string>={high_temperature:"HIGH TEMP",low_temperature:"LOW TEMP",offline:"OFFLINE"};
 function cardStatus(item:SensorItem){
   const active=alarmsFor(item.id).find(a=>a.status==='triggered');
@@ -202,7 +197,6 @@ watch(selectedObjectId,pickObject);
      </span>
      <span class="card-body">
       <span class="card-name">{{item.name}}</span>
-      <span class="card-desc">{{sensorDescription(item.name)}}</span>
       <span :class="['card-status', cardStatus(item).cls]"><i></i>{{cardStatus(item).text}}</span>
      </span>
      <span class="card-value"><b>{{temperatureValue(item.current_temperature)}}</b><small v-if="item.current_temperature!=null">°C</small></span>
@@ -262,7 +256,7 @@ watch(selectedObjectId,pickObject);
    actually use the available width — a lone sensor now reads as a proper
    full-width row, and several sensors settle into a multi-column overview
    instead of a cramped strip. */
-.sensor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:20px}
+.sensor-grid{display:grid;grid-template-columns:1fr;gap:16px}
 .temperature-panel{padding:0;border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
 
 /* The whole row is the tap target that opens the chart — icon + name +
@@ -272,33 +266,33 @@ watch(selectedObjectId,pickObject);
    sensor, full width, in every grid cell — the grid itself (below)
    decides how many cells sit per line at a given viewport. */
 .sensor-row{
-  width:100%;background:none;border:0;margin:0;padding:20px 22px;
-  display:flex;align-items:center;gap:16px;
+  width:100%;background:none;border:0;margin:0;padding:0;
+  display:grid;grid-template-columns:88px minmax(0,1fr) 88px;grid-template-rows:minmax(104px,1fr) auto;
+  align-items:center;
   font:inherit;color:inherit;text-align:left;cursor:pointer;
 }
 .sensor-row:hover{background:rgba(7,201,243,0.06)}
 .sensor-row:active{background:rgba(7,201,243,0.12)}
 
 .card-icon{
-  flex:none;width:46px;height:46px;border-radius:50%;
+  grid-column:1;grid-row:1;justify-self:center;width:52px;height:52px;border-radius:50%;
   display:grid;place-items:center;
   background:rgba(7,201,243,0.08);border:1px solid rgba(7,201,243,0.35);color:#07c9f3;
 }
 .card-icon svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 
-.card-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
-.card-name{color:#e8effa;font-size:15px;font-weight:700;letter-spacing:.02em;overflow-wrap:anywhere;text-transform:uppercase}
-.card-desc{color:#8fa1ba;font-size:13px}
-.card-status{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#00e77b}
+.card-body{display:contents}
+.card-name{grid-column:1/-1;grid-row:2;padding:12px 18px;border-top:1px solid rgba(43,75,103,.72);color:#e8effa;font-size:14px;font-weight:700;letter-spacing:.02em;overflow-wrap:anywhere;text-align:center;text-transform:uppercase}
+.card-status{grid-column:3;grid-row:1;justify-self:center;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#00e77b;white-space:nowrap}
 .card-status i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
 .card-status.alarm{color:#ff717a}
 .card-status.offline,.card-status.pending{color:#ffb020}
 
 /* nowrap: the reading ("22.3" + "°C") must stay one line — without this a
    narrow row can wrap the unit onto its own line. */
-.card-value{flex:none;margin-left:auto;padding-left:12px;display:flex;align-items:baseline;gap:4px;white-space:nowrap}
-.card-value b{font-size:clamp(26px,6vw,34px);font-weight:700;letter-spacing:-1px;color:#07c9f3;line-height:1}
-.card-value small{font-size:14px;font-weight:600;color:#07c9f3}
+.card-value{grid-column:2;grid-row:1;justify-self:center;display:flex;align-items:baseline;gap:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.card-value b{font-size:clamp(34px,5.4vw,54px);font-weight:700;letter-spacing:-1px;color:#07c9f3;line-height:1}
+.card-value small{font-size:18px;font-weight:600;color:#07c9f3}
 
 .empty{text-align:center;padding:100px;color:#8fa1ba}
 
@@ -357,14 +351,13 @@ watch(selectedObjectId,pickObject);
  .dashboard{padding:10px}
  .selectors{grid-template-columns:1fr;gap:12px}
  .sensor-grid{grid-template-columns:1fr;gap:12px}
- .sensor-row{padding:16px 14px;gap:12px}
- .card-icon{width:48px;height:48px}
+ .sensor-row{grid-template-columns:70px minmax(0,1fr) 84px;grid-template-rows:minmax(96px,1fr) auto}
+ .card-icon{width:46px;height:46px}
  .card-icon svg{width:22px;height:22px}
- .card-name{font-size:16px}
- .card-desc{font-size:13px}
- .card-status{font-size:13px}
+ .card-name{padding:11px 12px;font-size:13px}
+ .card-status{font-size:11px}
  .card-status i{width:8px;height:8px}
- .card-value b{font-size:clamp(30px,10vw,40px)}
+ .card-value b{font-size:clamp(34px,12vw,46px)}
  .card-value small{font-size:15px}
 }
 
