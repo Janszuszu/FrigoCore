@@ -5,10 +5,13 @@ import { useObjectsStore } from "@/stores/objects";
 import { apiSensors } from "@/api";
 import type { AlarmItem, SensorItem } from "@/types";
 const alarmsStore=useAlarmsStore(),objectsStore=useObjectsStore(),tab=ref<"active"|"history">("active");
-const alarms=computed(()=>alarmsStore.alarms.filter(a=>tab.value==="active"?["triggered","pending","acknowledged"].includes(a.status):a.status==="resolved"));
-const activeCount=computed(()=>alarmsStore.alarms.filter(a=>a.status==="triggered").length);
+const activeAlarms=computed(()=>alarmsStore.alarms.filter(a=>["triggered","pending"].includes(a.status)));
+const historyAlarms=computed(()=>alarmsStore.alarms.filter(a=>["acknowledged","resolved"].includes(a.status)));
+const alarms=computed(()=>tab.value==="active"?activeAlarms.value:historyAlarms.value);
+const activeCount=computed(()=>activeAlarms.value.length);
+const acknowledgeCount=computed(()=>alarmsStore.alarms.filter(a=>a.status==="triggered").length);
 function object(id:string){return objectsStore.objects.find(x=>x.id===id)?.name||id.slice(0,8)} function type(x:string){return ({offline:"DEVICE OFFLINE",high_temperature:"HIGH TEMPERATURE",low_temperature:"LOW TEMPERATURE"} as Record<string,string>)[x]||x.replaceAll("_"," ").toUpperCase()} function date(x:string|null){return x?new Date(x).toLocaleString("pl-PL"):"N/A"} function duration(x:string){const h=Math.max(0,Math.floor((Date.now()-new Date(x).getTime())/3600000));return `${h}h ${Math.floor((Date.now()-new Date(x).getTime())/60000)%60}m`}
-async function resetAll(){for(const a of alarms.value.filter(x=>x.status==="triggered"))await alarmsStore.acknowledgeAlarm(a.id)}
+async function resetAll(){for(const a of activeAlarms.value.filter(x=>x.status==="triggered"))await alarmsStore.acknowledgeAlarm(a.id)}
 onMounted(()=>{alarmsStore.fetchAlarms();objectsStore.fetchObjects();});
 
 // ── Mobile card redesign — additions below, desktop logic above is untouched ──
@@ -121,13 +124,11 @@ function closeDetails() { detailsAlarm.value = null; }
         <h1>ALARMS</h1>
         <span class="m-count">{{ activeCount }} Active</span>
       </div>
-      <button v-if="tab==='active'" class="m-icon-btn" aria-label="Reset all alarms" @click="showResetConfirm = true">
-        <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5.5M20 4v7h-7" /></svg>
-      </button>
+      <button v-if="tab==='active' && acknowledgeCount" class="m-confirm-all" @click="showResetConfirm = true">POTWIERDŹ {{ acknowledgeCount }} ALARMY</button>
     </header>
     <div class="m-segmented">
-      <button :class="{active: tab==='active'}" @click="tab='active'">Active</button>
-      <button :class="{active: tab==='history'}" @click="tab='history'">History</button>
+      <button :class="{active: tab==='active'}" @click="tab='active'">AKTYWNE <i>{{ activeCount }}</i></button>
+      <button :class="{active: tab==='history'}" @click="tab='history'">HISTORIA <i>{{ historyAlarms.length }}</i></button>
     </div>
   </div>
 
@@ -211,23 +212,18 @@ function closeDetails() { detailsAlarm.value = null; }
 .m-title{display:flex;align-items:baseline;gap:10px;min-width:0}
 .m-title h1{margin:0;font-size:22px;font-weight:800;letter-spacing:1px;color:#fff}
 .m-count{font-size:14px;font-weight:600;color:#42c9da;background:#0e2b30;border:1px solid #1f5b64;border-radius:20px;padding:4px 12px;white-space:nowrap}
-.m-icon-btn{width:44px;height:44px;flex:none;display:grid;place-items:center;background:#171f2a;border:1px solid #2a3a4d;border-radius:12px;color:#e2ae3f;cursor:pointer}
-.m-icon-btn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.m-confirm-all{min-height:42px;padding:0 13px;flex:none;background:linear-gradient(135deg,#e72537,#ab0719);border:1px solid #ff5a67;border-radius:10px;color:#fff;font-size:12px;font-weight:800;letter-spacing:.25px;cursor:pointer;box-shadow:0 0 16px rgba(232,35,52,.24)}
 .m-segmented{display:flex;gap:8px;margin-top:14px;background:#0b121a;border:1px solid #1a2735;border-radius:14px;padding:5px}
-.m-segmented button{flex:1;min-height:44px;border:0;border-radius:10px;background:transparent;color:#9aa7ba;font-size:15px;font-weight:600;cursor:pointer}
-.m-segmented button.active{background:#42c9da;color:#07111c}
+.m-segmented button{flex:1;min-height:44px;border:0;border-radius:10px;background:transparent;color:#9aa7ba;font-size:14px;font-weight:700;cursor:pointer}.m-segmented button i{font-style:normal;margin-left:6px;color:#78a4cf}.m-segmented button.active{background:#112332;color:#40d8e5;border:1px solid #1b7f92}.m-segmented button.active i{color:#ff5d68}
 
-.m-list{padding:16px}
+.m-list{position:relative;padding:18px 16px 16px 38px}.m-list::before{content:"";position:absolute;top:22px;bottom:22px;left:27px;width:1px;background:linear-gradient(#ff3445,#ffb020 55%,#60738d)}
 .m-empty{text-align:center;color:#8fa0b6;padding:60px 20px;font-size:15px}
 .m-empty-ok{display:flex;flex-direction:column;align-items:center;gap:8px}
 .m-empty-icon{font-size:44px}
 .m-empty-ok p{margin:0;color:#e4e9f2;font-size:18px;font-weight:700}
 .m-empty-ok small{color:#8fa0b6;font-size:14px}
 
-.m-card{background:#0d151f;border:1px solid #1c2938;border-radius:22px;padding:20px;margin-bottom:16px;box-shadow:0 6px 18px #0007}
-.m-card.high{border-color:#5a2530}
-.m-card.low{border-color:#1f3f5c}
-.m-card.offline{border-color:#5c421f}
+.m-card{position:relative;background:#0d151f;border:1px solid #1c2938;border-radius:18px;padding:18px;margin-bottom:16px;box-shadow:0 6px 18px #0007}.m-card::before{content:"";position:absolute;width:14px;height:14px;border-radius:50%;left:-19px;top:29px;background:#8ca0ba;border:3px solid #030509}.m-card.high{border-color:#5a2530}.m-card.high::before{background:#ff3547;box-shadow:0 0 12px #ff3547}.m-card.low{border-color:#664617}.m-card.low::before{background:#ffb020;box-shadow:0 0 12px #ffb020}.m-card.offline{border-color:#5c421f}.m-card.offline::before{background:#ffb020;box-shadow:0 0 12px #ffb020}
 .m-card-type{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:800;letter-spacing:.4px;color:#fff}
 .m-dot{font-size:20px;line-height:1}
 .m-card-meta{margin-top:14px;display:flex;flex-direction:column;gap:8px}
