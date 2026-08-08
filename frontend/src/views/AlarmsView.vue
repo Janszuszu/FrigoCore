@@ -115,14 +115,13 @@ function openDetails(alarm: AlarmItem) { detailsAlarm.value = alarm; }
 function closeDetails() { detailsAlarm.value = null; }
 </script>
 <template>
-<section class="alarms-page"><header><h1>Alarms</h1><p>Active alarms and alarm history.</p><div class="tabs"><button :class="{active:tab==='active'}" @click="tab='active'">Active Alarms <i>{{activeCount}}</i></button><button :class="{active:tab==='history'}" @click="tab='history'">History</button></div></header><div class="table-toolbar"><button v-if="tab==='active'" @click="resetAll">RESET ALL ({{activeCount}})</button></div><div v-if="alarmsStore.loading" class="empty">Loading…</div><div v-else-if="!alarms.length" class="empty">No alarms</div><div v-else class="alarm-table"><div class="tr th"><span>OBIEKT</span><span>SENSOR</span><span>ALARM TYPE</span><span>ACTIVE SINCE</span><span>DURATION</span><span>STATUS</span><span>ACTIONS</span></div><div v-for="alarm in alarms" :key="alarm.id" class="tr"><strong>{{object(alarm.object_id)}}</strong><b>{{alarm.sensor_id||'N/A'}}</b><span><i class="type">{{type(alarm.alarm_type)}}</i></span><time>{{date(alarm.triggered_at||alarm.detected_at)}}</time><time>{{duration(alarm.triggered_at||alarm.detected_at)}}</time><span><i :class="['status',alarm.status]">{{alarm.status==='triggered'?'ACTIVE':alarm.status.toUpperCase()}}</i></span><span><button v-if="alarm.status==='triggered'" class="reset" @click="alarmsStore.acknowledgeAlarm(alarm.id)">RESET</button></span></div></div></section>
+<section class="alarms-page"><header><h1>ALARMY</h1><p>Aktywne alarmy i historia.</p><div class="tabs"><button :class="{active:tab==='active'}" @click="tab='active'">AKTYWNE <i>{{activeCount}}</i></button><button :class="{active:tab==='history'}" @click="tab='history'">HISTORIA</button></div></header><div class="table-toolbar"><button v-if="tab==='active'" @click="resetAll">POTWIERDŹ WSZYSTKIE ({{activeCount}})</button></div><div v-if="alarmsStore.loading" class="empty">Ładowanie…</div><div v-else-if="!alarms.length" class="empty">Brak alarmów</div><div v-else class="alarm-table"><div class="tr th"><span>OBIEKT</span><span>SENSOR</span><span>TYP ALARMU</span><span>OD KIEDY</span><span>CZAS</span><span>STATUS</span><span>AKCJE</span></div><div v-for="alarm in alarms" :key="alarm.id" class="tr"><strong>{{object(alarm.object_id)}}</strong><b>{{alarm.sensor_id||'N/A'}}</b><span><i class="type">{{type(alarm.alarm_type)}}</i></span><time>{{date(alarm.triggered_at||alarm.detected_at)}}</time><time>{{duration(alarm.triggered_at||alarm.detected_at)}}</time><span><i :class="['status',alarm.status]">{{alarm.status==='triggered'?'AKTYWNY':alarm.status.toUpperCase()}}</i></span><span><button v-if="alarm.status==='triggered'" class="reset" @click="alarmsStore.acknowledgeAlarm(alarm.id)">POTWIERDŹ</button></span></div></div></section>
 
 <section class="alarms-mobile">
   <div class="m-sticky">
     <header class="m-header">
       <div class="m-title">
-        <h1>ALARMS</h1>
-        <span class="m-count">{{ activeCount }} Active</span>
+        <h1>ALARMY</h1>
       </div>
       <button v-if="tab==='active' && acknowledgeCount" class="m-confirm-all" @click="showResetConfirm = true">POTWIERDŹ {{ acknowledgeCount }} ALARMY</button>
     </header>
@@ -135,9 +134,9 @@ function closeDetails() { detailsAlarm.value = null; }
   <div class="m-list">
     <div v-if="alarmsStore.loading" class="m-empty">Loading…</div>
     <div v-else-if="!alarms.length && tab==='active'" class="m-empty m-empty-ok">
-      <span class="m-empty-icon">✅</span>
-      <p>No active alarms</p>
-      <small>Everything is working correctly.</small>
+      <span class="m-empty-icon">😇</span>
+      <p>Brak aktywnych alarmów</p>
+      <small>Wszystko działa prawidłowo.</small>
     </div>
     <div v-else-if="!alarms.length" class="m-empty">No alarm history</div>
     <article v-for="alarm in alarms" :key="alarm.id" :class="['m-card', alarmColor(alarm.alarm_type).cls]">
@@ -211,7 +210,6 @@ function closeDetails() { detailsAlarm.value = null; }
 .m-header{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .m-title{display:flex;align-items:baseline;gap:10px;min-width:0}
 .m-title h1{margin:0;font-size:22px;font-weight:800;letter-spacing:1px;color:#fff}
-.m-count{font-size:14px;font-weight:600;color:#42c9da;background:#0e2b30;border:1px solid #1f5b64;border-radius:20px;padding:4px 12px;white-space:nowrap}
 .m-confirm-all{min-height:42px;padding:0 13px;flex:none;background:linear-gradient(135deg,#e72537,#ab0719);border:1px solid #ff5a67;border-radius:10px;color:#fff;font-size:12px;font-weight:800;letter-spacing:.25px;cursor:pointer;box-shadow:0 0 16px rgba(232,35,52,.24)}
 .m-segmented{display:flex;gap:8px;margin-top:14px;background:#0b121a;border:1px solid #1a2735;border-radius:14px;padding:5px}
 .m-segmented button{flex:1;min-height:44px;border:0;border-radius:10px;background:transparent;color:#9aa7ba;font-size:14px;font-weight:700;cursor:pointer}.m-segmented button i{font-style:normal;margin-left:6px;color:#78a4cf}.m-segmented button.active{background:#112332;color:#40d8e5;border:1px solid #1b7f92}.m-segmented button.active i{color:#ff5d68}
@@ -219,7 +217,7 @@ function closeDetails() { detailsAlarm.value = null; }
 .m-list{position:relative;padding:18px 16px 16px 38px}.m-list::before{content:"";position:absolute;top:22px;bottom:22px;left:27px;width:1px;background:linear-gradient(#ff3445,#ffb020 55%,#60738d)}
 .m-empty{text-align:center;color:#8fa0b6;padding:60px 20px;font-size:15px}
 .m-empty-ok{display:flex;flex-direction:column;align-items:center;gap:8px}
-.m-empty-icon{font-size:44px}
+.m-empty-icon{font-size:44px;filter:drop-shadow(0 0 10px rgba(126,192,255,.34))}
 .m-empty-ok p{margin:0;color:#e4e9f2;font-size:18px;font-weight:700}
 .m-empty-ok small{color:#8fa0b6;font-size:14px}
 
