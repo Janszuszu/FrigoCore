@@ -150,7 +150,7 @@ const lowTempStr = computed({
             <input type="number" v-model="highTempStr" step="0.1" :disabled="!config.high_enabled">
           </div>
           <div class="field-row">
-            <label>Opóźnienie alarmu [min]</label>
+            <label>Opóźnienie alarmu [s]</label>
             <input type="number" v-model.number="config.high_delay" step="1" min="0" :disabled="!config.high_enabled">
           </div>
         </section>
@@ -167,7 +167,7 @@ const lowTempStr = computed({
             <input type="number" v-model="lowTempStr" step="0.1" :disabled="!config.low_enabled">
           </div>
           <div class="field-row">
-            <label>Opóźnienie alarmu [min]</label>
+            <label>Opóźnienie alarmu [s]</label>
             <input type="number" v-model.number="config.low_delay" step="1" min="0" :disabled="!config.low_enabled">
           </div>
         </section>
@@ -180,11 +180,11 @@ const lowTempStr = computed({
             <input type="checkbox" v-model="config.offline_enabled" class="switch">
           </label>
           <div class="field-row">
-            <label>Brak komunikacji po [min]</label>
-            <input type="number" v-model.number="config.offline_timeout" step="1" min="1" :disabled="!config.offline_enabled">
+            <label>Brak komunikacji po [s]</label>
+            <input type="number" v-model.number="config.offline_timeout" step="1" min="10" :disabled="!config.offline_enabled">
           </div>
           <div class="field-row">
-            <label>Opóźnienie alarmu [min]</label>
+            <label>Opóźnienie alarmu [s]</label>
             <input type="number" v-model.number="config.offline_delay" step="1" min="0" :disabled="!config.offline_enabled">
           </div>
         </section>

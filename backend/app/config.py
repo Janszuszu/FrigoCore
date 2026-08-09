@@ -36,6 +36,28 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-this-to-a-random-secret-key"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
+    # CORS — comma-separated list of allowed browser origins.
+    # In production the SPA is served from the same origin as the API
+    # (Caddy proxies /api and /ws to the backend), so no cross-origin
+    # request happens at all and this list stays empty. The defaults only
+    # cover the Vite dev server.
+    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parsed CORS_ORIGINS, with the credentials-unsafe wildcard removed.
+
+        `allow_origins=["*"]` together with `allow_credentials=True` is
+        rejected by browsers and, where it is honoured, lets any site read
+        authenticated responses. Origins must therefore be listed
+        explicitly; a bare "*" is dropped rather than silently trusted.
+        """
+        return [
+            origin
+            for origin in (o.strip() for o in self.CORS_ORIGINS.split(","))
+            if origin and origin != "*"
+        ]
+
 
 # Singleton instance
 settings = Settings()

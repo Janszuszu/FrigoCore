@@ -97,15 +97,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup / shutdown lifecycle."""
     # Startup
     await init_db()
-    # Auto-seed demo data if DB is empty
-    from app.database import async_session_factory
-    from sqlalchemy import select
-    from app.models.object import Object as ObjModel
-    async with async_session_factory() as session:
-        count = await session.scalar(select(ObjModel).limit(1))
-        if count is None:
-            from setup_dev import main as setup_dev_main
-            await setup_dev_main()
+    # Auto-seed demo data if DB is empty — development only. A production
+    # deployment starting against a fresh volume must not invent objects,
+    # sensors and MQTT topics that no real installation has.
+    if settings.ENVIRONMENT != "production":
+        from app.database import async_session_factory
+        from sqlalchemy import select
+        from app.models.object import Object as ObjModel
+        async with async_session_factory() as session:
+            count = await session.scalar(select(ObjModel).limit(1))
+            if count is None:
+                from setup_dev import main as setup_dev_main
+                await setup_dev_main()
     # Start MQTT engine first, then alarm engine
     await mqtt_engine.start()
     await alarm_engine.start()
@@ -124,13 +127,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow frontend dev server
+# CORS — explicit origin allowlist only.
+# The previous configuration paired allow_origins=["*"] with
+# allow_credentials=True, which browsers reject outright and which would
+# otherwise let any website issue credentialed requests against this API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 

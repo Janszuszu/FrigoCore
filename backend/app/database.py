@@ -5,6 +5,10 @@ Supports both PostgreSQL (production) and SQLite (development).
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -12,6 +16,9 @@ from sqlalchemy.orm import DeclarativeBase
 from app.config import settings
 from app.models import *  # noqa: F403 — ensure all models are registered on Base.metadata
 from app.models.base import Base
+
+if TYPE_CHECKING:
+    from alembic.config import Config
 
 
 # Async engine — automatically adapts to SQLite vs PostgreSQL
@@ -57,7 +64,25 @@ async def get_db() -> AsyncSession:
             await session.close()
 
 
+def _alembic_config() -> "Config":
+    """Alembic config pointing at backend/migrations, wherever we run from."""
+    from alembic.config import Config  # noqa: PLC0415
+
+    backend_root = Path(__file__).resolve().parent.parent
+    cfg = Config(str(backend_root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(backend_root / "migrations"))
+    return cfg
+
+
 async def init_db() -> None:
-    """Create all tables (for development / first-run)."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """Bring the database schema up to date via Alembic.
+
+    This used to be `Base.metadata.create_all`, which only ever creates
+    missing *tables* — a new column on an existing table was silently never
+    applied, so a deployed database could not follow the models. Migrations
+    run in a worker thread because Alembic's env.py drives its own event
+    loop.
+    """
+    from alembic import command  # noqa: PLC0415
+
+    await asyncio.to_thread(command.upgrade, _alembic_config(), "head")
