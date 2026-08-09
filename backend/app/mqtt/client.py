@@ -224,6 +224,11 @@ class MQTTEngine:
 
         now = datetime.now(timezone.utc)
 
+        # Calibration is applied once, here at ingest, so the stored history,
+        # the alarm thresholds and the dashboard all speak about the same
+        # corrected value.
+        temperature = round(temperature + sensor.calibration_offset, 4)
+
         # Create measurement
         measurement = Measurement(
             sensor_id=sensor.id,

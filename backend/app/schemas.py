@@ -33,15 +33,30 @@ class ObjectResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # Rollups the administration list needs to render a row without having
+    # to expand it first. Derived, never stored.
+    sensor_count: int = 0
+    online_sensor_count: int = 0
+
 
 # ---------------------------------------------------------------------------
 # Sensor
 # ---------------------------------------------------------------------------
 
+# Icon identifiers are validated as slugs rather than against a fixed list,
+# so the frontend's icon library can grow without a backend release.
+ICON_PATTERN = r"^[a-z0-9][a-z0-9-]{0,31}$"
+
+# Calibration is a trim for sensor drift, not a way to relabel a reading.
+CALIBRATION_LIMIT = 20.0
+
+
 class SensorCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
     mqtt_topic: str = Field(..., min_length=1, max_length=512, description="MQTT topic exactly as configured by admin")
     offline_timeout_seconds: int = Field(120, ge=10, le=3600)
+    icon: str = Field("thermometer", pattern=ICON_PATTERN)
+    calibration_offset: float = Field(0.0, ge=-CALIBRATION_LIMIT, le=CALIBRATION_LIMIT)
 
 
 class SensorUpdate(BaseModel):
@@ -49,6 +64,19 @@ class SensorUpdate(BaseModel):
     mqtt_topic: str | None = Field(None, min_length=1, max_length=512)
     offline_timeout_seconds: int | None = Field(None, ge=10, le=3600)
     is_active: bool | None = None
+    icon: str | None = Field(None, pattern=ICON_PATTERN)
+    display_order: int | None = Field(None, ge=0, le=9999)
+    calibration_offset: float | None = Field(None, ge=-CALIBRATION_LIMIT, le=CALIBRATION_LIMIT)
+
+
+class SensorReorder(BaseModel):
+    """Full ordering for one object's sensors, first to last.
+
+    The whole list is sent rather than a single position so the resulting
+    order is unambiguous and applies to every client viewing the object.
+    """
+
+    sensor_ids: list[UUID] = Field(..., min_length=1)
 
 
 class SensorResponse(BaseModel):
@@ -61,6 +89,9 @@ class SensorResponse(BaseModel):
     last_message_at: datetime | None
     offline_timeout_seconds: int
     is_active: bool
+    icon: str
+    display_order: int
+    calibration_offset: float
     object_id: UUID
     created_at: datetime
     updated_at: datetime
@@ -143,6 +174,10 @@ class NotificationProfileCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
 
 
+class NotificationProfileUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=256)
+
+
 class NotificationProfileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -151,6 +186,32 @@ class NotificationProfileResponse(BaseModel):
     object_id: UUID
     created_at: datetime
     updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# User (object access assignment only)
+# ---------------------------------------------------------------------------
+
+class UserResponse(BaseModel):
+    """The subset of a user that object-access administration needs.
+
+    hashed_password is deliberately absent, and there is no user-creation or
+    password schema here — this API only assigns existing users to objects.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    username: str
+    email: str
+    full_name: str
+    role: str
+    is_active: bool
+    object_id: UUID | None
+
+
+class ObjectUserAssign(BaseModel):
+    user_id: UUID
 
 
 # ---------------------------------------------------------------------------

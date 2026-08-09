@@ -3,6 +3,10 @@ import type {
   AlarmConfigItem,
   AlarmConfigUpdate,
   AlarmItem,
+  NotificationEndpointCreate,
+  NotificationEndpointItem,
+  NotificationEndpointUpdate,
+  NotificationProfileItem,
   ObjectCreate,
   ObjectItem,
   ObjectUpdate,
@@ -10,6 +14,7 @@ import type {
   SensorItem,
   SensorUpdate,
   MeasurementItem,
+  UserItem,
 } from "@/types";
 
 const BASE = "/api/v1";
@@ -67,6 +72,72 @@ export const apiSensors = {
     request<void>(`/objects/${objectId}/sensors/${sensorId}`, {
       method: "DELETE",
     }),
+  /** Persist the object's dashboard sensor order, first to last. */
+  reorder: (objectId: string, sensorIds: string[]) =>
+    request<SensorItem[]>(`/objects/${objectId}/sensors/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ sensor_ids: sensorIds }),
+    }),
+};
+
+// ─── Object access (users assigned to an object) ───────────────────
+
+export const apiObjectUsers = {
+  list: (objectId: string) =>
+    request<UserItem[]>(`/objects/${objectId}/users`),
+  assign: (objectId: string, userId: string) =>
+    request<UserItem>(`/objects/${objectId}/users`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    }),
+  revoke: (objectId: string, userId: string) =>
+    request<UserItem>(`/objects/${objectId}/users/${userId}`, {
+      method: "DELETE",
+    }),
+};
+
+export const apiUsers = {
+  list: (unassignedOnly = false) =>
+    request<UserItem[]>(
+      `/users${unassignedOnly ? "?unassigned_only=true" : ""}`
+    ),
+};
+
+// ─── Notifications (profile + endpoints belong to an object) ───────
+
+export const apiNotifications = {
+  getProfile: (objectId: string) =>
+    request<NotificationProfileItem>(`/objects/${objectId}/notification-profile`),
+  createProfile: (objectId: string, name: string) =>
+    request<NotificationProfileItem>(`/objects/${objectId}/notification-profile`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  updateProfile: (objectId: string, name: string) =>
+    request<NotificationProfileItem>(`/objects/${objectId}/notification-profile`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }),
+  listEndpoints: (objectId: string) =>
+    request<NotificationEndpointItem[]>(`/objects/${objectId}/notification-endpoints`),
+  createEndpoint: (objectId: string, data: NotificationEndpointCreate) =>
+    request<NotificationEndpointItem>(`/objects/${objectId}/notification-endpoints`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateEndpoint: (
+    objectId: string,
+    endpointId: string,
+    data: NotificationEndpointUpdate
+  ) =>
+    request<NotificationEndpointItem>(
+      `/objects/${objectId}/notification-endpoints/${endpointId}`,
+      { method: "PATCH", body: JSON.stringify(data) }
+    ),
+  deleteEndpoint: (objectId: string, endpointId: string) =>
+    request<void>(`/objects/${objectId}/notification-endpoints/${endpointId}`, {
+      method: "DELETE",
+    }),
 };
 
 // ─── Measurements ──────────────────────────────────────────────────
@@ -106,6 +177,10 @@ export const apiAlarmConfigs = {
     request<AlarmConfigItem>(`/sensors/${sensorId}/alarm-configs/${configId}`, {
       method: "PATCH",
       body: JSON.stringify(data),
+    }),
+  delete: (sensorId: string, configId: string) =>
+    request<void>(`/sensors/${sensorId}/alarm-configs/${configId}`, {
+      method: "DELETE",
     }),
 };
 

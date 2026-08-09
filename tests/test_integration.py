@@ -19,6 +19,7 @@ from app.models.alarm_config import AlarmConfig
 from app.models.base import Base
 from app.models.measurement import Measurement
 from app.models.notification_endpoint import NotificationEndpoint
+from app.models.notification_profile import NotificationProfile
 from app.models.object import Object
 from app.models.sensor import Sensor
 from app.schemas import AlarmConfigCreate
@@ -313,6 +314,67 @@ async def test_notification_dispatch_all_channels():
         NotificationEndpoint(channel=NotificationChannel.WEBHOOK, config={"url": "https://x.com"}, is_enabled=True),
     ]
     await NotificationEngine.send_alarm_notification(alarm, endpoints)
+
+
+@pytest.mark.asyncio
+async def test_alarm_lifecycle_survives_an_object_with_notification_endpoints(monkeypatch):
+    """An object with a configured notification profile must still resolve.
+
+    The engine dispatches notifications from inside the same evaluation cycle
+    that transitions alarms, and the cycle only commits at the very end. When
+    dispatch raised, auto-resolve and the commit were skipped: the alarm was
+    re-transitioned from PENDING on every subsequent cycle and could never
+    resolve, however far the temperature recovered. Configuring a
+    notification endpoint through the object settings UI is what makes this
+    path reachable, so it is covered end to end here.
+    """
+    factory, engine = await _fresh_session_factory()
+    try:
+        ae = AlarmEngine(factory)
+        async with factory() as session:
+            obj = await _seed_object(session)
+            sensor = await _seed_sensor(session, obj, initial_temp=10.0, last_message_offset_s=5)
+            await _seed_alarm_config(session, sensor, AlarmType.HIGH_TEMPERATURE, threshold=8.0, delay=0)
+            profile = NotificationProfile(name="Profil", object_id=obj.id)
+            session.add(profile)
+            await session.flush()
+            session.add(NotificationEndpoint(
+                channel=NotificationChannel.TELEGRAM,
+                config={"chat_id": "-100123"},
+                is_enabled=True,
+                profile_id=profile.id,
+            ))
+            await session.commit()
+
+        # A channel that is misconfigured, unreachable or simply broken must
+        # not be able to stop alarms from being recorded and resolved.
+        async def _explode(*_args, **_kwargs):
+            raise RuntimeError("notification provider is down")
+
+        monkeypatch.setattr(NotificationEngine, "send_alarm_notification", _explode)
+
+        # Cycle 1 — breach detected and (delay=0) triggered, notification sent.
+        await ae._evaluate_all()
+        async with factory() as session:
+            alarm = await session.scalar(select(Alarm).where(Alarm.sensor_id == sensor.id))
+            assert alarm is not None, "no alarm was persisted — the cycle rolled back"
+            assert alarm.status == AlarmStatus.TRIGGERED
+
+        # Temperature recovers.
+        async with factory() as session:
+            live = await session.get(Sensor, sensor.id)
+            live.current_temperature = 4.0
+            live.last_message_at = datetime.now(timezone.utc)
+            await session.commit()
+
+        # Cycle 2 — auto-resolve must run and commit.
+        await ae._evaluate_all()
+        async with factory() as session:
+            alarm = await session.scalar(select(Alarm).where(Alarm.sensor_id == sensor.id))
+            assert alarm.status == AlarmStatus.RESOLVED
+            assert alarm.resolved_at is not None
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

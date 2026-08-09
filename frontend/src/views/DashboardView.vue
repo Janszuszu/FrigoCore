@@ -6,6 +6,8 @@ import { useAlarmsStore } from "@/stores/alarms";
 import { apiAlarmConfigs } from "@/api";
 import type { AlarmConfigItem, ChartRange, MeasurementItem, SensorItem } from "@/types";
 import TemperatureChart from "@/components/TemperatureChart.vue";
+import SensorIcon from "@/components/SensorIcon.vue";
+import { suggestIconFromName } from "@/utils/sensorIcons";
 
 defineProps<{ time: string; date: string }>();
 
@@ -86,26 +88,12 @@ function displayTemperatureValue(item:SensorItem){return isOnline(item)?temperat
 function hasLiveTemperature(item:SensorItem){return isOnline(item)&&item.current_temperature!=null}
 
 // ---------- Sensor card display helpers ----------
-// A sensor only has a `name` — no separate type/description/status field —
-// so the icon and subtitle line the reference card wants are derived from
-// that name (normalized to strip Polish diacritics for matching), and the
-// status dot is derived from the same online/alarm data already loaded for
-// the whole object. All client-side, all reusable for every object/sensor.
-function normalizeSensorName(name:string){
-  return name.toLowerCase()
-    .replaceAll('ł','l').replaceAll('ą','a').replaceAll('ę','e').replaceAll('ó','o')
-    .replaceAll('ś','s').replaceAll('ż','z').replaceAll('ź','z').replaceAll('ć','c').replaceAll('ń','n');
-}
-type SensorIconKind='fan'|'cylinder'|'snowflake'|'room'|'sun'|'thermometer';
-function sensorIconKind(name:string):SensorIconKind{
-  const n=normalizeSensorName(name);
-  if(n.includes('skraplacz')) return 'fan';
-  if(n.includes('tlocz')) return 'cylinder';
-  if(n.includes('parownik')) return 'snowflake';
-  if(n.includes('pomieszcz')||n.includes('komora')||n.includes('chlodni')||n.includes('mroz')) return 'room';
-  if(n.includes('zewnetrz')||n.includes('otoczeni')||n.includes('ambient')||n.includes('outdoor')) return 'sun';
-  return 'thermometer';
-}
+// The icon is whatever the administrator chose in Objects → sensor settings
+// (Sensor.icon), so every client viewing the object sees the same symbol.
+// Sensors configured before icons existed fall back to a guess from the
+// name. The status dot is derived from the online/alarm data already loaded
+// for the whole object.
+function sensorIcon(item:SensorItem){return item.icon||suggestIconFromName(item.name)}
 const ALARM_SHORT_LABEL:Record<string,string>={high_temperature:"HIGH TEMP",low_temperature:"LOW TEMP",offline:"OFFLINE"};
 function cardStatus(item:SensorItem){
   const active=alarmsFor(item.id).find(a=>a.status==='triggered');
@@ -175,32 +163,7 @@ watch(selectedObjectId,pickObject);
    <article v-for="item in sensorsStore.sensors" :key="item.id" class="temperature-panel">
     <button class="sensor-row" type="button" :aria-label="`Otwórz wykres — ${item.name}, ${isOnline(item)?temperature(item.current_temperature):'offline'}`" @click="openChartFor(item)">
      <span class="card-icon">
-      <svg v-if="sensorIconKind(item.name)==='fan'" viewBox="0 0 24 24">
-       <path d="M12 12C10 9 9 5 12 2C15 5 14 9 12 12Z"/>
-       <path d="M12 12C10 9 9 5 12 2C15 5 14 9 12 12Z" transform="rotate(120 12 12)"/>
-       <path d="M12 12C10 9 9 5 12 2C15 5 14 9 12 12Z" transform="rotate(240 12 12)"/>
-       <circle cx="12" cy="12" r="1.6"/>
-      </svg>
-      <svg v-else-if="sensorIconKind(item.name)==='cylinder'" viewBox="0 0 24 24">
-       <ellipse cx="12" cy="5.5" rx="6" ry="2.3"/>
-       <path d="M6 5.5v12c0 1.27 2.69 2.3 6 2.3s6-1.03 6-2.3v-12"/>
-       <path d="M6 11.5c0 1.27 2.69 2.3 6 2.3s6-1.03 6-2.3"/>
-      </svg>
-      <svg v-else-if="sensorIconKind(item.name)==='snowflake'" viewBox="0 0 24 24">
-       <path d="M12 2v20M4.5 6.5l15 11M19.5 6.5l-15 11"/>
-      </svg>
-      <svg v-else-if="sensorIconKind(item.name)==='room'" viewBox="0 0 24 24">
-       <path d="M4 11.5 12 4l8 7.5"/>
-       <path d="M6 10v9h12v-9"/>
-      </svg>
-      <svg v-else-if="sensorIconKind(item.name)==='sun'" viewBox="0 0 24 24">
-       <circle cx="12" cy="12" r="4"/>
-       <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>
-      </svg>
-      <svg v-else viewBox="0 0 24 24">
-       <path d="M10 14.2V4.5a2 2 0 0 1 4 0v9.7a4 4 0 1 1-4 0Z"/>
-       <path d="M12 7h2M12 10h2"/>
-      </svg>
+      <SensorIcon :icon="sensorIcon(item)" />
      </span>
      <span class="card-body">
       <span class="card-name">{{item.name}}</span>

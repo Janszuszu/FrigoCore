@@ -1,197 +1,214 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from "vue";
+/**
+ * Administrator Objects panel.
+ *
+ * Desktop-first: a compact object list that expands into a dense sensor
+ * table. Every per-row action lives behind a settings icon (Object →
+ * Sensor → Settings) instead of the old selection-checkbox workflow.
+ */
+import { computed, onMounted, ref } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useSensorsStore } from "@/stores/sensors";
+import { apiSensors } from "@/api";
 import type { ObjectItem, SensorItem } from "@/types";
-import FrigoCheckbox from "@/components/FrigoCheckbox.vue";
-import AlarmConfigModal from "@/components/AlarmConfigModal.vue";
+import SensorIcon from "@/components/SensorIcon.vue";
+import SensorSettingsModal from "@/components/SensorSettingsModal.vue";
+import ObjectSettingsModal from "@/components/ObjectSettingsModal.vue";
+import { suggestIconFromName } from "@/utils/sensorIcons";
 
 const objectsStore = useObjectsStore();
 const sensorsStore = useSensorsStore();
 
-// ─── Expand / collapse ────────────────────────────────────────────
-const expanded = ref<string | null>(null);
+const expanded = ref<Set<string>>(new Set());
 const objectSensors = ref<Record<string, SensorItem[]>>({});
-
-async function loadSensors(id: string) {
-  await sensorsStore.fetchSensors(id);
-  objectSensors.value[id] = [...sensorsStore.sensors];
-}
-
-async function toggle(obj: ObjectItem) {
-  expanded.value = expanded.value === obj.id ? null : obj.id;
-  if (expanded.value) await loadSensors(obj.id);
-}
-
-// ─── Object selection (checkbox) ──────────────────────────────────
-const selectedObjects = ref<Set<string>>(new Set());
-const selectedSensors = ref<Set<string>>(new Set());
-
-/** Compute a given object's checkbox state */
-function objectCheckState(objId: string): boolean | 'indeterminate' {
-  const sens = objectSensors.value[objId] || [];
-  if (!sens.length) return selectedObjects.value.has(objId);
-  const checkedCount = sens.filter(s => selectedSensors.value.has(s.id)).length;
-  if (checkedCount === 0) return selectedObjects.value.has(objId);
-  if (checkedCount === sens.length) return true;
-  return 'indeterminate';
-}
-
-function toggleObject(objId: string) {
-  const sens = objectSensors.value[objId] || [];
-  const currentlyChecked = objectCheckState(objId);
-  const willCheck = currentlyChecked === true ? false : true;
-
-  if (willCheck) {
-    selectedObjects.value.add(objId);
-    sens.forEach(s => selectedSensors.value.add(s.id));
-  } else {
-    selectedObjects.value.delete(objId);
-    sens.forEach(s => selectedSensors.value.delete(s.id));
-  }
-  // Force reactivity
-  selectedObjects.value = new Set(selectedObjects.value);
-  selectedSensors.value = new Set(selectedSensors.value);
-}
-
-function toggleSensor(sensorId: string, objId: string) {
-  if (selectedSensors.value.has(sensorId)) {
-    selectedSensors.value.delete(sensorId);
-  } else {
-    selectedSensors.value.add(sensorId);
-  }
-  // Re-evaluate object checkbox – if all sensors are checked, check the object
-  const sens = objectSensors.value[objId] || [];
-  const allChecked = sens.every(s => selectedSensors.value.has(s.id));
-  if (allChecked) {
-    selectedObjects.value.add(objId);
-  } else {
-    selectedObjects.value.delete(objId);
-  }
-  selectedSensors.value = new Set(selectedSensors.value);
-  selectedObjects.value = new Set(selectedObjects.value);
-}
-
-// ─── Object CRUD ──────────────────────────────────────────────────
-const showObjectModal = ref(false);
-const editing = ref<ObjectItem | null>(null);
-const name = ref("");
-const description = ref("");
 const error = ref("");
 
-function openObject(obj?: ObjectItem) {
-  editing.value = obj || null;
-  name.value = obj?.name || "";
-  description.value = obj?.description || "";
-  error.value = "";
-  showObjectModal.value = true;
+async function loadSensors(objectId: string) {
+  await sensorsStore.fetchSensors(objectId);
+  objectSensors.value = {
+    ...objectSensors.value,
+    [objectId]: [...sensorsStore.sensors],
+  };
 }
 
-async function saveObject() {
+async function toggle(object: ObjectItem) {
+  const next = new Set(expanded.value);
+  if (next.has(object.id)) {
+    next.delete(object.id);
+  } else {
+    next.add(object.id);
+    await loadSensors(object.id);
+  }
+  expanded.value = next;
+}
+
+const isExpanded = (id: string) => expanded.value.has(id);
+const sensorsOf = (id: string) => objectSensors.value[id] ?? [];
+
+// ─── Status ───────────────────────────────────────────────────────
+// Timestamps from the API are UTC but not always suffixed, so a plain
+// new Date() would read them as local time and misjudge every timeout.
+function parseUtc(iso: string) {
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`).getTime();
+}
+
+function sensorOnline(sensor: SensorItem) {
+  if (!sensor.last_message_at) return false;
+  return Date.now() - parseUtc(sensor.last_message_at) < sensor.offline_timeout_seconds * 1000;
+}
+
+function objectStatus(object: ObjectItem) {
+  if (!object.sensor_count) return { text: "BRAK SENSORÓW", cls: "idle" };
+  if (object.online_sensor_count === 0) return { text: "OFFLINE", cls: "offline" };
+  if (object.online_sensor_count < object.sensor_count)
+    return { text: "CZĘŚCIOWO ONLINE", cls: "partial" };
+  return { text: "ONLINE", cls: "online" };
+}
+
+function temperature(value: number | null) {
+  return value == null ? "—" : `${value.toFixed(1)} °C`;
+}
+
+function timestamp(value: string | null) {
+  return value ? new Date(parseUtc(value)).toLocaleString("pl-PL") : "—";
+}
+
+// ─── Add object / add sensor ──────────────────────────────────────
+const showAddObject = ref(false);
+const showAddSensor = ref(false);
+const draft = ref({ name: "", description: "", mqtt_topic: "", objectId: "" });
+
+function openAddObject() {
+  draft.value = { name: "", description: "", mqtt_topic: "", objectId: "" };
+  error.value = "";
+  showAddObject.value = true;
+}
+
+function openAddSensor(objectId: string) {
+  draft.value = { name: "", description: "", mqtt_topic: "", objectId };
+  error.value = "";
+  showAddSensor.value = true;
+}
+
+async function createObject() {
   try {
-    if (editing.value) {
-      await objectsStore.updateObject(editing.value.id, {
-        name: name.value,
-        description: description.value,
-      });
-    } else {
-      await objectsStore.createObject({
-        name: name.value,
-        description: description.value,
-      });
-    }
-    showObjectModal.value = false;
+    await objectsStore.createObject({
+      name: draft.value.name,
+      description: draft.value.description,
+    });
+    showAddObject.value = false;
     await objectsStore.fetchObjects();
   } catch (e) {
-    error.value =
-      e instanceof Error ? e.message : "Nie udało się zapisać";
+    error.value = e instanceof Error ? e.message : "Nie udało się dodać obiektu";
   }
 }
 
-async function removeObjects() {
-  if (selectedObjects.value.size === 0) return;
-  const count = selectedObjects.value.size;
-  if (!confirm(`Usunąć ${count} zaznaczonych obiektów?`)) return;
-  for (const id of selectedObjects.value) {
-    await objectsStore.deleteObject(id);
-  }
-  selectedObjects.value = new Set();
-  selectedSensors.value = new Set();
-}
-
-// ─── Sensor CRUD ──────────────────────────────────────────────────
-const showSensorModal = ref(false);
-const targetObject = ref("");
-const mqttTopic = ref("");
-
-function openSensor(id: string) {
-  targetObject.value = id;
-  name.value = "";
-  mqttTopic.value = "";
-  error.value = "";
-  showSensorModal.value = true;
-}
-
-async function saveSensor() {
+async function createSensor() {
   try {
-    await sensorsStore.createSensor(targetObject.value, {
-      name: name.value,
-      mqtt_topic: mqttTopic.value,
+    await sensorsStore.createSensor(draft.value.objectId, {
+      name: draft.value.name,
+      mqtt_topic: draft.value.mqtt_topic,
+      // Pre-select a sensible icon from the name; the administrator can
+      // change it in sensor settings at any time.
+      icon: suggestIconFromName(draft.value.name),
     });
-    showSensorModal.value = false;
-    await loadSensors(targetObject.value);
+    showAddSensor.value = false;
+    await Promise.all([loadSensors(draft.value.objectId), objectsStore.fetchObjects()]);
   } catch (e) {
-    error.value =
-      e instanceof Error ? e.message : "Nie udało się dodać sensora";
+    error.value = e instanceof Error ? e.message : "Nie udało się dodać sensora";
   }
 }
 
-async function removeSensors() {
-  if (selectedSensors.value.size === 0) return;
-  if (!confirm(`Usunąć ${selectedSensors.value.size} zaznaczonych sensorów?`)) return;
-  // Group by object
-  const byObject = new Map<string, string[]>();
-  for (const sId of selectedSensors.value) {
-    // Find which object this sensor belongs to
-    for (const [objId, sens] of Object.entries(objectSensors.value)) {
-      if (sens.some(s => s.id === sId)) {
-        if (!byObject.has(objId)) byObject.set(objId, []);
-        byObject.get(objId)!.push(sId);
-        break;
-      }
-    }
+// ─── Settings modals ──────────────────────────────────────────────
+const objectSettings = ref<ObjectItem | null>(null);
+const sensorSettings = ref<SensorItem | null>(null);
+
+async function onObjectSaved() {
+  const target = objectSettings.value;
+  objectSettings.value = null;
+  await objectsStore.fetchObjects();
+  if (target && isExpanded(target.id)) await loadSensors(target.id);
+}
+
+async function onObjectDeleted() {
+  const target = objectSettings.value;
+  objectSettings.value = null;
+  if (target) {
+    const next = new Set(expanded.value);
+    next.delete(target.id);
+    expanded.value = next;
   }
-  for (const [objId, sIds] of byObject) {
-    for (const sId of sIds) {
-      await sensorsStore.deleteSensor(objId, sId);
-    }
-    await loadSensors(objId);
+  await objectsStore.fetchObjects();
+}
+
+async function onSensorSaved() {
+  const objectId = sensorSettings.value?.object_id;
+  sensorSettings.value = null;
+  if (objectId) await Promise.all([loadSensors(objectId), objectsStore.fetchObjects()]);
+}
+
+async function onSensorDeleted() {
+  const objectId = sensorSettings.value?.object_id;
+  sensorSettings.value = null;
+  if (objectId) await Promise.all([loadSensors(objectId), objectsStore.fetchObjects()]);
+}
+
+// ─── Drag and drop ordering ───────────────────────────────────────
+// The order is object configuration, so a drop writes the object's whole
+// sensor order back to the server; every client then sees the same one.
+const dragging = ref<{ objectId: string; sensorId: string } | null>(null);
+const dragOverId = ref<string | null>(null);
+const reordering = ref(false);
+
+function onDragStart(objectId: string, sensor: SensorItem) {
+  dragging.value = { objectId, sensorId: sensor.id };
+}
+
+function onDragOver(sensor: SensorItem) {
+  if (dragging.value) dragOverId.value = sensor.id;
+}
+
+function onDragEnd() {
+  dragging.value = null;
+  dragOverId.value = null;
+}
+
+async function onDrop(objectId: string, target: SensorItem) {
+  const source = dragging.value;
+  onDragEnd();
+  if (!source || source.objectId !== objectId || source.sensorId === target.id) return;
+
+  const ids = sensorsOf(objectId).map((s) => s.id);
+  const from = ids.indexOf(source.sensorId);
+  const to = ids.indexOf(target.id);
+  if (from === -1 || to === -1) return;
+  ids.splice(from, 1);
+  ids.splice(to, 0, source.sensorId);
+
+  reordering.value = true;
+  try {
+    objectSensors.value = {
+      ...objectSensors.value,
+      [objectId]: await apiSensors.reorder(objectId, ids),
+    };
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Nie udało się zapisać kolejności";
+    await loadSensors(objectId);
+  } finally {
+    reordering.value = false;
   }
-  selectedSensors.value = new Set();
 }
 
-// ─── Alarm config modal ───────────────────────────────────────────
-const alarmConfigTarget = ref<SensorItem | null>(null);
+const totalSensors = computed(() =>
+  objectsStore.objects.reduce((sum, o) => sum + (o.sensor_count || 0), 0),
+);
 
-function openAlarmConfig(sensor: SensorItem) {
-  alarmConfigTarget.value = sensor;
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────
-function temp(v: number | null) {
-  return v == null ? "—" : `${v.toFixed(1)} °C`;
-}
-
-function date(v: string | null) {
-  return v ? new Date(v).toLocaleString("pl-PL") : "—";
-}
-
-// ─── Init ─────────────────────────────────────────────────────────
 onMounted(async () => {
   await objectsStore.fetchObjects();
-  if (objectsStore.objects[0]) {
-    expanded.value = objectsStore.objects[0].id;
-    await loadSensors(expanded.value);
+  const first = objectsStore.objects[0];
+  if (first) {
+    expanded.value = new Set([first.id]);
+    await loadSensors(first.id);
   }
 });
 </script>
@@ -201,145 +218,168 @@ onMounted(async () => {
     <header class="page-head">
       <div>
         <h1>Obiekty</h1>
-        <p>Zarządzaj swoimi obiektami i sensorami.</p>
+        <p>
+          {{ objectsStore.objects.length }} obiektów · {{ totalSensors }} sensorów
+        </p>
       </div>
-      <div class="actions">
-        <button class="primary" @click="openObject()">＋　Dodaj obiekt</button>
-        <button
-          @click="selectedObjects.size === 1 && openObject(objectsStore.objects.find(x => x.id === [...selectedObjects][0]))"
-          :disabled="selectedObjects.size !== 1"
-        >
-          ⌑　 Edytuj obiekt
-        </button>
-        <button class="danger" @click="removeObjects" :disabled="selectedObjects.size === 0">
-          ♜　 Usuń obiekt
-        </button>
-        <button
-          class="danger"
-          @click="removeSensors"
-          :disabled="selectedSensors.size === 0"
-        >
-          ♜　 Usuń sensor
-        </button>
-      </div>
+      <button class="primary" @click="openAddObject">＋ Dodaj obiekt</button>
     </header>
+
+    <p v-if="error" class="page-error">{{ error }}</p>
 
     <div class="object-list">
       <article
         v-for="object in objectsStore.objects"
         :key="object.id"
-        class="object-panel"
-        :class="{ open: expanded === object.id }"
+        class="object-card"
+        :class="{ open: isExpanded(object.id) }"
       >
-        <header class="object-row">
-          <FrigoCheckbox
-            :modelValue="objectCheckState(object.id)"
-            @update:modelValue="toggleObject(object.id)"
-          />
-          <button class="object-toggle" @click="toggle(object)">
-            <svg viewBox="0 0 24 24">
+        <div class="object-row">
+          <button
+            class="expander"
+            :aria-expanded="isExpanded(object.id)"
+            :aria-label="`Rozwiń ${object.name}`"
+            @click="toggle(object)"
+          >
+            <svg viewBox="0 0 24 24" class="object-icon">
               <path d="M4 21V4h16v17M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2" />
             </svg>
-            <span>
-              <b>{{ object.name }}</b>
-              <small v-if="expanded === object.id">{{
-                (objectSensors[object.id] || []).length
-              }}
-                sensory</small>
-            </span>
+            <span class="object-name">{{ object.name }}</span>
           </button>
-          <em>{{ object.is_active ? "Online" : "Offline" }}</em>
-          <div v-if="expanded === object.id" class="sensor-actions">
-            <button @click="openSensor(object.id)">＋　Dodaj sensor</button>
-          </div>
-          <button class="chevron" @click="toggle(object)">
-            {{ expanded === object.id ? "⌃" : "›" }}
-          </button>
-        </header>
 
-        <div v-if="expanded === object.id" class="sensor-table">
-          <div class="sensor-head">
-            <span></span>
-            <span>NAZWA SENSORA</span>
-            <span>MQTT TOPIC</span>
-            <span>AKTUALNA WARTOŚĆ</span>
-            <span>OSTATNIA AKTUALIZACJA</span>
-            <span></span>
-          </div>
-          <div
-            v-for="sensor in objectSensors[object.id] || []"
-            :key="sensor.id"
-            class="sensor-row"
-          >
-            <FrigoCheckbox
-              :modelValue="selectedSensors.has(sensor.id)"
-              @update:modelValue="toggleSensor(sensor.id, object.id)"
-            />
-            <span>
+          <span :class="['status', objectStatus(object).cls]">
+            <i></i>{{ objectStatus(object).text }}
+          </span>
+
+          <span class="sensor-count">
+            {{ object.online_sensor_count }}/{{ object.sensor_count }} sensorów
+          </span>
+
+          <div class="row-actions">
+            <button
+              class="icon-btn"
+              title="Ustawienia obiektu"
+              aria-label="Ustawienia obiektu"
+              @click="objectSettings = object"
+            >
               <svg viewBox="0 0 24 24">
-                <path d="M14 14.5V5a2 2 0 0 0-4 0v9.5a5 5 0 1 0 4 0Z" />
-                <path d="M12 11v6" />
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56v.1h-3v-.1a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 15a1.7 1.7 0 0 0-1.56-1.03h-.1v-3h.1A1.7 1.7 0 0 0 7.06 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56v-.1h3v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.1v3h-.1A1.7 1.7 0 0 0 19.4 15Z" />
               </svg>
-              {{ sensor.name }}
-            </span>
-            <code>{{ sensor.mqtt_topic }}</code>
-            <strong>{{ temp(sensor.current_temperature) }}</strong>
-            <time>{{ date(sensor.last_message_at) }}</time>
-            <div class="sensor-row-actions">
-              <button
-                class="alarm-btn"
-                title="Konfiguracja alarmów"
-                @click="openAlarmConfig(sensor)"
-              >
-                ⚙ Alarmy
-              </button>
-            </div>
+            </button>
+            <button
+              class="icon-btn chevron"
+              :aria-label="isExpanded(object.id) ? 'Zwiń' : 'Rozwiń'"
+              @click="toggle(object)"
+            >
+              <svg viewBox="0 0 24 24">
+                <path :d="isExpanded(object.id) ? 'M6 15l6-6 6 6' : 'M9 6l6 6-6 6'" />
+              </svg>
+            </button>
           </div>
-          <div
-            v-if="!(objectSensors[object.id] || []).length"
-            class="no-sensors"
-          >
-            Brak sensorów
+        </div>
+
+        <div v-if="isExpanded(object.id)" class="sensor-panel">
+          <table class="sensor-table">
+            <thead>
+              <tr>
+                <th class="col-drag"></th>
+                <th class="col-name">Sensor</th>
+                <th class="col-topic">MQTT Topic</th>
+                <th class="col-value">Wartość</th>
+                <th class="col-time">Ostatnia aktualizacja</th>
+                <th class="col-settings"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="sensor in sensorsOf(object.id)"
+                :key="sensor.id"
+                draggable="true"
+                :class="{
+                  'drop-target': dragOverId === sensor.id,
+                  dragging: dragging?.sensorId === sensor.id,
+                }"
+                @dragstart="onDragStart(object.id, sensor)"
+                @dragover.prevent="onDragOver(sensor)"
+                @drop.prevent="onDrop(object.id, sensor)"
+                @dragend="onDragEnd"
+              >
+                <td class="col-drag">
+                  <span class="drag-handle" title="Przeciągnij, aby zmienić kolejność">⣿</span>
+                </td>
+                <td class="col-name">
+                  <SensorIcon :icon="sensor.icon" :size="18" />
+                  <span>{{ sensor.name }}</span>
+                  <i v-if="!sensorOnline(sensor)" class="dot offline" title="Offline"></i>
+                  <i v-else class="dot online" title="Online"></i>
+                </td>
+                <td class="col-topic"><code>{{ sensor.mqtt_topic }}</code></td>
+                <td class="col-value">
+                  <strong>{{ sensorOnline(sensor) ? temperature(sensor.current_temperature) : "—" }}</strong>
+                  <em v-if="sensor.calibration_offset" class="calib">
+                    {{ sensor.calibration_offset > 0 ? "+" : "" }}{{ sensor.calibration_offset }}°
+                  </em>
+                </td>
+                <td class="col-time">{{ timestamp(sensor.last_message_at) }}</td>
+                <td class="col-settings">
+                  <button
+                    class="icon-btn"
+                    title="Ustawienia sensora"
+                    aria-label="Ustawienia sensora"
+                    @click="sensorSettings = sensor"
+                  >
+                    <svg viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56v.1h-3v-.1a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 15a1.7 1.7 0 0 0-1.56-1.03h-.1v-3h.1A1.7 1.7 0 0 0 7.06 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56v-.1h3v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.1v3h-.1A1.7 1.7 0 0 0 19.4 15Z" />
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="!sensorsOf(object.id).length">
+                <td colspan="6" class="no-sensors">Brak sensorów w tym obiekcie</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="panel-foot">
+            <button class="secondary" @click="openAddSensor(object.id)">＋ Dodaj sensor</button>
+            <span v-if="reordering" class="muted">Zapisywanie kolejności…</span>
+            <span v-else-if="sensorsOf(object.id).length > 1" class="muted">
+              Przeciągnij wiersz, aby zmienić kolejność na pulpicie klienta.
+            </span>
           </div>
         </div>
       </article>
+
+      <p v-if="!objectsStore.objects.length" class="no-objects">
+        Brak obiektów. Dodaj pierwszy obiekt, aby rozpocząć konfigurację.
+      </p>
     </div>
 
-    <p class="count">
-      Wyświetlanie 1–{{ objectsStore.objects.length }} z
-      {{ objectsStore.objects.length }} obiektów
-    </p>
-
-    <!-- Object / Sensor modal -->
+    <!-- Add object / add sensor -->
     <div
-      v-if="showObjectModal || showSensorModal"
+      v-if="showAddObject || showAddSensor"
       class="modal"
-      @click.self="showObjectModal = false; showSensorModal = false"
+      @click.self="showAddObject = false; showAddSensor = false"
     >
-      <form @submit.prevent="showObjectModal ? saveObject() : saveSensor()">
-        <h2>{{
-          showObjectModal
-            ? (editing ? "Edytuj obiekt" : "Dodaj obiekt")
-            : "Dodaj sensor"
-        }}</h2>
+      <form @submit.prevent="showAddObject ? createObject() : createSensor()">
+        <h2>{{ showAddObject ? "Dodaj obiekt" : "Dodaj sensor" }}</h2>
         <label>
           Nazwa
-          <input v-model="name" required />
+          <input v-model="draft.name" required />
         </label>
-        <label v-if="showObjectModal">
+        <label v-if="showAddObject">
           Opis
-          <textarea v-model="description"></textarea>
+          <textarea v-model="draft.description"></textarea>
         </label>
-        <label v-if="showSensorModal">
+        <label v-else>
           MQTT Topic
-          <input v-model="mqttTopic" required />
+          <input v-model="draft.mqtt_topic" spellcheck="false" required />
         </label>
         <p v-if="error" class="error">{{ error }}</p>
         <footer>
-          <button
-            type="button"
-            @click="showObjectModal = false; showSensorModal = false"
-          >
+          <button type="button" @click="showAddObject = false; showAddSensor = false">
             Anuluj
           </button>
           <button class="primary">Zapisz</button>
@@ -347,387 +387,459 @@ onMounted(async () => {
       </form>
     </div>
 
-    <!-- Alarm Config Modal -->
-    <AlarmConfigModal
-      v-if="alarmConfigTarget"
-      :sensor="alarmConfigTarget"
-      @close="alarmConfigTarget = null"
-      @saved="alarmConfigTarget = null"
+    <ObjectSettingsModal
+      v-if="objectSettings"
+      :object="objectSettings"
+      @close="objectSettings = null"
+      @saved="onObjectSaved"
+      @deleted="onObjectDeleted"
+    />
+
+    <SensorSettingsModal
+      v-if="sensorSettings"
+      :sensor="sensorSettings"
+      :siblings="sensorsOf(sensorSettings.object_id)"
+      @close="sensorSettings = null"
+      @saved="onSensorSaved"
+      @deleted="onSensorDeleted"
     />
   </section>
 </template>
 
 <style scoped>
 .objects-page {
-  padding: 20px 31px;
+  padding: 20px 28px 36px;
   max-width: 1680px;
-  margin: auto;
+  margin: 0 auto;
 }
 
 .page-head {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
 }
 
 .page-head h1 {
-  font-size: 31px;
-  margin: 0 0 4px;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
 }
 
 .page-head p {
-  margin: 0;
-  color: #afbfda;
-  font-size: 17px;
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: #8ea6c4;
 }
 
-.actions {
-  display: flex;
-  gap: 30px;
-}
-
-.actions button,
-.sensor-actions button {
-  height: 57px;
-  min-width: 224px;
-  background: #061424;
-  border: 1px solid #2a4d6d;
-  border-radius: 7px;
-  color: #f1f5ff;
-  font-size: 17px;
+.primary {
+  padding: 9px 18px;
+  background: linear-gradient(115deg, #06c7f3, #078de4);
+  border: 1px solid #139de5;
+  border-radius: 6px;
+  color: #02141f;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.actions button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
+.secondary {
+  padding: 7px 14px;
+  background: #072a37;
+  border: 1px solid #00aee2;
+  border-radius: 6px;
+  color: #00d9ed;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
 }
 
-.actions .primary,
-.primary {
-  background: linear-gradient(115deg, #06c7f3, #078de4);
-  border-color: #139de5;
-}
-
-.actions .danger {
-  background: linear-gradient(110deg, #ec173d, #be0922);
-  border-color: #ee2944;
+.page-error {
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border: 1px solid #7c1122;
+  border-radius: 6px;
+  background: #1d0810;
+  color: #ff8497;
+  font-size: 13px;
 }
 
 .object-list {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
 }
 
-.object-panel {
-  background: linear-gradient(105deg, #0b1e2d, #0a1928);
-  border: 1px solid #162e43;
-  border-radius: 7px;
+.object-card {
+  background: #081420;
+  border: 1px solid #15304a;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.object-card.open {
+  border-color: #1d476a;
 }
 
 .object-row {
-  height: 68px;
   display: flex;
   align-items: center;
-  padding: 0 22px;
-  gap: 20px;
+  gap: 18px;
+  height: 52px;
+  padding: 0 14px;
 }
 
-.object-toggle {
-  border: 0;
-  background: transparent;
-  color: #ecf3ff;
+.expander {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 12px;
+  min-width: 280px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #e9f2ff;
+  font: inherit;
+  cursor: pointer;
   text-align: left;
-  min-width: 215px;
-  cursor: pointer;
 }
 
-.object-toggle svg {
-  width: 42px;
-  height: 42px;
-  color: #00dde1;
+.object-icon {
+  width: 20px;
+  height: 20px;
   fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
+  stroke: #00d9ed;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
 }
 
-.object-toggle b {
-  display: block;
-  font-size: 19px;
-}
-
-.object-toggle small {
-  display: block;
-  color: #b3c3dd;
-  font-size: 16px;
-  margin-top: 4px;
-}
-
-.object-row em {
-  font-style: normal;
-  color: #00dff1;
-  background: #063049;
-  border: 1px solid #084363;
-  border-radius: 7px;
-  padding: 7px 11px;
-}
-
-.sensor-actions {
-  display: flex;
-  gap: 11px;
-}
-
-.sensor-actions button {
-  height: 42px;
-  min-width: 156px;
-  color: #00d9ed;
+.object-name {
   font-size: 15px;
-  background: #062235;
-  border-color: #00aee2;
-}
-
-.sensor-actions button:disabled {
-  opacity: 0.35;
-}
-
-.chevron {
-  margin-left: auto;
-  background: transparent;
-  border: 0;
-  color: #a8c6f2;
-  font-size: 35px;
-  cursor: pointer;
-}
-
-.sensor-table {
-  margin: 17px 14px 8px;
-  border: 1px solid #173044;
-  border-radius: 7px;
-  overflow: hidden;
-}
-
-.sensor-head,
-.sensor-row {
-  display: grid;
-  grid-template-columns: 40px 20% 20% 18% 20% 1fr;
-  align-items: center;
-}
-
-.sensor-head {
-  height: 73px;
-  color: #b3c7e6;
-  font-size: 14px;
-  padding: 0 12px;
-  border-bottom: 1px solid #163044;
-}
-
-.sensor-row {
-  min-height: 45px;
-  border-bottom: 1px solid #163044;
-  padding: 0 12px;
-  font-size: 18px;
-}
-
-.sensor-row span {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.sensor-row svg {
-  width: 19px;
-  color: #00cef5;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-}
-
-.sensor-row code {
-  color: #8abbd7;
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sensor-row strong {
-  color: #00baf2;
   font-weight: 500;
 }
 
-.sensor-row time {
-  color: #a9c0de;
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid #234662;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: #9fb6d2;
+  white-space: nowrap;
 }
 
-.sensor-row-actions {
+.status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status.online {
+  color: #00e08a;
+  border-color: #0a6a48;
+}
+
+.status.partial {
+  color: #ffb547;
+  border-color: #6d4a11;
+}
+
+.status.offline {
+  color: #ff7380;
+  border-color: #6d2530;
+}
+
+.status.idle {
+  color: #7d93af;
+}
+
+.sensor-count {
+  font-size: 13px;
+  color: #8ea6c4;
+  white-space: nowrap;
+}
+
+.row-actions {
+  margin-left: auto;
   display: flex;
   gap: 6px;
-  justify-content: flex-end;
 }
 
-.alarm-btn {
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
   background: transparent;
-  border: 1px solid #06d8e4;
-  color: #06d8e4;
-  border-radius: 5px;
-  padding: 4px 10px;
-  font-size: 13px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #8ea6c4;
   cursor: pointer;
+  padding: 0;
+}
+
+.icon-btn svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-btn:hover {
+  border-color: #234662;
+  background: #0d2334;
+  color: #00dde1;
+}
+
+/* ---------- Sensor table ---------- */
+.sensor-panel {
+  border-top: 1px solid #12293e;
+  background: #061119;
+}
+
+.sensor-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.sensor-table th {
+  text-align: left;
+  padding: 9px 14px;
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #6f87a4;
+  border-bottom: 1px solid #12293e;
+  background: #050e17;
+}
+
+.sensor-table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid #0e2233;
+  color: #cddcef;
+  vertical-align: middle;
+}
+
+.sensor-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.sensor-table tbody tr:hover {
+  background: #091a27;
+}
+
+.sensor-table tr.dragging {
+  opacity: 0.4;
+}
+
+.sensor-table tr.drop-target td {
+  box-shadow: inset 0 2px 0 #00c8dd;
+}
+
+.col-drag {
+  width: 28px;
+}
+
+.drag-handle {
+  color: #3d5871;
+  cursor: grab;
+  font-size: 11px;
+  letter-spacing: -2px;
+  user-select: none;
+}
+
+.col-name {
+  width: 24%;
+}
+
+.col-name > * {
+  vertical-align: middle;
+}
+
+.col-name span {
+  margin: 0 8px 0 9px;
+  color: #e9f2ff;
+}
+
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.dot.online {
+  background: #00e08a;
+}
+
+.dot.offline {
+  background: #ff7380;
+}
+
+.col-topic {
+  width: 30%;
+}
+
+.col-topic code {
+  color: #82b6d6;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.col-value {
+  width: 12%;
   white-space: nowrap;
-  transition: background 0.15s;
 }
 
-.alarm-btn:hover {
-  background: rgba(6, 216, 228, 0.12);
+.col-value strong {
+  color: #00baf2;
+  font-weight: 600;
+  font-size: 14px;
 }
 
-.no-sensors {
-  padding: 18px;
+.calib {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: 11px;
+  color: #7d93af;
+}
+
+.col-time {
+  width: 20%;
+  color: #92a9c5;
+  white-space: nowrap;
+}
+
+.col-settings {
+  text-align: right;
+  width: 46px;
+}
+
+.no-sensors,
+.no-objects {
   text-align: center;
-  color: #9fb0c8;
+  padding: 20px;
+  color: #7d93af;
+  font-size: 13px;
 }
 
-.count {
-  color: #b3c3dd;
-  margin: 20px 14px;
+.panel-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 14px;
+  border-top: 1px solid #0e2233;
 }
 
+.muted {
+  font-size: 12px;
+  color: #6f87a4;
+}
+
+/* ---------- Add modal ---------- */
 .modal {
   position: fixed;
   inset: 0;
-  background: #000a;
+  background: rgba(2, 8, 15, 0.78);
   display: grid;
   place-items: center;
-  z-index: 5;
+  z-index: 20;
+  padding: 24px;
 }
 
 .modal form {
-  width: min(430px, calc(100vw - 32px));
-  padding: 25px;
-  background: #0a1827;
-  border: 1px solid #26516b;
-  border-radius: 9px;
+  width: min(440px, 100%);
+  padding: 22px;
+  background: #08151f;
+  border: 1px solid #1d3b53;
+  border-radius: 10px;
 }
 
 .modal h2 {
-  margin: 0 0 20px;
+  margin: 0 0 18px;
+  font-size: 17px;
+  font-weight: 600;
 }
 
 .modal label {
   display: grid;
   gap: 6px;
-  color: #b3c7e6;
-  margin: 12px 0;
+  color: #a9bdd8;
+  font-size: 13px;
+  margin-bottom: 14px;
 }
 
 .modal input,
 .modal textarea {
-  background: #07121f;
-  border: 1px solid #294b68;
-  border-radius: 5px;
-  color: white;
-  padding: 9px;
+  background: #050f1a;
+  border: 1px solid #234662;
+  border-radius: 6px;
+  color: #f1f6ff;
+  padding: 8px 10px;
   font: inherit;
+  font-size: 14px;
 }
 
 .modal textarea {
   min-height: 70px;
+  resize: vertical;
 }
 
 .modal .error {
-  color: #ff3151;
+  color: #ff8497;
+  font-size: 13px;
 }
 
 .modal footer {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 20px;
+  margin-top: 18px;
 }
 
 .modal footer button {
-  padding: 9px 17px;
-  color: white;
-  border: 1px solid #294b68;
-  border-radius: 5px;
-  background: #102133;
+  padding: 8px 18px;
+  border: 1px solid #234662;
+  border-radius: 6px;
+  background: #0b1e2d;
+  color: #e9f2ff;
+  font: inherit;
+  font-size: 14px;
   cursor: pointer;
 }
 
-.modal footer .primary {
-  border: 0;
-}
-
-@media (max-width: 850px) {
+/* Narrow screens: this is a desktop administration panel, so it degrades
+   to a horizontally scrollable table rather than restacking into cards. */
+@media (max-width: 900px) {
   .objects-page {
-    padding: 18px 14px;
-  }
-  .page-head {
-    align-items: flex-start;
-    gap: 16px;
-    flex-direction: column;
-  }
-  .actions {
-    gap: 8px;
-    width: 100%;
-    overflow: auto;
-  }
-  .actions button {
-    min-width: 155px;
-    height: 44px;
-    font-size: 14px;
+    padding: 16px 12px 28px;
   }
   .object-row {
-    padding: 0 10px;
     gap: 10px;
   }
-  .object-toggle {
+  .expander {
     min-width: 0;
-    gap: 10px;
   }
-  .object-toggle svg {
-    width: 30px;
-  }
-  .object-toggle b {
-    font-size: 16px;
-  }
-  .sensor-actions {
+  .sensor-count {
     display: none;
   }
-  .sensor-head,
-  .sensor-row {
-    grid-template-columns: 30px 22% 18% 14% 20% 1fr;
-    padding: 0 6px;
-    font-size: 12px;
-  }
-  .sensor-head {
-    padding: 0 6px;
-  }
-  .sensor-row span {
-    gap: 5px;
-  }
-  .sensor-row code {
-    font-size: 11px;
-  }
-  .sensor-row time {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .object-row em {
-    font-size: 12px;
+  .sensor-panel {
+    overflow-x: auto;
   }
   .sensor-table {
-    margin: 10px 4px;
-  }
-  .alarm-btn {
-    font-size: 11px;
-    padding: 2px 6px;
+    min-width: 780px;
   }
 }
 </style>

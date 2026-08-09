@@ -147,18 +147,31 @@ class NotificationEngine:
 # ---------------------------------------------------------------------------
 
 
+def _enum_value(value: Any) -> str:
+    """Return the plain string for a value that may be an enum or a str.
+
+    alarm_type and status are String columns, so SQLAlchemy hands them back
+    as plain `str` when an Alarm is loaded from the database, and as an
+    AlarmType/AlarmStatus only while the instance is still the one that was
+    just constructed in memory. Assuming `.value` therefore raised
+    AttributeError on every alarm read back from the database.
+    """
+    return value.value if hasattr(value, "value") else str(value)
+
+
 def _build_alarm_payload(alarm: Alarm) -> dict[str, Any]:
     """Build a notification payload from an alarm."""
+    alarm_type = _enum_value(alarm.alarm_type)
     return {
         "alarm_id": str(alarm.id),
-        "alarm_type": alarm.alarm_type.value,
-        "status": alarm.status.value,
+        "alarm_type": alarm_type,
+        "status": _enum_value(alarm.status),
         "trigger_value": alarm.trigger_value,
         "detected_at": alarm.detected_at.isoformat(),
         "triggered_at": alarm.triggered_at.isoformat() if alarm.triggered_at else None,
         "description": alarm.description,
         "object_id": str(alarm.object_id),
         "sensor_id": str(alarm.sensor_id) if alarm.sensor_id else None,
-        "subject": f"FrigoCore Alarm — {alarm.alarm_type.value.upper()}",
+        "subject": f"FrigoCore Alarm — {alarm_type.upper()}",
         "message": alarm.description,
     }

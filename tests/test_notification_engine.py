@@ -170,6 +170,59 @@ async def test_send_notification_multiple_endpoints() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Alarms loaded from the database
+#
+# alarm_type and status are String columns, so an Alarm read back from the
+# database carries plain `str` values, not AlarmType/AlarmStatus. Every test
+# above builds its Alarm in memory with enum members, which is why the
+# payload builder's `.value` access went unnoticed: it raised AttributeError
+# for every real alarm, and that exception propagated out of the alarm
+# engine's evaluation cycle before it could commit.
+# ---------------------------------------------------------------------------
+
+def _make_persisted_alarm() -> Alarm:
+    """An Alarm shaped the way SQLAlchemy returns one from the database."""
+    return Alarm(
+        id=uuid.uuid4(),
+        alarm_type="high_temperature",
+        status="triggered",
+        trigger_value=9.2,
+        detected_at=datetime.now(timezone.utc),
+        triggered_at=datetime.now(timezone.utc),
+        description="High temperature alarm — current: 9.2°C",
+        object_id=uuid.uuid4(),
+        sensor_id=uuid.uuid4(),
+    )
+
+
+def test_build_alarm_payload_from_database_string_values() -> None:
+    payload = _build_alarm_payload(_make_persisted_alarm())
+
+    assert payload["alarm_type"] == "high_temperature"
+    assert payload["status"] == "triggered"
+    assert payload["subject"] == "FrigoCore Alarm — HIGH_TEMPERATURE"
+
+
+@pytest.mark.asyncio
+async def test_send_notification_for_persisted_alarm_does_not_raise() -> None:
+    """Dispatch must survive an alarm that came from the database.
+
+    The payload is built once before the per-endpoint try/except, so a
+    failure here took down the whole alarm evaluation cycle.
+    """
+    endpoint = NotificationEndpoint(
+        id=uuid.uuid4(),
+        channel=NotificationChannel.TELEGRAM,
+        label="Manager",
+        config={"chat_id": "-1001234567890"},
+        is_enabled=True,
+        profile_id=uuid.uuid4(),
+    )
+
+    await NotificationEngine.send_alarm_notification(_make_persisted_alarm(), [endpoint])
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

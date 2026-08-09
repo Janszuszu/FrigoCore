@@ -129,43 +129,51 @@ def test_migrations_match_the_models(migrated_db) -> None:
         assert not missing, f"{table.name} is missing migrated column(s): {sorted(missing)}"
 
 
-def test_baseline_adopts_a_pre_alembic_database(tmp_path, monkeypatch) -> None:
+BASELINE_REVISION = "0f603005f247"
+
+
+def test_baseline_adopts_a_pre_alembic_database(tmp_path) -> None:
     """A database created by the old create_all path must upgrade cleanly.
 
-    Deployed installations predate Alembic and already hold the full schema
-    plus real data; the baseline revision has to adopt them instead of
-    trying to re-create their tables.
+    Deployed installations predate Alembic: they hold the pre-Alembic schema
+    plus real data and have no alembic_version table. The baseline revision
+    has to adopt them in place — not try to re-create their tables — and
+    later revisions must then apply on top without losing rows.
     """
-    import asyncio  # noqa: PLC0415
-
-    from sqlalchemy.ext.asyncio import create_async_engine  # noqa: PLC0415
-
-    from app.models.base import Base  # noqa: PLC0415
-
     db_path = tmp_path / "legacy.db"
+    cfg = _alembic_config(db_path)
 
-    async def _build_legacy() -> None:
-        engine = create_async_engine(f"sqlite+aiosqlite:///{db_path.as_posix()}")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        await engine.dispose()
-
-    asyncio.run(_build_legacy())
+    # Build the schema as it was before Alembic existed, then strip the
+    # version table so the database looks unmanaged, exactly like production.
+    command.upgrade(cfg, BASELINE_REVISION)
     conn = sqlite3.connect(db_path)
+    conn.execute("DROP TABLE alembic_version")
+    object_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO objects (id, name, description, is_active, created_at, updated_at)"
         " VALUES (?, 'Legacy', '', 1, '2026-01-01', '2026-01-01')",
-        (uuid.uuid4().hex,),
+        (object_id,),
+    )
+    conn.execute(
+        "INSERT INTO sensors (id, name, mqtt_topic, offline_timeout_seconds, is_active,"
+        " object_id, created_at, updated_at)"
+        " VALUES (?, 'Legacy sensor', 'frigo/legacy/a', 120, 1, ?, '2026-01-01', '2026-01-01')",
+        (uuid.uuid4().hex, object_id),
     )
     conn.commit()
     conn.close()
 
-    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path.as_posix()}")
-    command.upgrade(_alembic_config(db_path), "head")
+    command.upgrade(cfg, "head")
 
     assert "alembic_version" in _tables(db_path)
     conn = sqlite3.connect(db_path)
     try:
         assert conn.execute("SELECT count(*) FROM objects").fetchone()[0] == 1
+        # The new NOT NULL columns must have been backfilled on the existing
+        # row rather than failing the upgrade.
+        icon, order, offset = conn.execute(
+            "SELECT icon, display_order, calibration_offset FROM sensors"
+        ).fetchone()
+        assert (icon, order, offset) == ("thermometer", 0, 0.0)
     finally:
         conn.close()

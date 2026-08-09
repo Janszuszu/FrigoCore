@@ -203,7 +203,16 @@ class AlarmEngine:
                     alarm_type_str, sensor.name, alarm.trigger_value,
                 )
                 await ws_manager.broadcast("alarm.triggered", _alarm_payload(alarm))
-                await _send_triggered_notification(session, alarm)
+                # A failing notification must not take the evaluation cycle
+                # down with it: an exception here would skip auto-resolve and
+                # the commit, so the alarm state changes made above would be
+                # rolled back and re-attempted forever.
+                try:
+                    await _send_triggered_notification(session, alarm)
+                except Exception:
+                    logger.exception(
+                        "Failed to dispatch notification for alarm %s", alarm.id
+                    )
 
     # ------------------------------------------------------------------
     # Step 3 — Auto-resolve alarms

@@ -5,7 +5,8 @@ export interface ObjectItem {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  sensor_count?: number;
+  sensor_count: number;
+  online_sensor_count: number;
 }
 
 export interface SensorItem {
@@ -16,9 +17,61 @@ export interface SensorItem {
   last_message_at: string | null;
   offline_timeout_seconds: number;
   is_active: boolean;
+  icon: string;
+  display_order: number;
+  calibration_offset: number;
   object_id: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface UserItem {
+  id: string;
+  username: string;
+  email: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+  object_id: string | null;
+}
+
+export interface NotificationProfileItem {
+  id: string;
+  name: string;
+  object_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NotificationChannel =
+  | "telegram"
+  | "fcm"
+  | "email"
+  | "sms"
+  | "webhook";
+
+export interface NotificationEndpointItem {
+  id: string;
+  channel: NotificationChannel;
+  label: string;
+  config: Record<string, unknown>;
+  is_enabled: boolean;
+  profile_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationEndpointCreate {
+  channel: NotificationChannel;
+  label?: string;
+  config?: Record<string, unknown>;
+  is_enabled?: boolean;
+}
+
+export interface NotificationEndpointUpdate {
+  label?: string;
+  config?: Record<string, unknown>;
+  is_enabled?: boolean;
 }
 
 export interface MeasurementItem {
@@ -83,6 +136,8 @@ export interface SensorCreate {
   name: string;
   mqtt_topic: string;
   offline_timeout_seconds?: number;
+  icon?: string;
+  calibration_offset?: number;
 }
 
 export interface SensorUpdate {
@@ -90,6 +145,9 @@ export interface SensorUpdate {
   mqtt_topic?: string;
   offline_timeout_seconds?: number;
   is_active?: boolean;
+  icon?: string;
+  display_order?: number;
+  calibration_offset?: number;
 }
 
 export interface WsEvent {

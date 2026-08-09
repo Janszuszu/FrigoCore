@@ -31,6 +31,25 @@ class Sensor(Base, UUIDMixin, TimestampMixin):
         comment="MQTT topic exactly as entered by admin, e.g. 'frigo/intermarche/komora-a1'"
     )
 
+    # Presentation — chosen by the administrator, shared by every client
+    # viewing the object. `icon` is a stable identifier from the frontend's
+    # icon library, not a filename or markup.
+    icon: Mapped[str] = mapped_column(
+        String(32), default="thermometer", nullable=False,
+        comment="Sensor icon identifier, e.g. 'evaporator', 'condenser', 'fan'"
+    )
+    display_order: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False,
+        comment="Position on the client Dashboard within the object (ascending)"
+    )
+
+    # Calibration offset added to every incoming reading, in °C.
+    # Applied at ingest so history, thresholds and the dashboard all agree.
+    calibration_offset: Mapped[float] = mapped_column(
+        Float, default=0.0, nullable=False,
+        comment="Degrees added to each raw reading, e.g. -0.5"
+    )
+
     # Live telemetry (denormalized for fast reads)
     current_temperature: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     last_message_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

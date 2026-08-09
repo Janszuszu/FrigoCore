@@ -58,25 +58,28 @@ async def simulate_measurement(
         return {"error": f"Unknown sensor for MQTT topic: {mqtt_topic}"}
 
     now = datetime.now(timezone.utc)
+    # Same calibration the MQTT path applies — a simulated reading must not
+    # behave differently from a real one.
+    temperature = round(body.temperature + sensor.calibration_offset, 4)
     measurement = Measurement(
         sensor_id=sensor.id,
-        temperature=body.temperature,
+        temperature=temperature,
         received_at=now,
     )
     db.add(measurement)
-    sensor.current_temperature = body.temperature
+    sensor.current_temperature = temperature
     sensor.last_message_at = now
     db.add(sensor)
     await db.commit()
 
-    logger.info("SIM measurement — topic=%s temp=%.2f", mqtt_topic, body.temperature)
+    logger.info("SIM measurement — topic=%s temp=%.2f", mqtt_topic, temperature)
 
     await ws_manager.broadcast(
         "measurement.created",
         {
             "id": str(measurement.id),
             "sensor_id": str(sensor.id),
-            "temperature": body.temperature,
+            "temperature": temperature,
             "received_at": now.isoformat(),
         },
     )
@@ -85,11 +88,11 @@ async def simulate_measurement(
         {
             "id": str(sensor.id),
             "mqtt_topic": sensor.mqtt_topic,
-            "current_temperature": body.temperature,
+            "current_temperature": temperature,
             "last_message_at": now.isoformat(),
         },
     )
-    return {"status": "ok", "temperature": body.temperature, "at": now.isoformat()}
+    return {"status": "ok", "temperature": temperature, "at": now.isoformat()}
 
 
 @asynccontextmanager
@@ -147,6 +150,7 @@ from app.api.routes import (
     notifications_router,
     objects_router,
     sensors_router,
+    users_router,
 )
 from app.api.websocket import ws_router
 
@@ -165,6 +169,7 @@ async def health_check() -> dict:
 # ---------------------------------------------------------------------------
 
 app.include_router(objects_router, prefix="/api/v1/objects", tags=["Objects"])
+app.include_router(users_router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(sensors_router, prefix="/api/v1/objects", tags=["Sensors"])
 app.include_router(alarm_configs_router, prefix="/api/v1/sensors", tags=["Alarm Configs"])
 app.include_router(alarms_router, prefix="/api/v1/alarms", tags=["Alarms"])
