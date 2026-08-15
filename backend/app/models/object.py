@@ -27,7 +27,9 @@ class Object(Base, UUIDMixin, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
 
     # Relationships
-    users: Mapped[List["User"]] = relationship("User", back_populates="object")
+    users: Mapped[List["User"]] = relationship(
+        "User", secondary="user_objects", back_populates="objects"
+    )
     sensors: Mapped[List["Sensor"]] = relationship("Sensor", back_populates="object", cascade="all, delete-orphan")
     alarms: Mapped[List["Alarm"]] = relationship("Alarm", back_populates="object", cascade="all, delete-orphan")
     notification_profile: Mapped[Optional["NotificationProfile"]] = relationship(

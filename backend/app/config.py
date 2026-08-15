@@ -34,7 +34,10 @@ class Settings(BaseSettings):
 
     # Security
     SECRET_KEY: str = "change-this-to-a-random-secret-key"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # A single long-lived access token, no refresh-token flow — this is an
+    # internal ops dashboard for a handful of accounts, not a public
+    # multi-tenant SaaS, so re-logging in every 30 minutes would just be friction.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
 
     # CORS — comma-separated list of allowed browser origins.
     # In production the SPA is served from the same origin as the API

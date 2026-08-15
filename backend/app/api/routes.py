@@ -12,7 +12,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.api.deps import get_current_user, get_visible_object_ids, require_admin
+from app.core.security import create_access_token, hash_password, verify_password
 from app.database import get_db
 from app.enums import AlarmStatus, AlarmType, NotificationChannel, UserRole
 from app.models.alarm import Alarm
@@ -29,6 +32,8 @@ from app.schemas import (
     AlarmConfigResponse,
     AlarmConfigUpdate,
     AlarmResponse,
+    LoginRequest,
+    LoginResponse,
     MeasurementResponse,
     NotificationEndpointCreate,
     NotificationEndpointResponse,
@@ -44,13 +49,17 @@ from app.schemas import (
     SensorReorder,
     SensorResponse,
     SensorUpdate,
+    UserCreate,
+    UserPasswordSet,
     UserResponse,
+    UserUpdate,
 )
 
 # ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------
 
+auth_router = APIRouter()
 objects_router = APIRouter()
 users_router = APIRouter()
 sensors_router = APIRouter()
@@ -58,6 +67,46 @@ alarm_configs_router = APIRouter()
 alarms_router = APIRouter()
 measurements_router = APIRouter()
 notifications_router = APIRouter()
+
+
+def _check_object_visible(object_id: UUID, user: User) -> None:
+    """404 (not 403) if `object_id` is outside the caller's visible set —
+    a `user`-role account should not learn an object exists at all."""
+    visible = get_visible_object_ids(user)
+    if visible is not None and object_id not in visible:
+        raise HTTPException(status_code=404, detail="Object not found")
+
+
+def _user_response(user: User) -> UserResponse:
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        full_name=user.full_name,
+        role=user.role,
+        is_active=user.is_active,
+        object_ids=[obj.id for obj in user.objects],
+    )
+
+
+# ===================================================================
+# Auth
+# ===================================================================
+
+@auth_router.post("/login", response_model=LoginResponse)
+async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> LoginResponse:
+    user = await db.scalar(
+        select(User).where(User.username == body.username).options(selectinload(User.objects))
+    )
+    if user is None or not user.is_active or not verify_password(body.password, user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Nieprawidłowa nazwa użytkownika lub hasło")
+    token = create_access_token(user)
+    return LoginResponse(access_token=token, user=_user_response(user))
+
+
+@auth_router.get("/me", response_model=UserResponse)
+async def read_me(user: User = Depends(get_current_user)) -> UserResponse:
+    return _user_response(user)
 
 
 # ===================================================================
@@ -107,15 +156,21 @@ async def list_objects(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[ObjectResponse]:
-    result = await db.execute(
-        select(Object).offset(skip).limit(limit).order_by(Object.name)
-    )
+    stmt = select(Object)
+    visible = get_visible_object_ids(user)
+    if visible is not None:
+        stmt = stmt.where(Object.id.in_(visible))
+    stmt = stmt.offset(skip).limit(limit).order_by(Object.name)
+    result = await db.execute(stmt)
     return await _with_sensor_rollups(db, list(result.scalars().all()))
 
 
 @objects_router.post("", response_model=ObjectResponse, status_code=status.HTTP_201_CREATED)
-async def create_object(body: ObjectCreate, db: AsyncSession = Depends(get_db)) -> Object:
+async def create_object(
+    body: ObjectCreate, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> Object:
     obj = Object(**body.model_dump())
     db.add(obj)
     await db.commit()
@@ -124,7 +179,10 @@ async def create_object(body: ObjectCreate, db: AsyncSession = Depends(get_db)) 
 
 
 @objects_router.get("/{object_id}", response_model=ObjectResponse)
-async def get_object(object_id: UUID, db: AsyncSession = Depends(get_db)) -> ObjectResponse:
+async def get_object(
+    object_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> ObjectResponse:
+    _check_object_visible(object_id, user)
     obj = await db.get(Object, object_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="Object not found")
@@ -133,7 +191,7 @@ async def get_object(object_id: UUID, db: AsyncSession = Depends(get_db)) -> Obj
 
 @objects_router.patch("/{object_id}", response_model=ObjectResponse)
 async def update_object(
-    object_id: UUID, body: ObjectUpdate, db: AsyncSession = Depends(get_db)
+    object_id: UUID, body: ObjectUpdate, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> Object:
     obj = await db.get(Object, object_id)
     if obj is None:
@@ -146,7 +204,9 @@ async def update_object(
 
 
 @objects_router.delete("/{object_id}")
-async def delete_object(object_id: UUID, db: AsyncSession = Depends(get_db)) -> dict:
+async def delete_object(
+    object_id: UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
     obj = await db.get(Object, object_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="Object not found")
@@ -156,86 +216,171 @@ async def delete_object(object_id: UUID, db: AsyncSession = Depends(get_db)) -> 
 
 
 # ===================================================================
-# Object access (users assigned to an object)
-#
-# This reuses the existing User.object_id relationship rather than adding a
-# join table: the data model already says a Client belongs to exactly one
-# Object, and an Admin (object_id NULL) already sees everything.
+# Object access (users assigned to an object) — admin only, backed by the
+# user_objects join table.
 # ===================================================================
 
 @objects_router.get("/{object_id}/users", response_model=list[UserResponse])
 async def list_object_users(
-    object_id: UUID, db: AsyncSession = Depends(get_db)
-) -> list[User]:
+    object_id: UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> list[UserResponse]:
     obj = await db.get(Object, object_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="Object not found")
     result = await db.execute(
-        select(User).where(User.object_id == object_id).order_by(User.username)
+        select(User)
+        .join(User.objects)
+        .where(Object.id == object_id)
+        .options(selectinload(User.objects))
+        .order_by(User.username)
     )
-    return result.scalars().all()
+    return [_user_response(u) for u in result.scalars().all()]
 
 
 @objects_router.post("/{object_id}/users", response_model=UserResponse)
 async def assign_user_to_object(
-    object_id: UUID, body: ObjectUserAssign, db: AsyncSession = Depends(get_db)
-) -> User:
-    """Grant a user access to this object."""
+    object_id: UUID, body: ObjectUserAssign, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> UserResponse:
+    """Grant a `user`-role account access to this object."""
     obj = await db.get(Object, object_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="Object not found")
-    user = await db.get(User, body.user_id)
+    user = await db.get(User, body.user_id, options=[selectinload(User.objects)])
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    if user.role == UserRole.ADMIN:
-        # Admins already see every object; pinning one would narrow, not widen,
-        # their access and would misrepresent it in the access list.
+    if user.role != UserRole.USER:
+        # Admin and serwisant already see every object; pinning one would
+        # misrepresent their access in the assignment list.
         raise HTTPException(
             status_code=400,
-            detail="Administrators already have access to every object",
+            detail="Only 'użytkownik' accounts are assigned to individual objects",
         )
-    user.object_id = object_id
-    await db.commit()
-    await db.refresh(user)
-    return user
+    if obj not in user.objects:
+        user.objects.append(obj)
+        await db.commit()
+        await db.refresh(user, attribute_names=["objects"])
+    return _user_response(user)
 
 
 @objects_router.delete("/{object_id}/users/{user_id}", response_model=UserResponse)
 async def revoke_user_from_object(
-    object_id: UUID, user_id: UUID, db: AsyncSession = Depends(get_db)
-) -> User:
+    object_id: UUID, user_id: UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> UserResponse:
     """Revoke a user's access to this object."""
-    user = await db.get(User, user_id)
-    if user is None or user.object_id != object_id:
+    user = await db.get(User, user_id, options=[selectinload(User.objects)])
+    obj = await db.get(Object, object_id)
+    if user is None or obj is None or obj not in user.objects:
         raise HTTPException(status_code=404, detail="User is not assigned to this object")
-    user.object_id = None
+    user.objects.remove(obj)
     await db.commit()
-    await db.refresh(user)
-    return user
+    await db.refresh(user, attribute_names=["objects"])
+    return _user_response(user)
 
 
 # ===================================================================
-# Users (directory for object-access administration)
+# Users (account administration) — admin only
 # ===================================================================
 
 @users_router.get("", response_model=list[UserResponse])
 async def list_users(
-    unassigned_only: bool = Query(False, description="Only users with no object assigned"),
+    unassigned_only: bool = Query(False, description="Only 'użytkownik' accounts with no object assigned"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-) -> list[User]:
-    """List users so an administrator can pick one to assign to an object.
-
-    Read-only, and UserResponse carries no credential fields — this endpoint
-    exists to populate the access picker, not to manage accounts.
-    """
-    stmt = select(User)
+    _admin: User = Depends(require_admin),
+) -> list[UserResponse]:
+    stmt = select(User).options(selectinload(User.objects))
     if unassigned_only:
-        stmt = stmt.where(User.object_id.is_(None))
+        stmt = stmt.where(~User.objects.any())
     stmt = stmt.order_by(User.username).offset(skip).limit(limit)
     result = await db.execute(stmt)
-    return result.scalars().all()
+    return [_user_response(u) for u in result.scalars().all()]
+
+
+@users_router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    body: UserCreate, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> UserResponse:
+    existing = await db.scalar(
+        select(User).where((User.username == body.username) | (User.email == body.email))
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Nazwa użytkownika lub e-mail już istnieje")
+    object_ids = body.object_ids if body.role == UserRole.USER else []
+    objects: list[Object] = []
+    if object_ids:
+        result = await db.execute(select(Object).where(Object.id.in_(object_ids)))
+        objects = list(result.scalars().all())
+        if len(objects) != len(set(object_ids)):
+            raise HTTPException(status_code=404, detail="One or more objects not found")
+    user = User(
+        username=body.username,
+        email=body.email,
+        full_name=body.full_name,
+        hashed_password=hash_password(body.password),
+        role=body.role,
+        objects=objects,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user, attribute_names=["objects"])
+    return _user_response(user)
+
+
+@users_router.patch("/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: UUID, body: UserUpdate, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> UserResponse:
+    user = await db.get(User, user_id, options=[selectinload(User.objects)])
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    data = body.model_dump(exclude_unset=True)
+    object_ids = data.pop("object_ids", None)
+    for field, value in data.items():
+        setattr(user, field, value)
+    new_role = data.get("role", user.role)
+    if object_ids is not None:
+        if new_role != UserRole.USER and object_ids:
+            raise HTTPException(status_code=400, detail="Tylko konta z rolą 'użytkownik' mają przypisane obiekty")
+        result = await db.execute(select(Object).where(Object.id.in_(object_ids)))
+        objects = list(result.scalars().all())
+        if len(objects) != len(set(object_ids)):
+            raise HTTPException(status_code=404, detail="One or more objects not found")
+        user.objects = objects
+    elif new_role != UserRole.USER and user.objects:
+        # Role changed away from 'user' — an admin/serwisant seeing "everything"
+        # shouldn't still carry a stale per-object assignment list.
+        user.objects = []
+    await db.commit()
+    await db.refresh(user, attribute_names=["objects"])
+    return _user_response(user)
+
+
+@users_router.post("/{user_id}/password", response_model=UserResponse)
+async def set_user_password(
+    user_id: UUID, body: UserPasswordSet, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> UserResponse:
+    user = await db.get(User, user_id, options=[selectinload(User.objects)])
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.hashed_password = hash_password(body.password)
+    await db.commit()
+    await db.refresh(user, attribute_names=["objects"])
+    return _user_response(user)
+
+
+@users_router.delete("/{user_id}")
+async def delete_user(
+    user_id: UUID, db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)
+) -> dict:
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="Nie możesz usunąć własnego konta")
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.delete(user)
+    await db.commit()
+    return {"status": "deleted"}
 
 
 # ===================================================================
@@ -248,7 +393,9 @@ async def list_sensors(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[Sensor]:
+    _check_object_visible(object_id, user)
     obj = await db.get(Object, object_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="Object not found")
@@ -264,7 +411,7 @@ async def list_sensors(
 
 @sensors_router.post("/{object_id}/sensors", response_model=SensorResponse, status_code=status.HTTP_201_CREATED)
 async def create_sensor(
-    object_id: UUID, body: SensorCreate, db: AsyncSession = Depends(get_db)
+    object_id: UUID, body: SensorCreate, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> Sensor:
     obj = await db.get(Object, object_id)
     if obj is None:
@@ -287,7 +434,7 @@ async def create_sensor(
 
 @sensors_router.post("/{object_id}/sensors/reorder", response_model=list[SensorResponse])
 async def reorder_sensors(
-    object_id: UUID, body: SensorReorder, db: AsyncSession = Depends(get_db)
+    object_id: UUID, body: SensorReorder, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> list[Sensor]:
     """Persist the dashboard display order for an object's sensors.
 
@@ -332,8 +479,9 @@ async def reorder_sensors(
 
 @sensors_router.get("/{object_id}/sensors/{sensor_id}", response_model=SensorResponse)
 async def get_sensor(
-    object_id: UUID, sensor_id: UUID, db: AsyncSession = Depends(get_db)
+    object_id: UUID, sensor_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
 ) -> Sensor:
+    _check_object_visible(object_id, user)
     sensor = await db.get(Sensor, sensor_id)
     if sensor is None or sensor.object_id != object_id:
         raise HTTPException(status_code=404, detail="Sensor not found")
@@ -346,6 +494,7 @@ async def update_sensor(
     sensor_id: UUID,
     body: SensorUpdate,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ) -> Sensor:
     sensor = await db.get(Sensor, sensor_id)
     if sensor is None or sensor.object_id != object_id:
@@ -359,7 +508,7 @@ async def update_sensor(
 
 @sensors_router.delete("/{object_id}/sensors/{sensor_id}")
 async def delete_sensor(
-    object_id: UUID, sensor_id: UUID, db: AsyncSession = Depends(get_db)
+    object_id: UUID, sensor_id: UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> dict:
     sensor = await db.get(Sensor, sensor_id)
     if sensor is None or sensor.object_id != object_id:
@@ -370,12 +519,13 @@ async def delete_sensor(
 
 
 # ===================================================================
-# Alarm Configs (per sensor — legacy normalized)
+# Alarm Configs (per sensor — legacy normalized). Configuration is an
+# admin-only concern; serwisant/user accounts never edit or need to browse it.
 # ===================================================================
 
 @alarm_configs_router.get("/{sensor_id}/alarm-configs", response_model=list[AlarmConfigResponse])
 async def list_alarm_configs(
-    sensor_id: UUID, db: AsyncSession = Depends(get_db)
+    sensor_id: UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> list[AlarmConfig]:
     sensor = await db.get(Sensor, sensor_id)
     if sensor is None:
@@ -388,7 +538,7 @@ async def list_alarm_configs(
 
 @alarm_configs_router.post("/{sensor_id}/alarm-configs", response_model=AlarmConfigResponse, status_code=status.HTTP_201_CREATED)
 async def create_alarm_config(
-    sensor_id: UUID, body: AlarmConfigCreate, db: AsyncSession = Depends(get_db)
+    sensor_id: UUID, body: AlarmConfigCreate, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> AlarmConfig:
     sensor = await db.get(Sensor, sensor_id)
     if sensor is None:
@@ -415,6 +565,7 @@ async def update_alarm_config(
     config_id: UUID,
     body: AlarmConfigUpdate,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ) -> AlarmConfig:
     config = await db.get(AlarmConfig, config_id)
     if config is None or config.sensor_id != sensor_id:
@@ -428,7 +579,7 @@ async def update_alarm_config(
 
 @alarm_configs_router.delete("/{sensor_id}/alarm-configs/{config_id}")
 async def delete_alarm_config(
-    sensor_id: UUID, config_id: UUID, db: AsyncSession = Depends(get_db)
+    sensor_id: UUID, config_id: UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> dict:
     config = await db.get(AlarmConfig, config_id)
     if config is None or config.sensor_id != sensor_id:
@@ -449,10 +600,17 @@ async def list_alarms(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[Alarm]:
+    if object_id is not None:
+        _check_object_visible(object_id, user)
     stmt = select(Alarm)
     if object_id:
         stmt = stmt.where(Alarm.object_id == object_id)
+    else:
+        visible = get_visible_object_ids(user)
+        if visible is not None:
+            stmt = stmt.where(Alarm.object_id.in_(visible))
     if status_filter:
         stmt = stmt.where(Alarm.status == status_filter)
     stmt = stmt.order_by(Alarm.detected_at.desc()).offset(skip).limit(limit)
@@ -461,20 +619,27 @@ async def list_alarms(
 
 
 @alarms_router.get("/{alarm_id}", response_model=AlarmResponse)
-async def get_alarm(alarm_id: UUID, db: AsyncSession = Depends(get_db)) -> Alarm:
+async def get_alarm(
+    alarm_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> Alarm:
     alarm = await db.get(Alarm, alarm_id)
     if alarm is None:
         raise HTTPException(status_code=404, detail="Alarm not found")
+    _check_object_visible(alarm.object_id, user)
     return alarm
 
 
 @alarms_router.post("/{alarm_id}/acknowledge", response_model=AlarmResponse)
 async def acknowledge_alarm(
-    alarm_id: UUID, _body: AlarmAcknowledge = ..., db: AsyncSession = Depends(get_db)
+    alarm_id: UUID,
+    _body: AlarmAcknowledge = ...,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> Alarm:
     alarm = await db.get(Alarm, alarm_id)
     if alarm is None:
         raise HTTPException(status_code=404, detail="Alarm not found")
+    _check_object_visible(alarm.object_id, user)
     if alarm.status != AlarmStatus.TRIGGERED:
         raise HTTPException(status_code=400, detail="Only TRIGGERED alarms can be acknowledged")
     alarm.status = AlarmStatus.ACKNOWLEDGED
@@ -485,11 +650,14 @@ async def acknowledge_alarm(
 
 
 @alarms_router.post("/{alarm_id}/archive", response_model=AlarmResponse)
-async def archive_alarm(alarm_id: UUID, db: AsyncSession = Depends(get_db)) -> Alarm:
+async def archive_alarm(
+    alarm_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> Alarm:
     """Hide a completed alarm without deleting its record or chart evidence."""
     alarm = await db.get(Alarm, alarm_id)
     if alarm is None:
         raise HTTPException(status_code=404, detail="Alarm not found")
+    _check_object_visible(alarm.object_id, user)
     if alarm.status not in (AlarmStatus.ACKNOWLEDGED, AlarmStatus.RESOLVED):
         raise HTTPException(status_code=400, detail="Only completed alarms can be archived")
     alarm.status = AlarmStatus.ARCHIVED
@@ -502,16 +670,23 @@ async def archive_alarm(alarm_id: UUID, db: AsyncSession = Depends(get_db)) -> A
 # Measurements
 # ===================================================================
 
+async def _visible_sensor_or_404(db: AsyncSession, sensor_id: UUID, user: User) -> Sensor:
+    sensor = await db.get(Sensor, sensor_id)
+    if sensor is None:
+        raise HTTPException(status_code=404, detail="Sensor not found")
+    _check_object_visible(sensor.object_id, user)
+    return sensor
+
+
 @measurements_router.get("/{sensor_id}/measurements", response_model=list[MeasurementResponse])
 async def list_measurements(
     sensor_id: UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[Measurement]:
-    sensor = await db.get(Sensor, sensor_id)
-    if sensor is None:
-        raise HTTPException(status_code=404, detail="Sensor not found")
+    await _visible_sensor_or_404(db, sensor_id, user)
     result = await db.execute(
         select(Measurement)
         .where(Measurement.sensor_id == sensor_id)
@@ -523,11 +698,9 @@ async def list_measurements(
 
 
 # Hard ceiling on rows pulled from the DB for a single aggregation request,
-# regardless of the requested time window. The API has no auth/firewall in
-# front of it, so this is what stands between a `since` far in the past and
-# an unbounded table scan — chosen generously above any realistic reporting
-# rate over the widest supported range (7D) so real charts never get
-# truncated by it.
+# regardless of the requested time window. Chosen generously above any
+# realistic reporting rate over the widest supported range (7D) so real
+# charts never get truncated by it.
 MAX_AGGREGATION_ROWS = 100_000
 
 
@@ -565,6 +738,7 @@ async def list_measurements_aggregated(
     until: datetime | None = Query(None),
     target_points: int = Query(80, ge=10, le=200),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[Measurement]:
     """Chart data endpoint. Aggregates readings in [since, until] down to
     ~target_points columns instead of returning a fixed number of raw
@@ -572,9 +746,7 @@ async def list_measurements_aggregated(
     chart width, so a phone and a desktop chart get comparable column
     density instead of one being sparse or the other overcrowded.
     """
-    sensor = await db.get(Sensor, sensor_id)
-    if sensor is None:
-        raise HTTPException(status_code=404, detail="Sensor not found")
+    await _visible_sensor_or_404(db, sensor_id, user)
     until_dt = until or datetime.now(timezone.utc)
     result = await db.execute(
         select(Measurement)
@@ -599,12 +771,12 @@ async def list_measurements_aggregated(
 
 
 # ===================================================================
-# Notification Profiles
+# Notification Profiles + Endpoints — admin only (configuration surface)
 # ===================================================================
 
 @notifications_router.get("/{object_id}/notification-profile", response_model=NotificationProfileResponse)
 async def get_notification_profile(
-    object_id: UUID, db: AsyncSession = Depends(get_db)
+    object_id: UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> NotificationProfile:
     profile = await db.scalar(
         select(NotificationProfile).where(NotificationProfile.object_id == object_id)
@@ -616,7 +788,7 @@ async def get_notification_profile(
 
 @notifications_router.post("/{object_id}/notification-profile", response_model=NotificationProfileResponse, status_code=status.HTTP_201_CREATED)
 async def create_notification_profile(
-    object_id: UUID, body: NotificationProfileCreate, db: AsyncSession = Depends(get_db)
+    object_id: UUID, body: NotificationProfileCreate, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> NotificationProfile:
     existing = await db.scalar(
         select(NotificationProfile).where(NotificationProfile.object_id == object_id)
@@ -632,7 +804,7 @@ async def create_notification_profile(
 
 @notifications_router.patch("/{object_id}/notification-profile", response_model=NotificationProfileResponse)
 async def update_notification_profile(
-    object_id: UUID, body: NotificationProfileUpdate, db: AsyncSession = Depends(get_db)
+    object_id: UUID, body: NotificationProfileUpdate, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> NotificationProfile:
     profile = await db.scalar(
         select(NotificationProfile).where(NotificationProfile.object_id == object_id)
@@ -646,13 +818,9 @@ async def update_notification_profile(
     return profile
 
 
-# ===================================================================
-# Notification Endpoints (belong to a profile)
-# ===================================================================
-
 @notifications_router.get("/{object_id}/notification-endpoints", response_model=list[NotificationEndpointResponse])
 async def list_notification_endpoints(
-    object_id: UUID, db: AsyncSession = Depends(get_db)
+    object_id: UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> list[NotificationEndpoint]:
     profile = await db.scalar(
         select(NotificationProfile).where(NotificationProfile.object_id == object_id)
@@ -672,6 +840,7 @@ async def create_notification_endpoint(
     object_id: UUID,
     body: NotificationEndpointCreate,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ) -> NotificationEndpoint:
     profile = await db.scalar(
         select(NotificationProfile).where(NotificationProfile.object_id == object_id)
@@ -694,6 +863,7 @@ async def update_notification_endpoint(
     endpoint_id: UUID,
     body: NotificationEndpointUpdate,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ) -> NotificationEndpoint:
     endpoint = await db.get(NotificationEndpoint, endpoint_id)
     if endpoint is None:
@@ -713,7 +883,7 @@ async def update_notification_endpoint(
 
 @notifications_router.delete("/{object_id}/notification-endpoints/{endpoint_id}")
 async def delete_notification_endpoint(
-    object_id: UUID, endpoint_id: UUID, db: AsyncSession = Depends(get_db)
+    object_id: UUID, endpoint_id: UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> dict:
     endpoint = await db.get(NotificationEndpoint, endpoint_id)
     if endpoint is None:

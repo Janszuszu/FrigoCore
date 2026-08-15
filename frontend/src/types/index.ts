@@ -25,14 +25,39 @@ export interface SensorItem {
   updated_at: string;
 }
 
+export type UserRole = "admin" | "serwisant" | "user";
+
 export interface UserItem {
   id: string;
   username: string;
   email: string;
   full_name: string;
-  role: string;
+  role: UserRole;
   is_active: boolean;
-  object_id: string | null;
+  object_ids: string[];
+}
+
+export interface UserCreate {
+  username: string;
+  email: string;
+  full_name?: string;
+  password: string;
+  role: UserRole;
+  object_ids?: string[];
+}
+
+export interface UserUpdate {
+  email?: string;
+  full_name?: string;
+  role?: UserRole;
+  is_active?: boolean;
+  object_ids?: string[];
+}
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  user: UserItem;
 }
 
 export interface NotificationProfileItem {

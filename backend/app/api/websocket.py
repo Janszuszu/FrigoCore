@@ -19,6 +19,8 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.core.security import decode_access_token
+
 logger = logging.getLogger(__name__)
 
 ws_router = APIRouter()
@@ -65,8 +67,16 @@ manager = ConnectionManager()
 
 
 @ws_router.websocket("/events")
-async def websocket_events(websocket: WebSocket) -> None:
-    """WebSocket endpoint — clients connect here to receive live events."""
+async def websocket_events(websocket: WebSocket, token: str | None = None) -> None:
+    """WebSocket endpoint — clients connect here to receive live events.
+
+    No per-object filtering of broadcasts: every authenticated client
+    receives every event, and the frontend's now access-scoped REST calls
+    are what keep a 'użytkownik' account from seeing another object's data.
+    """
+    if token is None or decode_access_token(token) is None:
+        await websocket.close(code=1008)
+        return
     await manager.connect(websocket)
     try:
         while True:

@@ -146,6 +146,7 @@ app.add_middleware(
 from app.api.routes import (
     alarm_configs_router,
     alarms_router,
+    auth_router,
     measurements_router,
     notifications_router,
     objects_router,
@@ -168,6 +169,7 @@ async def health_check() -> dict:
 # REST API routers
 # ---------------------------------------------------------------------------
 
+app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(objects_router, prefix="/api/v1/objects", tags=["Objects"])
 app.include_router(users_router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(sensors_router, prefix="/api/v1/objects", tags=["Sensors"])

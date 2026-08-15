@@ -189,15 +189,14 @@ class NotificationProfileResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# User (object access assignment only)
+# User (accounts + auth)
 # ---------------------------------------------------------------------------
 
-class UserResponse(BaseModel):
-    """The subset of a user that object-access administration needs.
+ROLE_PATTERN = r"^(admin|serwisant|user)$"
 
-    hashed_password is deliberately absent, and there is no user-creation or
-    password schema here — this API only assigns existing users to objects.
-    """
+
+class UserResponse(BaseModel):
+    """hashed_password is deliberately absent from every response."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -207,11 +206,43 @@ class UserResponse(BaseModel):
     full_name: str
     role: str
     is_active: bool
-    object_id: UUID | None
+    object_ids: list[UUID] = Field(default_factory=list)
+
+
+class UserCreate(BaseModel):
+    username: str = Field(..., min_length=1, max_length=128)
+    email: str = Field(..., min_length=1, max_length=320)
+    full_name: str = Field("", max_length=256)
+    password: str = Field(..., min_length=8, max_length=256)
+    role: str = Field(..., pattern=ROLE_PATTERN)
+    object_ids: list[UUID] = Field(default_factory=list)
+
+
+class UserUpdate(BaseModel):
+    email: str | None = Field(None, min_length=1, max_length=320)
+    full_name: str | None = Field(None, max_length=256)
+    role: str | None = Field(None, pattern=ROLE_PATTERN)
+    is_active: bool | None = None
+    object_ids: list[UUID] | None = None
+
+
+class UserPasswordSet(BaseModel):
+    password: str = Field(..., min_length=8, max_length=256)
 
 
 class ObjectUserAssign(BaseModel):
     user_id: UUID
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
 
 
 # ---------------------------------------------------------------------------

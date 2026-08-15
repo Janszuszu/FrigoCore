@@ -1,9 +1,13 @@
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onUnmounted, watch } from "vue";
 import { useAlarmsStore } from "@/stores/alarms";
+import { useAuthStore } from "@/stores/auth";
 import { useSensorsStore } from "@/stores/sensors";
 import type { AlarmItem, MeasurementItem, WsEvent } from "@/types";
 
-const WS_URL = `ws://${window.location.hostname}:8000/ws/events`;
+function wsUrl(token: string): string {
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}/ws/events?token=${encodeURIComponent(token)}`;
+}
 
 let wsInstance: WebSocket | null = null;
 const connected = ref(false);
@@ -45,15 +49,18 @@ export function onWsEvent(event: string, fn: (data: unknown) => void) {
 }
 
 export function useWebSocket() {
+  const authStore = useAuthStore();
+
   function connect() {
     if (wsInstance && wsInstance.readyState === WebSocket.OPEN) return;
-    wsInstance = new WebSocket(WS_URL);
+    if (!authStore.token) return;
+    wsInstance = new WebSocket(wsUrl(authStore.token));
     wsInstance.onopen = () => {
       connected.value = true;
     };
     wsInstance.onclose = () => {
       connected.value = false;
-      setTimeout(connect, 3000);
+      if (authStore.token) setTimeout(connect, 3000);
     };
     wsInstance.onmessage = (msg) => {
       try {
@@ -66,10 +73,27 @@ export function useWebSocket() {
     wsInstance.onerror = () => {};
   }
 
-  onMounted(connect);
-  onUnmounted(() => {
+  function disconnect() {
     wsInstance?.close();
     wsInstance = null;
+    connected.value = false;
+  }
+
+  // Reacts to login/logout, not just the initial token restored from
+  // localStorage — otherwise a fresh login (no reload) would never open a
+  // socket, since onMounted only fires once, before the token exists.
+  const stopWatch = watch(
+    () => authStore.token,
+    (token) => {
+      if (token) connect();
+      else disconnect();
+    },
+    { immediate: true },
+  );
+
+  onUnmounted(() => {
+    stopWatch();
+    disconnect();
   });
 
   return { connected };

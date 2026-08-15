@@ -3,8 +3,8 @@
  * Object administration — general details, who has access to the object,
  * its notification profile and channels, and deletion.
  *
- * Access assignment uses the existing User.object_id relationship: a client
- * belongs to one object, an administrator sees all of them.
+ * Access assignment uses the user_objects join table: a 'użytkownik' account
+ * can be assigned to several objects; admin/serwisant see all of them by role.
  */
 import { computed, onMounted, ref } from "vue";
 import { apiNotifications, apiObjectUsers, apiUsers } from "@/api";
@@ -69,8 +69,9 @@ async function loadUsers() {
       apiUsers.list(true),
     ]);
     assigned.value = objectUsers;
-    // Administrators already see every object, so they are not offered here.
-    available.value = unassigned.filter((u) => u.role !== "admin");
+    // Only 'użytkownik' accounts are assigned per-object — admin and
+    // serwisant already see every object, so they are not offered here.
+    available.value = unassigned.filter((u) => u.role === "user");
     pickedUser.value = "";
   } catch (e) {
     usersError.value = e instanceof Error ? e.message : "Nie udało się pobrać użytkowników";

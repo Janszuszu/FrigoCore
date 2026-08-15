@@ -3,6 +3,7 @@ import type {
   AlarmConfigItem,
   AlarmConfigUpdate,
   AlarmItem,
+  LoginResponse,
   NotificationEndpointCreate,
   NotificationEndpointItem,
   NotificationEndpointUpdate,
@@ -14,16 +15,37 @@ import type {
   SensorItem,
   SensorUpdate,
   MeasurementItem,
+  UserCreate,
   UserItem,
+  UserUpdate,
 } from "@/types";
 
 const BASE = "/api/v1";
 
+// Set by the auth store on login/logout/restore — kept out of Pinia here so
+// this module has no store import cycle, and every request (even ones
+// fired before Pinia is ready) can still attach the current token.
+let authToken: string | null = null;
+let onUnauthorized: (() => void) | null = null;
+
+export function setAuthToken(token: string | null) {
+  authToken = token;
+}
+
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
   const res = await fetch(`${BASE}${url}`, {
-    headers: { "Content-Type": "application/json" },
+    headers,
     ...options,
   });
+  if (res.status === 401) {
+    onUnauthorized?.();
+  }
   if (!res.ok) {
     const err = await res.text();
     throw new Error(err || `${res.status} ${res.statusText}`);
@@ -31,6 +53,17 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   if (res.status === 204) return undefined as T;
   return res.json();
 }
+
+// ─── Auth ──────────────────────────────────────────────────────────
+
+export const apiAuth = {
+  login: (username: string, password: string) =>
+    request<LoginResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+  me: () => request<UserItem>("/auth/me"),
+};
 
 // ─── Objects ───────────────────────────────────────────────────────
 
@@ -101,6 +134,16 @@ export const apiUsers = {
     request<UserItem[]>(
       `/users${unassignedOnly ? "?unassigned_only=true" : ""}`
     ),
+  create: (data: UserCreate) =>
+    request<UserItem>("/users", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: UserUpdate) =>
+    request<UserItem>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  setPassword: (id: string, password: string) =>
+    request<UserItem>(`/users/${id}/password`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
+  delete: (id: string) => request<void>(`/users/${id}`, { method: "DELETE" }),
 };
 
 // ─── Notifications (profile + endpoints belong to an object) ───────

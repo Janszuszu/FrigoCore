@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from "vue";
+import { computed, ref, onMounted, onUnmounted, watch } from "vue";
 import { useWebSocket } from "./composables/useWebSocket";
 import { useAlarmsStore } from "./stores/alarms";
+import { useAuthStore } from "./stores/auth";
 import DashboardView from "./views/DashboardView.vue";
 import ObjectsView from "./views/ObjectsView.vue";
 import AlarmsView from "./views/AlarmsView.vue";
+import SettingsView from "./views/SettingsView.vue";
+import LoginView from "./views/LoginView.vue";
 
+const authStore = useAuthStore();
 const { connected } = useWebSocket();
 const alarmsStore = useAlarmsStore();
-const activeTab = ref<"dashboard" | "objects" | "alarms">("dashboard");
+const activeTab = ref<"dashboard" | "objects" | "alarms" | "settings">("dashboard");
 const menuOpen = ref(false);
 const now = ref(new Date());
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -17,11 +21,23 @@ const date = computed(() => now.value.toLocaleDateString("pl-PL"));
 const hasActiveAlarm = computed(() => alarmsStore.triggeredCount > 0 || alarmsStore.pendingCount > 0);
 
 onMounted(() => {
-  void alarmsStore.fetchAlarms();
+  void authStore.fetchMe();
   timer = setInterval(() => {
     now.value = new Date();
   }, 1000);
 });
+
+// The dashboard/alarms data (and the websocket connection above) must only
+// be requested once we know a session actually exists — firing it eagerly
+// on mount would race the token restore and, for a logged-out visitor,
+// call an API that now correctly rejects it with 401.
+watch(
+  () => authStore.token,
+  (token) => {
+    if (token) void alarmsStore.fetchAlarms();
+  },
+  { immediate: true },
+);
 
 onUnmounted(() => {
   if (timer !== null) {
@@ -29,10 +45,17 @@ onUnmounted(() => {
     timer = null;
   }
 });
+
+function logout() {
+  authStore.logout();
+  activeTab.value = "dashboard";
+  menuOpen.value = false;
+}
 </script>
 
 <template>
-  <div class="app-shell">
+  <LoginView v-if="!authStore.token" />
+  <div v-else class="app-shell">
     <header class="app-header">
       <button class="menu-button" aria-label="Menu" @click="menuOpen = true"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" /></svg></button>
       <div class="brand"><svg viewBox="0 0 24 24"><path d="m12 2 8 4.5v11L12 22l-8-4.5v-11L12 2Z"/><path d="m4 6.5 8 4.5 8-4.5M12 11v11" /></svg><span>FRIGO CORE</span></div>
@@ -45,19 +68,22 @@ onUnmounted(() => {
     <aside :class="['side-drawer', { open: menuOpen }]" aria-label="Nawigacja">
       <div class="drawer-brand"><svg viewBox="0 0 24 24"><path d="m12 2 8 4.5v11L12 22l-8-4.5v-11L12 2Z"/><path d="m4 6.5 8 4.5 8-4.5M12 11v11" /></svg><span>FRIGO CORE</span></div>
       <button :class="{ active: activeTab === 'dashboard' }" @click="activeTab = 'dashboard'; menuOpen = false"><svg viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10H3z"/></svg>Pulpit</button>
-      <button :class="{ active: activeTab === 'objects' }" @click="activeTab = 'objects'; menuOpen = false"><svg viewBox="0 0 24 24"><path d="M4 21V4h16v17M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2"/></svg>Obiekty</button>
+      <button v-if="authStore.isAdmin" :class="{ active: activeTab === 'objects' }" @click="activeTab = 'objects'; menuOpen = false"><svg viewBox="0 0 24 24"><path d="M4 21V4h16v17M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2"/></svg>Obiekty</button>
       <button :class="{ active: activeTab === 'alarms' }" @click="activeTab = 'alarms'; menuOpen = false"><svg viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5m0 3h.01"/></svg>Alarmy</button>
+      <button v-if="authStore.isAdmin" :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'; menuOpen = false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56v.1h-3v-.1A1.7 1.7 0 0 0 10.7 18.64a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 15a1.7 1.7 0 0 0-1.56-1.03h-.1v-3h.1A1.7 1.7 0 0 0 7.06 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 11.73 4.75v-.1h3v.1A1.7 1.7 0 0 0 15.76 6.3a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.1v3h-.1A1.7 1.7 0 0 0 19.4 15Z"/></svg>Ustawienia</button>
+      <button class="logout-btn" @click="logout"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>Wyloguj ({{ authStore.user?.username }})</button>
     </aside>
     <main class="app-content">
       <DashboardView v-if="activeTab === 'dashboard'" :time="time" :date="date" />
-      <ObjectsView v-else-if="activeTab === 'objects'" />
+      <ObjectsView v-else-if="activeTab === 'objects' && authStore.isAdmin" />
+      <SettingsView v-else-if="activeTab === 'settings' && authStore.isAdmin" />
       <AlarmsView v-else />
     </main>
     <nav class="bottom-nav">
       <button :class="{ active: activeTab === 'dashboard' }" @click="activeTab = 'dashboard'"><svg viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10H3z"/></svg><span>PULPIT</span></button>
-      <button :class="{ active: activeTab === 'objects' }" @click="activeTab = 'objects'"><svg viewBox="0 0 24 24"><path d="M4 21V4h16v17M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2"/></svg><span>OBIEKTY</span></button>
+      <button v-if="authStore.isAdmin" :class="{ active: activeTab === 'objects' }" @click="activeTab = 'objects'"><svg viewBox="0 0 24 24"><path d="M4 21V4h16v17M8 8h2m4 0h2M8 12h2m4 0h2M8 16h2m4 0h2"/></svg><span>OBIEKTY</span></button>
       <button :class="{ active: activeTab === 'alarms' }" @click="activeTab = 'alarms'"><svg viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5m0 3h.01"/></svg><span>ALARMY</span></button>
-      <button><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56v.1h-3v-.1A1.7 1.7 0 0 0 10.7 18.64a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 15a1.7 1.7 0 0 0-1.56-1.03h-.1v-3h.1A1.7 1.7 0 0 0 7.06 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 11.73 4.75v-.1h3v.1A1.7 1.7 0 0 0 15.76 6.3a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.1v3h-.1A1.7 1.7 0 0 0 19.4 15Z"/></svg><span>USTAWIENIA</span></button>
+      <button v-if="authStore.isAdmin" :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56v.1h-3v-.1A1.7 1.7 0 0 0 10.7 18.64a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 15a1.7 1.7 0 0 0-1.56-1.03h-.1v-3h.1A1.7 1.7 0 0 0 7.06 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 11.73 4.75v-.1h3v.1A1.7 1.7 0 0 0 15.76 6.3a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.1v3h-.1A1.7 1.7 0 0 0 19.4 15Z"/></svg><span>USTAWIENIA</span></button>
     </nav>
   </div>
 </template>
@@ -71,7 +97,7 @@ svg { fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; st
 .header-meta { margin-left:auto; display:flex; align-items:center; gap:22px; color:#d8dfec; font-size:15px; white-space:nowrap; }.live-chip{box-sizing:border-box;width:112px;height:35px;padding:0 13px;border:1px solid #007b42;color:#00f08a;background:transparent;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;}.live-chip:hover{background:rgba(0,240,138,.08)}.live-chip i{width:8px;height:8px;border-radius:50%;background:#00e77b}.live-chip.offline{color:#ff7380;border-color:#962a38}.live-chip.offline i{background:#ee3d52}
 .alarm-button{box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;color:#9e505b;background:rgba(116,28,39,.08);border:1px solid #5d2c35;border-radius:6px;width:112px;height:35px;padding:0;cursor:pointer;font-size:14px;font-weight:600;transition:color .18s,background .18s,border-color .18s}.alarm-dot{width:8px;height:8px;border-radius:50%;background:#a4424f;box-shadow:0 0 5px rgba(164,66,79,.35)}.alarm-button:hover{border-color:#9f4a57;background:rgba(142,38,51,.16)}.alarm-button.active{color:#fff0f1;border-color:#ff3145;background:#b3081c;animation:alarm-siren .8s steps(2,end) infinite}.alarm-button.active .alarm-dot{background:#fff;box-shadow:0 0 11px 4px rgba(255,255,255,.9);animation:alarm-beacon .8s steps(2,end) infinite}@keyframes alarm-siren{0%,100%{background:#b3081c;border-color:#ff5362;box-shadow:0 0 7px rgba(255,27,47,.65)}50%{background:#56000a;border-color:#a90013;box-shadow:none}}@keyframes alarm-beacon{0%,100%{opacity:1}50%{opacity:.28}}
 .app-content{flex:1;min-height:0;overflow:auto}.bottom-nav{height:89px;display:flex;justify-content:space-around;align-items:center;background:linear-gradient(90deg,#061321,#091829);border-top:1px solid #102235;flex:none}.bottom-nav button{background:none;border:0;color:#8ea1be;min-width:135px;display:flex;flex-direction:column;align-items:center;gap:7px;font-size:12px;cursor:pointer}.bottom-nav svg{width:24px;height:24px}.bottom-nav .active{color:#08e4e9}
-.drawer-backdrop{position:fixed;inset:0;background:#0008;z-index:9}.side-drawer{position:fixed;z-index:10;top:0;bottom:0;left:0;width:286px;transform:translateX(-100%);transition:transform .22s ease;background:#081421;border-right:1px solid #203b51;box-shadow:8px 0 28px #0008;padding:18px 10px}.side-drawer.open{transform:translateX(0)}.drawer-brand{height:55px;display:flex;align-items:center;gap:13px;padding:0 14px;margin-bottom:12px;color:#10e0e5;font-size:18px;font-weight:600;letter-spacing:.8px;border-bottom:1px solid #1a3042}.drawer-brand svg{width:27px;height:27px}.side-drawer button{width:100%;height:49px;display:flex;align-items:center;gap:20px;padding:0 16px;background:transparent;color:#c4d1e4;border:0;border-radius:0 24px 24px 0;font-size:16px;text-align:left;cursor:pointer}.side-drawer button:hover{background:#10283a}.side-drawer button.active{background:#083a48;color:#08e3e9}.side-drawer button svg{width:22px;height:22px}
+.drawer-backdrop{position:fixed;inset:0;background:#0008;z-index:9}.side-drawer{position:fixed;z-index:10;top:0;bottom:0;left:0;width:286px;transform:translateX(-100%);transition:transform .22s ease;background:#081421;border-right:1px solid #203b51;box-shadow:8px 0 28px #0008;padding:18px 10px}.side-drawer.open{transform:translateX(0)}.drawer-brand{height:55px;display:flex;align-items:center;gap:13px;padding:0 14px;margin-bottom:12px;color:#10e0e5;font-size:18px;font-weight:600;letter-spacing:.8px;border-bottom:1px solid #1a3042}.drawer-brand svg{width:27px;height:27px}.side-drawer button{width:100%;height:49px;display:flex;align-items:center;gap:20px;padding:0 16px;background:transparent;color:#c4d1e4;border:0;border-radius:0 24px 24px 0;font-size:16px;text-align:left;cursor:pointer}.side-drawer button:hover{background:#10283a}.side-drawer button.active{background:#083a48;color:#08e3e9}.side-drawer button svg{width:22px;height:22px}.side-drawer .logout-btn{margin-top:12px;padding-top:16px;border-top:1px solid #1a3042;color:#e0788a;font-size:14px}.side-drawer .logout-btn:hover{background:#2a121a;color:#ff8497}
 
 /* ---------- Mobile header ----------
    Not a shrunken desktop header — a few px taller, and every element that

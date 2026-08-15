@@ -6,8 +6,9 @@ from enum import Enum
 class UserRole(str, Enum):
     """System user role."""
 
-    ADMIN = "admin"  # Full access: objects, sensors, alarms, MQTT, notifications, users, integrations
-    CLIENT = "client"  # Dashboard + Alarms only, assigned to exactly one Object
+    ADMIN = "admin"  # Full access: objects, sensors, alarms, MQTT, notifications, users, integrations — can edit
+    SERWISANT = "serwisant"  # Read access to every object's dashboard + alarms, can acknowledge alarms, no editing
+    USER = "user"  # Read access to only the objects assigned to them (dashboard + alarms), no editing
 
 
 class AlarmType(str, Enum):
