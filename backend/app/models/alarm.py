@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, String, Text, inspect
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.enums import AlarmStatus, AlarmType
@@ -63,7 +63,9 @@ class Alarm(Base, UUIDMixin, TimestampMixin):
     )
 
     # Relationships
-    object: Mapped["Object"] = relationship("Object", back_populates="alarms")
+    # selectin (not the default lazy-select) so AlarmResponse.object_name can
+    # read alarm.object.name in an async context without a MissingGreenlet.
+    object: Mapped["Object"] = relationship("Object", back_populates="alarms", lazy="selectin")
     sensor: Mapped[Optional["Sensor"]] = relationship("Sensor")
     assignments: Mapped[List["AlarmAssignment"]] = relationship(
         "AlarmAssignment", back_populates="alarm", cascade="all, delete-orphan",
@@ -73,6 +75,21 @@ class Alarm(Base, UUIDMixin, TimestampMixin):
         "AlarmEvent", back_populates="alarm", cascade="all, delete-orphan",
         order_by="AlarmEvent.created_at",
     )
+
+    @property
+    def object_name(self) -> str:
+        """The owning Object's display name, for clients that only have the
+        alarm (e.g. AlarmResponse) and need it without a second fetch.
+
+        Reads only what's already loaded — a sync caller (e.g. the WS
+        broadcast payload built outside the request's async greenlet) must
+        not trigger a lazy load here, or SQLAlchemy raises MissingGreenlet.
+        A freshly-created alarm whose `object` was never touched just
+        reports "" rather than crashing the caller.
+        """
+        if "object" in inspect(self).unloaded:
+            return ""
+        return self.object.name if self.object is not None else ""
 
     def __repr__(self) -> str:
         return f"<Alarm {self.alarm_type!r} status={self.status} object={self.object_id}>"

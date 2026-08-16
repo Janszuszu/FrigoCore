@@ -158,6 +158,7 @@ class AlarmResponse(BaseModel):
     resolved_at: datetime | None
     description: str
     object_id: UUID
+    object_name: str
     sensor_id: UUID | None
     created_at: datetime
     updated_at: datetime
