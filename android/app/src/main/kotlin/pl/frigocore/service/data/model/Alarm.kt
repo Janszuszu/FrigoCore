@@ -18,7 +18,10 @@ data class AlarmResponse(
     val resolved_at: String? = null,
     val description: String,
     val object_id: String,
+    val object_name: String = "",
     val sensor_id: String? = null,
+    val sensor_name: String = "",
+    val notification_sent_at: String? = null,
     val created_at: String,
     val updated_at: String,
 )

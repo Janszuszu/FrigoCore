@@ -63,13 +63,14 @@ class Alarm(Base, UUIDMixin, TimestampMixin):
     )
 
     # Relationships
-    # selectin (not the default lazy-select) so AlarmResponse.object_name can
-    # read alarm.object.name in an async context without a MissingGreenlet.
+    # selectin (not the default lazy-select) so AlarmResponse.object_name /
+    # sensor_name / notification_sent_at can read them in an async context
+    # without a MissingGreenlet.
     object: Mapped["Object"] = relationship("Object", back_populates="alarms", lazy="selectin")
-    sensor: Mapped[Optional["Sensor"]] = relationship("Sensor")
+    sensor: Mapped[Optional["Sensor"]] = relationship("Sensor", lazy="selectin")
     assignments: Mapped[List["AlarmAssignment"]] = relationship(
         "AlarmAssignment", back_populates="alarm", cascade="all, delete-orphan",
-        order_by="AlarmAssignment.dispatched_at",
+        order_by="AlarmAssignment.dispatched_at", lazy="selectin",
     )
     events: Mapped[List["AlarmEvent"]] = relationship(
         "AlarmEvent", back_populates="alarm", cascade="all, delete-orphan",
@@ -90,6 +91,24 @@ class Alarm(Base, UUIDMixin, TimestampMixin):
         if "object" in inspect(self).unloaded:
             return ""
         return self.object.name if self.object is not None else ""
+
+    @property
+    def sensor_name(self) -> str:
+        """The triggering Sensor's display name — same load-guard reasoning
+        as object_name above (a sensor-less alarm just reports "")."""
+        if "sensor" in inspect(self).unloaded:
+            return ""
+        return self.sensor.name if self.sensor is not None else ""
+
+    @property
+    def notification_sent_at(self) -> Optional[datetime]:
+        """When the technician was actually pushed (latest assignment's
+        dispatched_at), as opposed to detected_at which is when the
+        underlying condition was first observed — the two can be minutes
+        apart once the trigger delay and escalation ladder are involved."""
+        if "assignments" in inspect(self).unloaded or not self.assignments:
+            return None
+        return self.assignments[-1].dispatched_at
 
     def __repr__(self) -> str:
         return f"<Alarm {self.alarm_type!r} status={self.status} object={self.object_id}>"

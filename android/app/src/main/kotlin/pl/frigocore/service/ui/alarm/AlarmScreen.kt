@@ -68,10 +68,10 @@ fun AlarmScreen(
         Spacer(modifier = Modifier.height(20.dp))
 
         InfoCard {
-            InfoRow("Obiekt", uiState.siteName.ifBlank { "—" })
+            InfoRow("Obiekt", (uiState.alarm?.object_name?.ifBlank { null } ?: uiState.siteName).ifBlank { "—" })
             InfoRow("Typ alarmu", (uiState.alarm?.alarm_type ?: uiState.payloadAlarmType).uppercase())
-            InfoRow("Wiadomość", uiState.alarm?.description ?: uiState.payloadMessage)
-            InfoRow("Wykryto", uiState.alarm?.detected_at ?: uiState.payloadCreatedAt)
+            InfoRow("Sensor", (uiState.alarm?.sensor_name?.ifBlank { null } ?: uiState.payloadSensorName).ifBlank { "—" })
+            InfoRow("Wysłano", uiState.alarm?.notification_sent_at ?: uiState.payloadDispatchedAt)
             InfoRow("Status", uiState.effectiveStatus.uppercase())
         }
 

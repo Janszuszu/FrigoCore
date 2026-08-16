@@ -267,6 +267,8 @@ def test_service_alarm_payload_shape_unchanged():
     assert payload["site_name"] == obj.name
     assert payload["severity"] == "CRITICAL"
     assert payload["requires_action"] is True
+    assert payload["sensor_name"] == ""  # alarm.sensor never loaded in this fixture
+    assert payload["dispatched_at"] == assignment.dispatched_at.isoformat()
     assert set(payload.keys()) == {
         "type",
         "version",
@@ -279,6 +281,8 @@ def test_service_alarm_payload_shape_unchanged():
         "severity",
         "title",
         "message",
+        "sensor_name",
         "requires_action",
         "created_at",
+        "dispatched_at",
     }

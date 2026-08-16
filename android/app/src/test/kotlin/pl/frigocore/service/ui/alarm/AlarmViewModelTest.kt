@@ -41,8 +41,10 @@ class AlarmViewModelTest {
         severity = "CRITICAL",
         title = "ALARM KRYTYCZNY",
         message = "Temperatura przekroczona",
+        sensorName = "Chłodnia - Parownik",
         requiresAction = true,
         createdAt = "2026-08-16T10:00:00Z",
+        dispatchedAt = "2026-08-16T10:00:05Z",
     )
 
     private fun alarm(status: String) = AlarmResponse(

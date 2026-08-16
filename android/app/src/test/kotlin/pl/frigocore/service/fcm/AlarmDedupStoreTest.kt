@@ -28,8 +28,10 @@ class AlarmDedupStoreTest {
         severity = "CRITICAL",
         title = "ALARM KRYTYCZNY",
         message = "test",
+        sensorName = "Sensor Test",
         requiresAction = true,
         createdAt = "2026-08-16T12:00:00Z",
+        dispatchedAt = "2026-08-16T12:00:05Z",
     )
 
     @Test

@@ -291,8 +291,10 @@ def build_service_alarm_payload(
         "severity": "CRITICAL",
         "title": "ALARM KRYTYCZNY",
         "message": alarm.description,
+        "sensor_name": alarm.sensor_name,
         "requires_action": True,
         "created_at": alarm.detected_at.isoformat(),
+        "dispatched_at": assignment.dispatched_at.isoformat(),
     }
 
 

@@ -20,8 +20,10 @@ data class ServiceAlarmPayload(
     val severity: String,
     val title: String,
     val message: String,
+    val sensorName: String,
     val requiresAction: Boolean,
     val createdAt: String,
+    val dispatchedAt: String,
 ) {
     companion object {
         const val TYPE_SERVICE_ALARM = "SERVICE_ALARM"
@@ -47,10 +49,12 @@ data class ServiceAlarmPayload(
                 severity = data["severity"] ?: "CRITICAL",
                 title = data["title"] ?: "ALARM KRYTYCZNY",
                 message = data["message"] ?: "",
+                sensorName = data["sensor_name"] ?: "",
                 // Python's str(True) serializes as "True", not "true" — this
                 // must match that exact wire format, not JSON boolean rules.
                 requiresAction = data["requires_action"]?.equals("true", ignoreCase = true) ?: false,
                 createdAt = data["created_at"] ?: "",
+                dispatchedAt = data["dispatched_at"] ?: "",
             )
         }
     }

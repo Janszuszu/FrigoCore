@@ -18,8 +18,10 @@ private const val EXTRA_ALARM_TYPE = EXTRA_PREFIX + "ALARM_TYPE"
 private const val EXTRA_SEVERITY = EXTRA_PREFIX + "SEVERITY"
 private const val EXTRA_TITLE = EXTRA_PREFIX + "TITLE"
 private const val EXTRA_MESSAGE = EXTRA_PREFIX + "MESSAGE"
+private const val EXTRA_SENSOR_NAME = EXTRA_PREFIX + "SENSOR_NAME"
 private const val EXTRA_REQUIRES_ACTION = EXTRA_PREFIX + "REQUIRES_ACTION"
 private const val EXTRA_CREATED_AT = EXTRA_PREFIX + "CREATED_AT"
+private const val EXTRA_DISPATCHED_AT = EXTRA_PREFIX + "DISPATCHED_AT"
 private const val EXTRA_VERSION = EXTRA_PREFIX + "VERSION"
 
 fun Intent.putAlarmPayloadExtra(payload: ServiceAlarmPayload): Intent = apply {
@@ -32,8 +34,10 @@ fun Intent.putAlarmPayloadExtra(payload: ServiceAlarmPayload): Intent = apply {
     putExtra(EXTRA_SEVERITY, payload.severity)
     putExtra(EXTRA_TITLE, payload.title)
     putExtra(EXTRA_MESSAGE, payload.message)
+    putExtra(EXTRA_SENSOR_NAME, payload.sensorName)
     putExtra(EXTRA_REQUIRES_ACTION, payload.requiresAction)
     putExtra(EXTRA_CREATED_AT, payload.createdAt)
+    putExtra(EXTRA_DISPATCHED_AT, payload.dispatchedAt)
     putExtra(EXTRA_VERSION, payload.version)
 }
 
@@ -53,7 +57,9 @@ fun Intent.getAlarmPayloadExtra(): ServiceAlarmPayload? {
         severity = getStringExtra(EXTRA_SEVERITY) ?: "CRITICAL",
         title = getStringExtra(EXTRA_TITLE) ?: "",
         message = getStringExtra(EXTRA_MESSAGE) ?: "",
+        sensorName = getStringExtra(EXTRA_SENSOR_NAME) ?: "",
         requiresAction = getBooleanExtra(EXTRA_REQUIRES_ACTION, false),
         createdAt = getStringExtra(EXTRA_CREATED_AT) ?: "",
+        dispatchedAt = getStringExtra(EXTRA_DISPATCHED_AT) ?: "",
     )
 }

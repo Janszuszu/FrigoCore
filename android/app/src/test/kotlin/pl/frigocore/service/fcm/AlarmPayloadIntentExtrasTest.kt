@@ -26,8 +26,10 @@ class AlarmPayloadIntentExtrasTest {
         severity = "CRITICAL",
         title = "ALARM KRYTYCZNY",
         message = "Temperatura poniżej progu",
+        sensorName = "Mroznia - Parownik",
         requiresAction = true,
         createdAt = "2026-08-16T09:30:00+00:00",
+        dispatchedAt = "2026-08-16T09:30:05+00:00",
     )
 
     @Test

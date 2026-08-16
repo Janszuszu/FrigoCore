@@ -20,9 +20,10 @@ enum class AlarmActionInFlight { NONE, ACCEPT, DECLINE, EN_ROUTE, RESOLVE }
 data class AlarmUiState(
     val alarmId: String = "",
     val siteName: String = "",
-    val payloadMessage: String = "",
     val payloadAlarmType: String = "",
+    val payloadSensorName: String = "",
     val payloadCreatedAt: String = "",
+    val payloadDispatchedAt: String = "",
     val alarm: AlarmResponse? = null,
     val isLoadingDetail: Boolean = false,
     val actionInFlight: AlarmActionInFlight = AlarmActionInFlight.NONE,
@@ -55,9 +56,10 @@ class AlarmViewModel @Inject constructor(
         _uiState.value = AlarmUiState(
             alarmId = payload.alarmId,
             siteName = payload.siteName,
-            payloadMessage = payload.message,
             payloadAlarmType = payload.alarmType,
+            payloadSensorName = payload.sensorName,
             payloadCreatedAt = payload.createdAt,
+            payloadDispatchedAt = payload.dispatchedAt,
         )
         loadDetail()
         when (pendingAction) {
