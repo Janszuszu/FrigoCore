@@ -88,6 +88,21 @@ class AlarmViewModelTest {
     }
 
     @Test
+    fun `initialize picks up a genuinely new alarm delivered to the same singleInstance activity`() = runTest {
+        coEvery { alarmRepository.getAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.TRIGGERED))
+        viewModel.initialize(payload, pendingAction = null)
+        advanceUntilIdle()
+
+        val secondPayload = payload.copy(alarmId = "alarm-2", siteName = "Chłodnia B")
+        coEvery { alarmRepository.getAlarm("alarm-2") } returns ApiResult.Success(alarm(AlarmStatus.TRIGGERED).copy(id = "alarm-2"))
+        viewModel.initialize(secondPayload, pendingAction = null)
+        advanceUntilIdle()
+
+        assertThat(viewModel.uiState.value.alarmId).isEqualTo("alarm-2")
+        assertThat(viewModel.uiState.value.siteName).isEqualTo("Chłodnia B")
+    }
+
+    @Test
     fun `accept only reflects ACKNOWLEDGED after the backend confirms it`() = runTest {
         coEvery { alarmRepository.getAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.TRIGGERED))
         coEvery { alarmRepository.acceptAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.ACKNOWLEDGED))
@@ -139,6 +154,32 @@ class AlarmViewModelTest {
         advanceUntilIdle()
 
         assertThat(viewModel.uiState.value.effectiveStatus).isEqualTo(AlarmStatus.EN_ROUTE)
+    }
+
+    @Test
+    fun `accept stops the insistent alarm sound by clearing the notification`() = runTest {
+        coEvery { alarmRepository.getAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.TRIGGERED))
+        coEvery { alarmRepository.acceptAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.ACKNOWLEDGED))
+        viewModel.initialize(payload, pendingAction = null)
+        advanceUntilIdle()
+
+        viewModel.accept()
+        advanceUntilIdle()
+
+        io.mockk.verify { notificationHelper.clearAlarm("alarm-1") }
+    }
+
+    @Test
+    fun `decline stops the insistent alarm sound by clearing the notification`() = runTest {
+        coEvery { alarmRepository.getAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.TRIGGERED))
+        coEvery { alarmRepository.declineAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.ARCHIVED))
+        viewModel.initialize(payload, pendingAction = null)
+        advanceUntilIdle()
+
+        viewModel.decline()
+        advanceUntilIdle()
+
+        io.mockk.verify { notificationHelper.clearAlarm("alarm-1") }
     }
 
     @Test

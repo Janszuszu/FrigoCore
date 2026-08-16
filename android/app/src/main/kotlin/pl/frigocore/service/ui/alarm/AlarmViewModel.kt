@@ -46,11 +46,12 @@ class AlarmViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(AlarmUiState())
     val uiState: StateFlow<AlarmUiState> = _uiState.asStateFlow()
 
-    private var initialized = false
-
     fun initialize(payload: ServiceAlarmPayload, pendingAction: PendingAction?) {
-        if (initialized) return
-        initialized = true
+        // Idempotent per alarm — a re-delivery of the same push (process
+        // restart, duplicate FCM delivery) must not reset in-flight state,
+        // but a genuinely new alarm (singleInstance AlarmActivity reusing
+        // this ViewModel via onNewIntent) must always be picked up.
+        if (_uiState.value.alarmId == payload.alarmId) return
         _uiState.value = AlarmUiState(
             alarmId = payload.alarmId,
             siteName = payload.siteName,
@@ -104,7 +105,15 @@ class AlarmViewModel @Inject constructor(
             when (val result = call(alarmId)) {
                 is ApiResult.Success -> {
                     _uiState.value = _uiState.value.copy(actionInFlight = AlarmActionInFlight.NONE, alarm = result.data)
-                    if (result.data.status == AlarmStatus.RESOLVED || action == AlarmActionInFlight.DECLINE) {
+                    // The insistent alarm sound/vibration is tied to the tray
+                    // notification (FLAG_INSISTENT) — it must stop the moment
+                    // the technician takes ANY confirmed action, not just on
+                    // decline or final resolve, or PRZYJMUJĘ would leave it
+                    // looping for the rest of the job.
+                    if (action == AlarmActionInFlight.ACCEPT ||
+                        action == AlarmActionInFlight.DECLINE ||
+                        result.data.status == AlarmStatus.RESOLVED
+                    ) {
                         alarmNotificationHelper.clearAlarm(alarmId)
                     }
                 }
