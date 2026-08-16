@@ -79,7 +79,11 @@ def send_to_token(token: str, data: dict[str, Any]) -> str:
     whole batch, unlike a single bad token.
     """
     app = get_firebase_app()
-    message = messaging.Message(token=token, data={k: str(v) for k, v in data.items()})
+    message = messaging.Message(
+        token=token,
+        data={k: str(v) for k, v in data.items()},
+        android=messaging.AndroidConfig(priority="high"),
+    )
     try:
         messaging.send(message, app=app)
         return FcmSendResult.SENT

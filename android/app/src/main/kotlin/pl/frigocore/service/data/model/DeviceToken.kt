@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class DeviceTokenRegister(
     val fcm_token: String,
-    val platform: String = "android",
+    val platform: String,
 )
 
 @Serializable
