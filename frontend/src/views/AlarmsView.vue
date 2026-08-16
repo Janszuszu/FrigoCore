@@ -222,7 +222,7 @@ function closeDetails() { detailsAlarm.value = null; }
 .m-list{position:relative;padding:18px 16px 16px 38px}.m-list::before{content:"";position:absolute;top:22px;bottom:22px;left:27px;width:1px;background:linear-gradient(#ff3445,#ffb020 55%,#60738d)}
 .m-empty{text-align:center;color:#8fa0b6;padding:60px 20px;font-size:15px}
 .m-empty-ok{display:flex;flex-direction:column;align-items:center;gap:8px}
-.m-empty-icon{width:96px;height:96px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(126,192,255,.34))}
+.m-empty-icon{width:192px;height:192px;object-fit:contain}
 .m-empty-ok p{margin:0;color:#e4e9f2;font-size:18px;font-weight:700}
 .m-empty-ok small{color:#8fa0b6;font-size:14px}
 
