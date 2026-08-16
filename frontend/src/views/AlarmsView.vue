@@ -4,6 +4,7 @@ import { useAlarmsStore } from "@/stores/alarms";
 import { useObjectsStore } from "@/stores/objects";
 import { apiSensors } from "@/api";
 import type { AlarmItem, SensorItem } from "@/types";
+import noAlarmsMascot from "@/assets/no-alarms-mascot.png";
 const alarmsStore=useAlarmsStore(),objectsStore=useObjectsStore(),tab=ref<"active"|"history">("active");
 const activeAlarms=computed(()=>alarmsStore.alarms.filter(a=>["triggered","pending"].includes(a.status)));
 const historyAlarms=computed(()=>alarmsStore.alarms.filter(a=>["acknowledged","resolved"].includes(a.status)));
@@ -137,7 +138,7 @@ function closeDetails() { detailsAlarm.value = null; }
   <div class="m-list">
     <div v-if="alarmsStore.loading" class="m-empty">Loading…</div>
     <div v-else-if="!alarms.length && tab==='active'" class="m-empty m-empty-ok">
-      <span class="m-empty-icon">😇</span>
+      <img class="m-empty-icon" :src="noAlarmsMascot" alt="" />
       <p>Brak aktywnych alarmów</p>
       <small>Wszystko działa prawidłowo.</small>
     </div>
@@ -221,7 +222,7 @@ function closeDetails() { detailsAlarm.value = null; }
 .m-list{position:relative;padding:18px 16px 16px 38px}.m-list::before{content:"";position:absolute;top:22px;bottom:22px;left:27px;width:1px;background:linear-gradient(#ff3445,#ffb020 55%,#60738d)}
 .m-empty{text-align:center;color:#8fa0b6;padding:60px 20px;font-size:15px}
 .m-empty-ok{display:flex;flex-direction:column;align-items:center;gap:8px}
-.m-empty-icon{font-size:44px;filter:drop-shadow(0 0 10px rgba(126,192,255,.34))}
+.m-empty-icon{width:96px;height:96px;object-fit:contain;filter:drop-shadow(0 0 10px rgba(126,192,255,.34))}
 .m-empty-ok p{margin:0;color:#e4e9f2;font-size:18px;font-weight:700}
 .m-empty-ok small{color:#8fa0b6;font-size:14px}
 
