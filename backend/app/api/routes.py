@@ -10,16 +10,29 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, get_visible_object_ids, require_admin
 from app.core.security import create_access_token, hash_password, verify_password
 from app.database import get_db
-from app.enums import AlarmStatus, AlarmType, NotificationChannel, UserRole
+from app.enums import (
+    AlarmEventType,
+    AlarmStatus,
+    AlarmType,
+    AssignmentOutcome,
+    EscalationTargetType,
+    NotificationChannel,
+    UserRole,
+)
 from app.models.alarm import Alarm
+from app.models.alarm_assignment import AlarmAssignment
 from app.models.alarm_config import AlarmConfig
+from app.models.alarm_event import AlarmEvent
+from app.models.device_token import DeviceToken
+from app.models.escalation_policy import EscalationPolicy, EscalationTier
 from app.models.measurement import Measurement
 from app.models.notification_endpoint import NotificationEndpoint
 from app.models.notification_profile import NotificationProfile
@@ -27,11 +40,18 @@ from app.models.object import Object
 from app.models.sensor import Sensor
 from app.models.user import User
 from app.schemas import (
-    AlarmAcknowledge,
+    AlarmAssignmentResponse,
     AlarmConfigCreate,
     AlarmConfigResponse,
     AlarmConfigUpdate,
+    AlarmEventResponse,
     AlarmResponse,
+    DeviceTokenRegister,
+    DeviceTokenResponse,
+    EscalationPolicyCreate,
+    EscalationPolicyResponse,
+    EscalationTierCreate,
+    EscalationTierResponse,
     LoginRequest,
     LoginResponse,
     MeasurementResponse,
@@ -54,6 +74,8 @@ from app.schemas import (
     UserResponse,
     UserUpdate,
 )
+from app.services.dispatch_service import escalate, record_event
+from app.services.notification_engine import NotificationEngine
 
 # ---------------------------------------------------------------------------
 # Routers
@@ -67,6 +89,8 @@ alarm_configs_router = APIRouter()
 alarms_router = APIRouter()
 measurements_router = APIRouter()
 notifications_router = APIRouter()
+devices_router = APIRouter()
+escalation_policies_router = APIRouter()
 
 
 def _check_object_visible(object_id: UUID, user: User) -> None:
@@ -629,21 +653,247 @@ async def get_alarm(
     return alarm
 
 
+async def _current_pending_assignment(db: AsyncSession, alarm_id: UUID) -> AlarmAssignment | None:
+    return await db.scalar(
+        select(AlarmAssignment).where(
+            AlarmAssignment.alarm_id == alarm_id, AlarmAssignment.outcome == AssignmentOutcome.PENDING
+        )
+    )
+
+
+async def _latest_accepted_assignment(db: AsyncSession, alarm_id: UUID) -> AlarmAssignment | None:
+    return await db.scalar(
+        select(AlarmAssignment)
+        .where(AlarmAssignment.alarm_id == alarm_id, AlarmAssignment.outcome == AssignmentOutcome.ACCEPTED)
+        .order_by(AlarmAssignment.responded_at.desc())
+    )
+
+
+def _user_matches_assignment(user: User, assignment: AlarmAssignment) -> bool:
+    if assignment.target_user_id is not None:
+        return assignment.target_user_id == user.id
+    return assignment.target_role == user.role
+
+
+@alarms_router.post("/{alarm_id}/accept", response_model=AlarmResponse)
+async def accept_alarm(
+    alarm_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> Alarm:
+    """Current assigned technician accepts responsibility -> ACKNOWLEDGED.
+
+    Race-safe: the assignment outcome flip is a single atomic UPDATE guarded
+    by `outcome = 'pending'`. If two technicians (e.g. a role-tier assignment
+    both are eligible for) hit this at the same time, exactly one UPDATE
+    affects a row; the loser gets 409.
+    """
+    alarm = await db.get(Alarm, alarm_id)
+    if alarm is None:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+    _check_object_visible(alarm.object_id, user)
+    if alarm.status != AlarmStatus.TRIGGERED:
+        raise HTTPException(status_code=400, detail="Only TRIGGERED alarms can be accepted")
+
+    assignment = await _current_pending_assignment(db, alarm_id)
+    if assignment is None:
+        raise HTTPException(status_code=409, detail="No active assignment for this alarm")
+    if not _user_matches_assignment(user, assignment):
+        raise HTTPException(status_code=403, detail="This alarm is not currently assigned to you")
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        update(AlarmAssignment)
+        .where(AlarmAssignment.id == assignment.id, AlarmAssignment.outcome == AssignmentOutcome.PENDING)
+        .values(outcome=AssignmentOutcome.ACCEPTED, responded_at=now, target_user_id=user.id)
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=409, detail="This assignment was already resolved by someone else")
+
+    alarm.status = AlarmStatus.ACKNOWLEDGED
+    alarm.acknowledged_at = now
+    await record_event(
+        db, alarm.id, AlarmEventType.ASSIGNMENT_ACCEPTED, actor_user_id=user.id,
+        metadata={"assignment_id": str(assignment.id), "tier": assignment.tier},
+    )
+    await record_event(db, alarm.id, AlarmEventType.ALARM_ACKNOWLEDGED, actor_user_id=user.id)
+    await db.commit()
+    await db.refresh(alarm)
+    return alarm
+
+
+@alarms_router.post("/{alarm_id}/decline", response_model=AlarmResponse)
+async def decline_alarm(
+    alarm_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> Alarm:
+    """Current assigned technician declines -> assignment DECLINED, alarm stays
+    TRIGGERED, escalation proceeds immediately (no waiting for the timeout)."""
+    alarm = await db.get(Alarm, alarm_id)
+    if alarm is None:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+    _check_object_visible(alarm.object_id, user)
+    if alarm.status != AlarmStatus.TRIGGERED:
+        raise HTTPException(status_code=400, detail="Only TRIGGERED alarms can be declined")
+
+    assignment = await _current_pending_assignment(db, alarm_id)
+    if assignment is None:
+        raise HTTPException(status_code=409, detail="No active assignment for this alarm")
+    if not _user_matches_assignment(user, assignment):
+        raise HTTPException(status_code=403, detail="This alarm is not currently assigned to you")
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        update(AlarmAssignment)
+        .where(AlarmAssignment.id == assignment.id, AlarmAssignment.outcome == AssignmentOutcome.PENDING)
+        .values(outcome=AssignmentOutcome.DECLINED, responded_at=now)
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=409, detail="This assignment was already resolved by someone else")
+
+    await record_event(
+        db, alarm.id, AlarmEventType.ASSIGNMENT_DECLINED, actor_user_id=user.id,
+        metadata={"assignment_id": str(assignment.id), "tier": assignment.tier},
+    )
+    try:
+        await escalate(db, alarm, previous_tier_order=assignment.tier, reason="declined")
+    except IntegrityError:
+        # Escalation engine's background cycle won the race and already
+        # dispatched the next tier — the decline itself still succeeded.
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Escalation already in progress") from None
+    await db.commit()
+    await db.refresh(alarm)
+    return alarm
+
+
+@alarms_router.post("/{alarm_id}/en-route", response_model=AlarmResponse)
+async def alarm_en_route(
+    alarm_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> Alarm:
+    """Current acknowledged technician confirms they are travelling to the
+    site -> EN_ROUTE. This is the ONLY transition that triggers the
+    client-facing "service is on the way" notification."""
+    alarm = await db.get(Alarm, alarm_id)
+    if alarm is None:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+    _check_object_visible(alarm.object_id, user)
+    if alarm.status != AlarmStatus.ACKNOWLEDGED:
+        raise HTTPException(status_code=400, detail="Only ACKNOWLEDGED alarms can go EN_ROUTE")
+
+    accepted = await _latest_accepted_assignment(db, alarm_id)
+    if accepted is None or (accepted.target_user_id != user.id and user.role != UserRole.ADMIN):
+        raise HTTPException(status_code=403, detail="Only the accepting technician can mark EN_ROUTE")
+
+    now = datetime.now(timezone.utc)
+    alarm.status = AlarmStatus.EN_ROUTE
+    alarm.en_route_at = now
+    await record_event(db, alarm.id, AlarmEventType.ALARM_EN_ROUTE, actor_user_id=user.id)
+
+    obj = await db.get(Object, alarm.object_id)
+    await db.refresh(obj, attribute_names=["notification_profile"])
+    endpoints: list[NotificationEndpoint] = []
+    if obj.notification_profile is not None:
+        await db.refresh(obj.notification_profile, attribute_names=["endpoints"])
+        endpoints = obj.notification_profile.endpoints
+    try:
+        await NotificationEngine.send_service_on_the_way(alarm, endpoints)
+    except Exception:
+        pass  # Notification failure must not block the state transition
+    await record_event(db, alarm.id, AlarmEventType.CLIENT_NOTIFIED, message="Service is on the way")
+
+    await db.commit()
+    await db.refresh(alarm)
+    return alarm
+
+
+@alarms_router.post("/{alarm_id}/resolve", response_model=AlarmResponse)
+async def resolve_alarm(
+    alarm_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> Alarm:
+    """Technician marks the service issue resolved -> RESOLVED."""
+    alarm = await db.get(Alarm, alarm_id)
+    if alarm is None:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+    _check_object_visible(alarm.object_id, user)
+    if alarm.status not in (AlarmStatus.ACKNOWLEDGED, AlarmStatus.EN_ROUTE):
+        raise HTTPException(status_code=400, detail="Only ACKNOWLEDGED or EN_ROUTE alarms can be resolved")
+
+    accepted = await _latest_accepted_assignment(db, alarm_id)
+    if accepted is not None and accepted.target_user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only the assigned technician can resolve this alarm")
+
+    now = datetime.now(timezone.utc)
+    alarm.status = AlarmStatus.RESOLVED
+    alarm.resolved_at = now
+    await record_event(db, alarm.id, AlarmEventType.ALARM_RESOLVED, actor_user_id=user.id)
+    await db.commit()
+    await db.refresh(alarm)
+    return alarm
+
+
+@alarms_router.get("/{alarm_id}/events", response_model=list[AlarmEventResponse])
+async def list_alarm_events(
+    alarm_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> list[AlarmEvent]:
+    alarm = await db.get(Alarm, alarm_id)
+    if alarm is None:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+    _check_object_visible(alarm.object_id, user)
+    result = await db.execute(
+        select(AlarmEvent).where(AlarmEvent.alarm_id == alarm_id).order_by(AlarmEvent.created_at)
+    )
+    return result.scalars().all()
+
+
+@alarms_router.get("/{alarm_id}/assignments", response_model=list[AlarmAssignmentResponse])
+async def list_alarm_assignments(
+    alarm_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> list[AlarmAssignment]:
+    alarm = await db.get(Alarm, alarm_id)
+    if alarm is None:
+        raise HTTPException(status_code=404, detail="Alarm not found")
+    _check_object_visible(alarm.object_id, user)
+    result = await db.execute(
+        select(AlarmAssignment).where(AlarmAssignment.alarm_id == alarm_id).order_by(AlarmAssignment.dispatched_at)
+    )
+    return result.scalars().all()
+
+
 @alarms_router.post("/{alarm_id}/acknowledge", response_model=AlarmResponse)
 async def acknowledge_alarm(
     alarm_id: UUID,
-    _body: AlarmAcknowledge = ...,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Alarm:
+    """Legacy dashboard acknowledge — kept working for the existing web
+    frontend, which acknowledges alarms directly without going through the
+    technician-dispatch/assignment flow. When a pending assignment for this
+    same user happens to exist, it is resolved as accepted too so the audit
+    trail and assignment state stay consistent with the new /accept flow;
+    otherwise this behaves exactly as it always has.
+    """
     alarm = await db.get(Alarm, alarm_id)
     if alarm is None:
         raise HTTPException(status_code=404, detail="Alarm not found")
     _check_object_visible(alarm.object_id, user)
     if alarm.status != AlarmStatus.TRIGGERED:
         raise HTTPException(status_code=400, detail="Only TRIGGERED alarms can be acknowledged")
+
+    now = datetime.now(timezone.utc)
+    assignment = await _current_pending_assignment(db, alarm_id)
+    if assignment is not None and _user_matches_assignment(user, assignment):
+        result = await db.execute(
+            update(AlarmAssignment)
+            .where(AlarmAssignment.id == assignment.id, AlarmAssignment.outcome == AssignmentOutcome.PENDING)
+            .values(outcome=AssignmentOutcome.ACCEPTED, responded_at=now, target_user_id=user.id)
+        )
+        if result.rowcount:
+            await record_event(
+                db, alarm.id, AlarmEventType.ASSIGNMENT_ACCEPTED, actor_user_id=user.id,
+                metadata={"assignment_id": str(assignment.id), "tier": assignment.tier},
+            )
+
     alarm.status = AlarmStatus.ACKNOWLEDGED
-    alarm.acknowledged_at = datetime.now(timezone.utc)
+    alarm.acknowledged_at = now
+    await record_event(db, alarm.id, AlarmEventType.ALARM_ACKNOWLEDGED, actor_user_id=user.id)
     await db.commit()
     await db.refresh(alarm)
     return alarm
@@ -661,9 +911,135 @@ async def archive_alarm(
     if alarm.status not in (AlarmStatus.ACKNOWLEDGED, AlarmStatus.RESOLVED):
         raise HTTPException(status_code=400, detail="Only completed alarms can be archived")
     alarm.status = AlarmStatus.ARCHIVED
+    await record_event(db, alarm.id, AlarmEventType.ALARM_ARCHIVED, actor_user_id=user.id)
     await db.commit()
     await db.refresh(alarm)
     return alarm
+
+
+# ===================================================================
+# Device tokens (FCM)
+# ===================================================================
+
+@devices_router.post("/register", response_model=DeviceTokenResponse, status_code=status.HTTP_201_CREATED)
+async def register_device(
+    body: DeviceTokenRegister, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> DeviceToken:
+    """Register (or re-claim) an FCM device token for the current user.
+
+    A token is unique across the table — re-registering the same token
+    (app reinstall, token refresh delivered again) updates it in place
+    rather than erroring or creating a duplicate row.
+    """
+    existing = await db.scalar(select(DeviceToken).where(DeviceToken.fcm_token == body.fcm_token))
+    now = datetime.now(timezone.utc)
+    if existing is not None:
+        existing.user_id = user.id
+        existing.platform = body.platform
+        existing.is_active = True
+        existing.last_seen_at = now
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
+    device = DeviceToken(
+        user_id=user.id, fcm_token=body.fcm_token, platform=body.platform, is_active=True, last_seen_at=now,
+    )
+    db.add(device)
+    await db.commit()
+    await db.refresh(device)
+    return device
+
+
+@devices_router.delete("/{device_id}")
+async def delete_device(
+    device_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    device = await db.get(DeviceToken, device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if device.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not your device")
+    await db.delete(device)
+    await db.commit()
+    return {"status": "deleted"}
+
+
+# ===================================================================
+# Escalation policies (admin) — configures the dispatch ladder
+# ===================================================================
+
+@escalation_policies_router.get("", response_model=list[EscalationPolicyResponse])
+async def list_escalation_policies(
+    object_id: UUID | None = Query(None), db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> list[EscalationPolicy]:
+    stmt = select(EscalationPolicy)
+    if object_id is not None:
+        stmt = stmt.where(EscalationPolicy.object_id == object_id)
+    result = await db.execute(stmt)
+    policies = result.scalars().all()
+    for policy in policies:
+        await db.refresh(policy, attribute_names=["tiers"])
+    return policies
+
+
+@escalation_policies_router.post("", response_model=EscalationPolicyResponse, status_code=status.HTTP_201_CREATED)
+async def create_escalation_policy(
+    body: EscalationPolicyCreate, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> EscalationPolicy:
+    policy = EscalationPolicy(name=body.name, object_id=body.object_id)
+    db.add(policy)
+    await db.commit()
+    await db.refresh(policy)
+    policy.tiers = []
+    return policy
+
+
+@escalation_policies_router.delete("/{policy_id}")
+async def delete_escalation_policy(
+    policy_id: UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
+    policy = await db.get(EscalationPolicy, policy_id)
+    if policy is None:
+        raise HTTPException(status_code=404, detail="Escalation policy not found")
+    await db.delete(policy)
+    await db.commit()
+    return {"status": "deleted"}
+
+
+@escalation_policies_router.post(
+    "/{policy_id}/tiers", response_model=EscalationTierResponse, status_code=status.HTTP_201_CREATED
+)
+async def create_escalation_tier(
+    policy_id: UUID, body: EscalationTierCreate, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> EscalationTier:
+    policy = await db.get(EscalationPolicy, policy_id)
+    if policy is None:
+        raise HTTPException(status_code=404, detail="Escalation policy not found")
+    if body.target_type == EscalationTargetType.USER.value and body.target_user_id is None:
+        raise HTTPException(status_code=422, detail="target_user_id is required when target_type='user'")
+    if body.target_type == EscalationTargetType.ROLE.value and body.target_role is None:
+        raise HTTPException(status_code=422, detail="target_role is required when target_type='role'")
+    existing = await db.scalar(
+        select(EscalationTier).where(
+            EscalationTier.policy_id == policy_id, EscalationTier.tier_order == body.tier_order
+        )
+    )
+    if existing is not None:
+        raise HTTPException(status_code=409, detail=f"Tier {body.tier_order} already exists for this policy")
+
+    tier = EscalationTier(
+        policy_id=policy_id,
+        tier_order=body.tier_order,
+        timeout_seconds=body.timeout_seconds,
+        target_type=body.target_type,
+        target_user_id=body.target_user_id if body.target_type == EscalationTargetType.USER.value else None,
+        target_role=body.target_role if body.target_type == EscalationTargetType.ROLE.value else None,
+    )
+    db.add(tier)
+    await db.commit()
+    await db.refresh(tier)
+    return tier
 
 
 # ===================================================================

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.FrigoCoreService" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/frigo_primary_dark</item>
+        <item name="android:windowBackground">@color/frigo_background</item>
+    </style>
+
+    <!-- Alarm screen theme — must render over the lock screen, so it stays
+         separate from the normal app theme rather than reusing it. -->
+    <style name="Theme.FrigoCoreService.Alarm" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/frigo_critical_dark</item>
+        <item name="android:windowBackground">@color/frigo_critical</item>
+        <item name="android:windowIsTranslucent">false</item>
+    </style>
+</resources>

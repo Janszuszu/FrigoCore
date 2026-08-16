@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <application
+        android:name=".FrigoCoreApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.FrigoCoreService">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.FrigoCoreService">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+        Dedicated full-screen activity for a critical SERVICE_ALARM. Launched
+        either directly by the notification's full-screen intent (when the
+        device allows it — locked screen, allowed background start) or by
+        tapping the high-priority heads-up notification otherwise.
+        showWhenLocked/turnScreenOn are the documented Android mechanism for
+        an alarm-clock-style screen; USE_FULL_SCREEN_INTENT above is the
+        permission that authorizes it. Nothing here bypasses platform
+        restrictions — if the OS declines to launch it directly, the
+        notification remains the fallback entry point.
+        -->
+        <activity
+            android:name=".ui.alarm.AlarmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:theme="@style/Theme.FrigoCoreService.Alarm" />
+
+        <service
+            android:name=".fcm.FrigoFcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Default FCM notification channel used when the app is in the
+             background and the system tray builds the notification itself
+             before our service ever runs (data-only messages don't hit
+             this path, but the metadata is required by the FCM SDK). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="@string/notification_channel_alarms_id" />
+
+        <receiver
+            android:name=".fcm.AlarmActionReceiver"
+            android:exported="false" />
+
+    </application>
+</manifest>

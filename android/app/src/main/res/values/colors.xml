@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="frigo_primary">#0B5FA5</color>
+    <color name="frigo_primary_dark">#08406F</color>
+    <color name="frigo_critical">#D32F2F</color>
+    <color name="frigo_critical_dark">#B71C1C</color>
+    <color name="frigo_warning">#F57C00</color>
+    <color name="frigo_ok">#2E7D32</color>
+    <color name="frigo_background">#F4F6F8</color>
+    <color name="frigo_surface">#FFFFFF</color>
+    <color name="frigo_on_critical">#FFFFFF</color>
+</resources>

@@ -144,10 +144,6 @@ class MeasurementResponse(BaseModel):
 # Alarm
 # ---------------------------------------------------------------------------
 
-class AlarmAcknowledge(BaseModel):
-    pass  # No extra fields needed
-
-
 class AlarmResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -158,12 +154,97 @@ class AlarmResponse(BaseModel):
     detected_at: datetime
     triggered_at: datetime | None
     acknowledged_at: datetime | None
+    en_route_at: datetime | None
     resolved_at: datetime | None
     description: str
     object_id: UUID
     sensor_id: UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Alarm dispatch — assignments, events, escalation policies, device tokens
+# ---------------------------------------------------------------------------
+
+class AlarmAssignmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    alarm_id: UUID
+    tier: int
+    target_user_id: UUID | None
+    target_role: str | None
+    outcome: str
+    dispatched_at: datetime
+    delivered_at: datetime | None
+    responded_at: datetime | None
+    expires_at: datetime | None
+    created_at: datetime
+
+
+class AlarmEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    alarm_id: UUID
+    event_type: str
+    actor_user_id: UUID | None
+    message: str | None
+    event_metadata: dict | None
+    created_at: datetime
+
+
+class DeviceTokenRegister(BaseModel):
+    fcm_token: str = Field(..., min_length=1, max_length=512)
+    platform: str = Field(..., pattern=r"^(android|ios)$")
+
+
+class DeviceTokenResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    platform: str
+    is_active: bool
+    last_seen_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class EscalationTierCreate(BaseModel):
+    tier_order: int = Field(..., ge=1)
+    timeout_seconds: int = Field(..., ge=1, le=86400)
+    target_type: str = Field(..., pattern=r"^(user|role)$")
+    target_user_id: UUID | None = None
+    target_role: str | None = Field(None, pattern=r"^(admin|serwisant|kierownik|user)$")
+
+
+class EscalationTierResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    policy_id: UUID
+    tier_order: int
+    timeout_seconds: int
+    target_type: str
+    target_user_id: UUID | None
+    target_role: str | None
+
+
+class EscalationPolicyCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=256)
+    object_id: UUID | None = Field(None, description="Omit/null for the global default policy")
+
+
+class EscalationPolicyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    object_id: UUID | None
+    is_active: bool
+    tiers: list[EscalationTierResponse] = []
 
 
 # ---------------------------------------------------------------------------

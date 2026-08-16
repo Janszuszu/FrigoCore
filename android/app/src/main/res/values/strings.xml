@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FrigoCore Service</string>
+    <string name="notification_channel_alarms_id">service_alarms_critical</string>
+    <string name="notification_channel_alarms_name">Alarmy serwisowe</string>
+    <string name="notification_channel_alarms_description">Krytyczne alarmy wymagające natychmiastowej reakcji technika</string>
+
+    <string name="action_accept">PRZYJMUJĘ</string>
+    <string name="action_decline">ODRZUCAM</string>
+    <string name="action_en_route">W DRODZE</string>
+    <string name="action_resolve">ZAKOŃCZ</string>
+
+    <string name="status_triggered">AKTYWNY</string>
+    <string name="status_acknowledged">PRZYJĘTY</string>
+    <string name="status_en_route">W DRODZE</string>
+    <string name="status_resolved">ZAKOŃCZONY</string>
+    <string name="status_archived">ZARCHIWIZOWANY</string>
+
+    <string name="login_title">FrigoCore Service</string>
+    <string name="login_username">Nazwa użytkownika</string>
+    <string name="login_password">Hasło</string>
+    <string name="login_submit">Zaloguj się</string>
+    <string name="login_error_invalid">Nieprawidłowa nazwa użytkownika lub hasło</string>
+    <string name="login_error_network">Brak połączenia z serwerem. Spróbuj ponownie.</string>
+
+    <string name="dashboard_title">Alarmy serwisowe</string>
+    <string name="dashboard_section_active">Aktywne</string>
+    <string name="dashboard_section_acknowledged">Przyjęte</string>
+    <string name="dashboard_section_en_route">W drodze</string>
+    <string name="dashboard_section_recent">Ostatnie</string>
+    <string name="dashboard_empty">Brak alarmów</string>
+    <string name="dashboard_logout">Wyloguj</string>
+
+    <string name="alarm_critical_label">ALARM KRYTYCZNY</string>
+    <string name="alarm_action_failed">Nie udało się potwierdzić akcji. Spróbuj ponownie.</string>
+    <string name="alarm_action_pending">Wysyłanie…</string>
+</resources>

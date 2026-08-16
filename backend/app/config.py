@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     MQTT_PASSWORD: str = ""
     MQTT_WS_URL: str = "ws://localhost:8083"
 
+    # Firebase Cloud Messaging — path to a service-account JSON key file.
+    # Empty in development; FCM sends fail clearly rather than pretending
+    # to deliver when this is unset.
+    FIREBASE_CREDENTIALS_PATH: str = ""
+
     # Security
     SECRET_KEY: str = "change-this-to-a-random-secret-key"
     # A single long-lived access token, no refresh-token flow — this is an

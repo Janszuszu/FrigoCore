@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import DateTime, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -11,6 +11,8 @@ from app.enums import AlarmStatus, AlarmType
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.models.alarm_assignment import AlarmAssignment
+    from app.models.alarm_event import AlarmEvent
     from app.models.object import Object
     from app.models.sensor import Sensor
 
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
 class Alarm(Base, UUIDMixin, TimestampMixin):
     """A concrete alarm instance linked to an Object and triggered by a Sensor.
 
-    Lifecycle: PENDING → TRIGGERED → ACKNOWLEDGED → RESOLVED
+    Lifecycle: PENDING → TRIGGERED → ACKNOWLEDGED → EN_ROUTE → RESOLVED → ARCHIVED
     """
 
     __tablename__ = "alarms"
@@ -41,6 +43,10 @@ class Alarm(Base, UUIDMixin, TimestampMixin):
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # When the technician marked themselves as travelling to the site
+    en_route_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # When the alarm condition cleared
     resolved_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -59,6 +65,14 @@ class Alarm(Base, UUIDMixin, TimestampMixin):
     # Relationships
     object: Mapped["Object"] = relationship("Object", back_populates="alarms")
     sensor: Mapped[Optional["Sensor"]] = relationship("Sensor")
+    assignments: Mapped[List["AlarmAssignment"]] = relationship(
+        "AlarmAssignment", back_populates="alarm", cascade="all, delete-orphan",
+        order_by="AlarmAssignment.dispatched_at",
+    )
+    events: Mapped[List["AlarmEvent"]] = relationship(
+        "AlarmEvent", back_populates="alarm", cascade="all, delete-orphan",
+        order_by="AlarmEvent.created_at",
+    )
 
     def __repr__(self) -> str:
         return f"<Alarm {self.alarm_type!r} status={self.status} object={self.object_id}>"

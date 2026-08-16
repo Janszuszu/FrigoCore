@@ -130,6 +130,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ${FIREBASE_CREDENTIALS_HOST_PATH:-/dev/null}:/opt/FrigoCore/secrets/firebase-service-account.json:ro
     environment:
       DATABASE_URL: postgresql+asyncpg://frigocore:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/frigocore
       REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}@redis:6379/0
@@ -139,6 +140,11 @@ services:
       MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD:?Set MQTT_BACKEND_PASSWORD in .env}
       ENVIRONMENT: development
       DEBUG: "true"
+      # Path is fixed inside the container; the host-side file is bind
+      # mounted below from FIREBASE_CREDENTIALS_HOST_PATH. Empty by default
+      # so FCM sends fail clearly instead of pretending to deliver until the
+      # host actually has a service-account key to mount.
+      FIREBASE_CREDENTIALS_PATH: "${FIREBASE_CREDENTIALS_HOST_PATH:+/opt/FrigoCore/secrets/firebase-service-account.json}"
     depends_on:
       postgres:
         condition: service_healthy

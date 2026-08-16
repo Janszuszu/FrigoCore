@@ -23,6 +23,11 @@ sdist/
 .env
 .env.*
 !.env.example
+
+# Firebase service-account credentials
+*firebase*adminsdk*.json
+serviceAccountKey.json
+firebase-credentials*.json
 venv/
 .venv/
 env/
@@ -30,6 +35,7 @@ pip-log.txt
 pip-delete-this-directory.txt
 .pytest_cache/
 .coverage
+backend/tests/_test_frigocore.db*
 htmlcov/
 .tox/
 .mypy_cache/

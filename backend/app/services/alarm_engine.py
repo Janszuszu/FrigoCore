@@ -24,13 +24,14 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.enums import AlarmStatus, AlarmType
+from app.enums import AlarmEventType, AlarmStatus, AlarmType
 from app.models.alarm import Alarm
 from app.models.alarm_config import AlarmConfig
 from app.api.websocket import manager as ws_manager
 from app.models.notification_profile import NotificationProfile
 from app.models.sensor import Sensor
 from app.schemas import AlarmResponse
+from app.services.dispatch_service import record_event
 from app.services.notification_engine import NotificationEngine
 
 logger = logging.getLogger(__name__)
@@ -203,6 +204,7 @@ class AlarmEngine:
                     alarm_type_str, sensor.name, alarm.trigger_value,
                 )
                 await ws_manager.broadcast("alarm.triggered", _alarm_payload(alarm))
+                await record_event(session, alarm.id, AlarmEventType.ALARM_TRIGGERED)
                 # A failing notification must not take the evaluation cycle
                 # down with it: an exception here would skip auto-resolve and
                 # the commit, so the alarm state changes made above would be
@@ -261,6 +263,7 @@ class AlarmEngine:
                 await session.flush()  # persist updated_at before broadcasting
                 logger.info("Alarm RESOLVED — type=%s sensor=%s", alarm_type_str, sensor.name)
                 await ws_manager.broadcast("alarm.resolved", _alarm_payload(alarm))
+                await record_event(session, alarm.id, AlarmEventType.ALARM_RESOLVED, message="Condition auto-cleared")
 
 
 def _build_description(alarm_type: AlarmType, value: float | None) -> str:

@@ -10,6 +10,7 @@ from app.enums import UserRole
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.models.device_token import DeviceToken
     from app.models.object import Object
 
 
@@ -44,6 +45,9 @@ class User(Base, UUIDMixin, TimestampMixin):
     # Relationships
     objects: Mapped[List["Object"]] = relationship(
         "Object", secondary=user_objects, back_populates="users"
+    )
+    device_tokens: Mapped[List["DeviceToken"]] = relationship(
+        "DeviceToken", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
