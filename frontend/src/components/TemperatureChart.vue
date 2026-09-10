@@ -512,13 +512,12 @@ const liveHeadPoint = computed<LiveTracePoint | null>(() => {
 
 function resetLive() {
   livePoints.value = []
-  // Backdated, not "now" — the store backfills the last LIVE_WINDOW_MS of
-  // history on entering LIVE (see fetchMeasurementsForRange), and those
-  // readings need to land at their real position across the full window
-  // immediately, not off-screen to the left of a sweep that only just
-  // started. This also removes the old "compress toward now" fill-up
-  // phase entirely: the window is already full range from frame one.
-  liveSweepStart.value = Date.now() - LIVE_WINDOW_MS
+  // Starts from "now", not backdated — no historical backfill (see
+  // fetchMeasurementsForRange), so there's nothing to place across an
+  // already-full window. The sweep genuinely starts empty and fills in
+  // from live WS pushes only, reaching the full LIVE_WINDOW_MS width
+  // once 30 minutes of real time have actually elapsed.
+  liveSweepStart.value = Date.now()
   liveNow.value = Date.now()
 }
 
