@@ -464,18 +464,6 @@ const liveColumns = computed<Column[]>(() => {
   return buildColumns(decimated, liveYScale, props.lowThreshold, props.highThreshold, MARGIN.top, MARGIN.top + PLOT_H)
 })
 
-// The last timestamp actually appended to livePoints — the ONLY reliable
-// way to know "did new data arrive". The store's live measurement array
-// is a length-capped ring buffer (unshift + pop at LIVE_CAP), so once a
-// long-running LIVE session fills it, its .length stops changing on every
-// subsequent WS push even though genuinely new points keep arriving (an
-// old one is evicted for each new one). Comparing array lengths was the
-// previous (broken) approach — it misread "length didn't grow" as "no new
-// data / snapshot changed", forcing a full resetLive() on every single
-// live measurement once the cap was reached, which is what caused the
-// sweep to keep flickering/restarting instead of extending smoothly.
-let lastAppendedLiveTs: number | null = null
-
 function resetLive() {
   livePoints.value = []
   // Backdated, not "now" — the store backfills the last LIVE_WINDOW_MS of
@@ -486,13 +474,6 @@ function resetLive() {
   // phase entirely: the window is already full range from frame one.
   liveSweepStart.value = Date.now() - LIVE_WINDOW_MS
   liveNow.value = Date.now()
-  lastAppendedLiveTs = null
-}
-
-function appendLivePoint(t: number, temp: number) {
-  livePoints.value.push({ t, temp })
-  const cutoff = t - LIVE_WINDOW_MS * 1.5
-  while (livePoints.value.length > 1 && livePoints.value[0].t < cutoff) livePoints.value.shift()
 }
 
 // The sweep: before the window is filled, the head simply advances from
@@ -546,18 +527,16 @@ watch(isLive, (live) => {
   }
 }, { immediate: true })
 
-// Unified readings watcher: LIVE mode appends only genuinely new points
-// (no zoom/selection to reset — both are disabled in LIVE); historical
-// ranges keep the full-reset behavior when the parent swaps in a new
-// snapshot.
-//
-// "New" is decided by timestamp against lastAppendedLiveTs, NOT by array
-// length. The store's live buffer is a capped ring (see LIVE_CAP in
-// stores/sensors.ts) — its length plateaus once full even though the
-// WS is still delivering fresh measurements, so length-diffing can't
-// distinguish "nothing new happened" from "the buffer is just full".
-// Timestamp identity has no such blind spot: it's correct whether the
-// array grew, stayed the same length, or (in principle) shrank.
+// Unified readings watcher: LIVE mode mirrors whatever the store currently
+// holds — no incremental per-point append/dedup bookkeeping. The store's
+// `measurements` is already a bounded window (backfilled to LIVE_WINDOW_MS
+// on entering LIVE, then a length-capped ring buffer via WS pushes — see
+// LIVE_CAP in stores/sensors.ts), so every readings change already IS the
+// full correct set of points to show; re-deriving livePoints from it
+// wholesale each time is simpler and can't silently drop data the way an
+// incremental "skip if timestamp <= last seen" loop could. Historical
+// ranges keep the zoom/selection reset behavior when the parent swaps in a
+// new snapshot.
 watch(
   () => props.readings,
   (newR) => {
@@ -567,17 +546,9 @@ watch(
       clearSelection()
       return
     }
-    if (newR.length === 0) {
-      resetLive()
-      return
-    }
-    for (const r of newR) {
-      if (typeof r.temperature !== 'number' || Number.isNaN(r.temperature)) continue
-      const t = new Date(r.received_at).getTime()
-      if (lastAppendedLiveTs != null && t <= lastAppendedLiveTs) continue
-      appendLivePoint(t, r.temperature)
-      lastAppendedLiveTs = t
-    }
+    livePoints.value = newR
+      .filter((r): r is MeasurementItem & { temperature: number } => typeof r.temperature === 'number' && !Number.isNaN(r.temperature))
+      .map((r) => ({ t: new Date(r.received_at).getTime(), temp: r.temperature }))
   },
 )
 
