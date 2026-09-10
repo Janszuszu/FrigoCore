@@ -455,13 +455,59 @@ function liveYScale(temp: number): number {
   return MARGIN.top + PLOT_H - ((temp - min) / span) * PLOT_H
 }
 
+// LIVE renders as a trace, not columns — an oscilloscope reads as a moving
+// line, and a continuous line reads more naturally as "live" than discrete
+// bars do. Same three-color story as the historical columns (green/red/blue,
+// solid, no blend): each segment/point is colored from its own temperature
+// against the thresholds, nothing derived from a neighbor.
+function classifyTempColor(temp: number, lowT: number | null, highT: number | null): string {
+  return highT != null && temp > highT ? COLUMN_COLOR_HIGH : lowT != null && temp < lowT ? COLUMN_COLOR_LOW : COLUMN_COLOR_NORMAL
+}
+
+interface LiveTracePoint {
+  x: number
+  y: number
+  color: string
+}
+
+interface LiveTraceSegment {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  color: string
+}
+
 // Recomputed only when livePoints/thresholds actually change (i.e. on a
 // real new measurement) — NOT on the 60fps `liveNow` tick, which only
 // drives the cheap shift transform below.
-const liveColumns = computed<Column[]>(() => {
+const liveTracePoints = computed<LiveTracePoint[]>(() => {
   const points = livePoints.value.map((p) => ({ x: liveRawX(p.t), t: p.temp }))
   const decimated = decimateForRender(points, targetColumns.value)
-  return buildColumns(decimated, liveYScale, props.lowThreshold, props.highThreshold, MARGIN.top, MARGIN.top + PLOT_H)
+  return decimated.map((p) => ({
+    x: p.x,
+    y: liveYScale(p.t),
+    color: classifyTempColor(p.t, props.lowThreshold, props.highThreshold),
+  }))
+})
+
+// A segment takes the color of the point it leads TO, so a crossing into
+// HIGH/LOW shows up exactly where the trace actually crosses the threshold
+// line, not a segment early or late.
+const liveTraceSegments = computed<LiveTraceSegment[]>(() => {
+  const pts = liveTracePoints.value
+  const segments: LiveTraceSegment[] = []
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]
+    const b = pts[i]
+    segments.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, color: b.color })
+  }
+  return segments
+})
+
+const liveHeadPoint = computed<LiveTracePoint | null>(() => {
+  const pts = liveTracePoints.value
+  return pts.length ? pts[pts.length - 1] : null
 })
 
 function resetLive() {
@@ -1094,21 +1140,29 @@ onUnmounted(() => {
 
         <!-- The sweep itself: clipped to the plot rect and shifted left as
              the window fills, so it visibly scrolls off at the left edge
-             like an oscilloscope trace. Each measurement is its own
-             baseline-rooted column — liveColumns only recomputes when a
-             real point arrives; liveShiftPx (this transform) is the one
-             thing driven by the 60fps clock. -->
+             like a real oscilloscope trace — a continuous line, not bars.
+             liveTraceSegments/liveHeadPoint only recompute when a real
+             point arrives; liveShiftPx (this transform) is the one thing
+             driven by the 60fps clock. -->
         <g clip-path="url(#plot-area-clip)">
           <g class="live-sweep" :transform="`translate(${liveShiftPx},0)`">
-            <rect
-              v-for="(col, i) in liveColumns"
-              :key="`live-col-${i}`"
-              :x="col.x"
-              :y="col.y"
-              :width="col.width"
-              :height="col.height"
-              :fill="col.color"
-              class="temp-column"
+            <line
+              v-for="(seg, i) in liveTraceSegments"
+              :key="`live-seg-${i}`"
+              :x1="seg.x1"
+              :y1="seg.y1"
+              :x2="seg.x2"
+              :y2="seg.y2"
+              :stroke="seg.color"
+              class="live-trace-segment"
+            />
+            <circle
+              v-if="liveHeadPoint"
+              :cx="liveHeadPoint.x"
+              :cy="liveHeadPoint.y"
+              :fill="liveHeadPoint.color"
+              r="4"
+              class="live-head-dot"
             />
           </g>
         </g>
@@ -1370,6 +1424,12 @@ onUnmounted(() => {
 .temp-column { shape-rendering: auto; }
 
 .chart-svg-live { cursor: default; }
+
+/* LIVE trace: a plain solid line, same three colors as the historical
+   columns (green/red/blue), no glow or gradient — consistent with the
+   rest of the chart's deliberately flat, no-blend color story. */
+.live-trace-segment { stroke-width: 2.5; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+.live-head-dot { stroke: #08090b; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 
 /* Crosshair/hover-dot are neutral grays, not an accent color — the only
    "color" anywhere in this chart is the data line and the alarm-state
