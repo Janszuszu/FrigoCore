@@ -399,7 +399,7 @@ const columns = computed<Column[]>(() =>
 // stepping. New points only ever get pushed onto `livePoints` (never a
 // data refetch); the smoothed path recomputes from that small, bounded,
 // in-memory buffer, which costs nothing at LIVE's actual data rate.
-const LIVE_WINDOW_MS = 5 * 60 * 1000 // visible sweep width once filled
+const LIVE_WINDOW_MS = 30 * 60 * 1000 // visible sweep width once filled
 
 const livePoints = ref<{ t: number; temp: number }[]>([])
 const liveSweepStart = ref(Date.now())
@@ -478,8 +478,14 @@ let lastAppendedLiveTs: number | null = null
 
 function resetLive() {
   livePoints.value = []
-  liveSweepStart.value = Date.now()
-  liveNow.value = liveSweepStart.value
+  // Backdated, not "now" — the store backfills the last LIVE_WINDOW_MS of
+  // history on entering LIVE (see fetchMeasurementsForRange), and those
+  // readings need to land at their real position across the full window
+  // immediately, not off-screen to the left of a sweep that only just
+  // started. This also removes the old "compress toward now" fill-up
+  // phase entirely: the window is already full range from frame one.
+  liveSweepStart.value = Date.now() - LIVE_WINDOW_MS
+  liveNow.value = Date.now()
   lastAppendedLiveTs = null
 }
 

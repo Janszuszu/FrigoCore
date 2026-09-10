@@ -12,6 +12,9 @@ const RANGE_DURATION_MS: Record<Exclude<ChartRange, "LIVE">, number> = {
 };
 
 const LIVE_CAP = 200;
+// Must match TemperatureChart.vue's LIVE_WINDOW_MS — the chart's
+// oscilloscope sweep window that this backfill needs to fill immediately.
+const LIVE_WINDOW_MS = 30 * 60 * 1000;
 
 // Only refetch when the chart's measured width implies a meaningfully
 // different column target (e.g. a real breakpoint/orientation change),
@@ -64,22 +67,18 @@ export const useSensorsStore = defineStore("sensors", () => {
     const sensor = selectedSensor.value;
     if (!sensor) return;
     currentRange.value = range;
-    if (range === "LIVE") {
-      // Oscilloscope-style LIVE: no historical backfill — the chart starts
-      // empty and fills in only from live WS pushes (addMeasurementFromWs).
-      measurements.value = [];
-      rangeLoading.value = false;
-      return;
-    }
     rangeLoading.value = true;
     try {
       const now = Date.now();
-      const sinceMs = now - RANGE_DURATION_MS[range];
+      // LIVE backfills the last LIVE_WINDOW_MS so the oscilloscope sweep
+      // starts already full (see TemperatureChart.vue's resetLive), then
+      // only grows from live WS pushes (addMeasurementFromWs) from here.
+      const sinceMs = now - (range === "LIVE" ? LIVE_WINDOW_MS : RANGE_DURATION_MS[range]);
       measurements.value = await apiMeasurements.listAggregated(
         sensor.id,
         sinceMs,
         now,
-        targetColumns.value,
+        range === "LIVE" ? LIVE_CAP : targetColumns.value,
       );
     } catch {
       measurements.value = [];
