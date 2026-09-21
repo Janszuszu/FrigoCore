@@ -182,9 +182,8 @@ watch(selectedObjectId,pickObject);
 
   <div v-if="showChart && sensor" ref="fullscreenRoot" class="chart-overlay">
    <div class="ranges">
-    <button class="back-btn" type="button" aria-label="Wróć" @click="closeChart">
-     <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-     <span>Wróć</span>
+    <button class="back-btn" type="button" aria-label="Zamknij" @click="closeChart">
+     <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
     </button>
     <div class="chart-stats">
       <span class="chart-stat min"><b>MIN</b> {{temperature(stats.min)}}</span>
@@ -320,7 +319,7 @@ watch(selectedObjectId,pickObject);
 /* MIN/AVG/MAX for the currently selected range. */
 .chart-stats{order:1;margin-right:auto;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:13px;color:#afc0dc;font-variant-numeric:tabular-nums}
 .range-buttons{order:2}
-.back-btn{order:3}
+.back-btn{order:3;width:40px;padding:0;justify-content:center}
 .chart-stat b{color:#e8effa;font-weight:700;letter-spacing:.04em;margin-right:4px}
 .chart-stat.min b{color:#ffc457}.chart-stat.avg b{color:#00e77b}.chart-stat.max b{color:#ff717a}.chart-stat.cyc b{color:#00cce3}
 .chart-stat-sep{color:#3a5470}
