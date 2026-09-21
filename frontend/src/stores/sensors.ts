@@ -70,7 +70,7 @@ export const useSensorsStore = defineStore("sensors", () => {
    * takes, not the frontend, so there's no client-side pagination loop
    * here anymore.
    */
-  async function fetchMeasurementsForRange(range: ChartRange) {
+  async function fetchMeasurementsForRange(range: ChartRange, silent = false) {
     const sensor = selectedSensor.value;
     if (!sensor) return;
     currentRange.value = range;
@@ -81,7 +81,7 @@ export const useSensorsStore = defineStore("sensors", () => {
       rangeLoading.value = false;
       return;
     }
-    rangeLoading.value = true;
+    if (!silent) rangeLoading.value = true;
     try {
       // Hour offset only applies to the 1H view (step back/forward hourly).
       const offsetMs = range === "1H" ? hourOffset.value * 60 * 60 * 1000 : 0;
@@ -94,7 +94,7 @@ export const useSensorsStore = defineStore("sensors", () => {
         targetColumns.value,
       );
     } catch {
-      measurements.value = [];
+      if (!silent) measurements.value = [];
     } finally {
       rangeLoading.value = false;
     }

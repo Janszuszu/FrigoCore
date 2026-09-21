@@ -151,7 +151,17 @@ onMounted(async()=>{
   if(objectsStore.activeObjects[0]){selectedObjectId.value=objectsStore.activeObjects[0].id;pickObject()}
   document.addEventListener("fullscreenchange", onFullscreenChange);
 });
+// 1H view at "now": refetch every minute so the window slides forward.
+let hourTimer:ReturnType<typeof setInterval>|null=null;
+function stopHourTimer(){if(hourTimer!=null){clearInterval(hourTimer);hourTimer=null}}
+watch([showChart,range,()=>sensorsStore.hourOffset],()=>{
+  stopHourTimer();
+  if(showChart.value&&range.value==='1H'&&sensorsStore.hourOffset===0){
+    hourTimer=setInterval(()=>sensorsStore.fetchMeasurementsForRange('1H',true),60_000);
+  }
+},{immediate:true});
 onUnmounted(()=>{
+  stopHourTimer();
   document.removeEventListener("fullscreenchange", onFullscreenChange);
 });
 watch(selectedObjectId,pickObject);
