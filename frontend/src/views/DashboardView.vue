@@ -6,6 +6,7 @@ import { useAlarmsStore } from "@/stores/alarms";
 import { apiAlarmConfigs } from "@/api";
 import type { AlarmConfigItem, ChartRange, MeasurementItem, SensorItem } from "@/types";
 import TemperatureChart from "@/components/TemperatureChart.vue";
+import { countCycles } from "@/utils/cycles";
 import SensorIcon from "@/components/SensorIcon.vue";
 import { suggestIconFromName } from "@/utils/sensorIcons";
 
@@ -64,6 +65,8 @@ const sensor=computed(()=>sensorsStore.selectedSensor);
 const readings=computed(()=>[...sensorsStore.measurements].reverse());
 const validTemps=computed(()=>readings.value.filter((x): x is MeasurementItem & {temperature:number}=>typeof x.temperature==='number'&&!isNaN(x.temperature)));
 const stats=computed(()=>{const temps=validTemps.value.map(x=>x.temperature);return temps.length?{min:Math.min(...temps),max:Math.max(...temps),avg:temps.reduce((a,b)=>a+b,0)/temps.length}:{min:null,max:null,avg:null}});
+const cycles=computed(()=>countCycles(validTemps.value.map(x=>({t:new Date(x.received_at).getTime(),temp:x.temperature}))));
+const cycleAvgLabel=computed(()=>{const ms=cycles.value.avgMs;return ms==null?"":` · śr. ${Math.round(ms/60000)} min`});
 
 const highThreshold=computed(()=>{const c=alarmConfigs.value.find(c=>c.alarm_type==='high_temperature');return c?.is_enabled?c.threshold_value:null});
 const lowThreshold=computed(()=>{const c=alarmConfigs.value.find(c=>c.alarm_type==='low_temperature');return c?.is_enabled?c.threshold_value:null});
@@ -189,6 +192,10 @@ watch(selectedObjectId,pickObject);
       <span class="chart-stat avg"><b>AVG</b> {{temperature(stats.avg)}}</span>
      <span class="chart-stat-sep" aria-hidden="true">|</span>
       <span class="chart-stat max"><b>MAX</b> {{temperature(stats.max)}}</span>
+     <template v-if="range==='1H'">
+      <span class="chart-stat-sep" aria-hidden="true">|</span>
+      <span class="chart-stat cyc"><b>CYKLE</b> {{cycles.count}}{{cycleAvgLabel}}</span>
+     </template>
     </div>
     <div v-if="range==='1H'" class="hour-nav">
      <button type="button" aria-label="Godzinę wcześniej" @click="sensorsStore.shiftHour(1)">‹</button>
@@ -315,7 +322,7 @@ watch(selectedObjectId,pickObject);
 .range-buttons{order:2}
 .back-btn{order:3}
 .chart-stat b{color:#e8effa;font-weight:700;letter-spacing:.04em;margin-right:4px}
-.chart-stat.min b{color:#ffc457}.chart-stat.avg b{color:#00e77b}.chart-stat.max b{color:#ff717a}
+.chart-stat.min b{color:#ffc457}.chart-stat.avg b{color:#00e77b}.chart-stat.max b{color:#ff717a}.chart-stat.cyc b{color:#00cce3}
 .chart-stat-sep{color:#3a5470}
 
 @media(max-width:1100px){.dashboard{max-width:100%}}
