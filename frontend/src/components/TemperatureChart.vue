@@ -167,7 +167,7 @@ let containerResizeObserver: ResizeObserver | null = null
 // labels never touch even at the larger mobile font-size.
 const minLabelWidthPx = computed(() => {
   if (props.range === 'LIVE') return 66 // "HH:mm:ss"
-  if (props.range === '7D') return 86 // "dd.MM HH:mm"
+  if (props.range === '7D') return 64 // "Pon dd.MM"
   return 52 // "HH:mm" (1H/24H, and the short auto-fallback)
 })
 
@@ -214,6 +214,27 @@ const xTicks = computed(() => {
   const count = tickCount.value
   const spanMs = end - start
   const ticks: { x: number; label: string }[] = []
+  if (props.range === '7D') {
+    // One tick per local midnight, labelled with the weekday, so each day
+    // of the week is clearly marked. Thin them out if the plot is narrow.
+    const midnights: number[] = []
+    const d = new Date(start)
+    d.setHours(24, 0, 0, 0)
+    for (let t = d.getTime(); t <= end; ) {
+      midnights.push(t)
+      const next = new Date(t)
+      next.setDate(next.getDate() + 1)
+      t = next.getTime()
+    }
+    const plotWidthPx = containerWidthPx.value * (PLOT_W / VB_W)
+    const perLabel = plotWidthPx / Math.max(1, midnights.length)
+    const stride = Math.max(1, Math.ceil(64 / perLabel))
+    midnights.forEach((t, i) => {
+      if (i % stride === 0) ticks.push({ x: xScaleMs(t), label: formatWeekday(new Date(t)) })
+    })
+    if (ticks.length >= 2) return ticks
+    ticks.length = 0
+  }
   for (let i = 0; i <= count; i++) {
     const t = start + (spanMs * i) / count
     ticks.push({ x: xScaleMs(t), label: formatAxisTime(t, spanMs) })
@@ -236,6 +257,12 @@ function formatDateAndHour(d: Date): string {
   const datePart = d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })
   const timePart = d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
   return `${datePart} ${timePart}`
+}
+
+function formatWeekday(d: Date): string {
+  const wd = d.toLocaleDateString('pl-PL', { weekday: 'short' }).replace('.', '')
+  const date = d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })
+  return `${wd.charAt(0).toUpperCase()}${wd.slice(1)} ${date}`
 }
 
 function formatAxisTime(ms: number, spanMs: number): string {

@@ -110,6 +110,7 @@ async function loadAlarmConfigs(sensorId:string){
 
 function applyRange(r:ChartRange){
   range.value=r;
+  sensorsStore.hourOffset=0;
   sensorsStore.fetchMeasurementsForRange(r);
 }
 
@@ -155,7 +156,7 @@ watch(selectedObjectId,pickObject);
 <template>
  <section class="dashboard">
   <div class="selectors">
-   <div class="selector-heading"><span class="selector-label">OBIEKT</span><div class="dashboard-time" aria-label="Aktualna data i godzina"><span class="dashboard-date">{{ date }}</span><span class="dashboard-clock">{{ time }}</span></div></div>
+   <div class="selector-heading"><span class="selector-label">OBIEKT</span><span class="dashboard-clock" aria-label="Aktualna godzina">{{ time }}</span><span class="dashboard-date" aria-label="Dzisiejsza data">{{ date }}</span></div>
    <select v-model="selectedObjectId"><option value="">Wybierz obiekt</option><option v-for="object in objectsStore.activeObjects" :key="object.id" :value="object.id">{{object.name}}</option></select>
   </div>
 
@@ -189,6 +190,11 @@ watch(selectedObjectId,pickObject);
      <span class="chart-stat-sep" aria-hidden="true">|</span>
       <span class="chart-stat max"><b>MAX</b> {{temperature(stats.max)}}</span>
     </div>
+    <div v-if="range==='1H'" class="hour-nav">
+     <button type="button" aria-label="Godzinę wcześniej" @click="sensorsStore.shiftHour(1)">‹</button>
+     <span>{{ sensorsStore.hourOffset ? `-${sensorsStore.hourOffset} h` : 'TERAZ' }}</span>
+     <button type="button" aria-label="Godzinę później" :disabled="!sensorsStore.hourOffset" @click="sensorsStore.shiftHour(-1)">›</button>
+    </div>
     <div class="range-buttons">
      <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
     </div>
@@ -209,7 +215,7 @@ watch(selectedObjectId,pickObject);
  </section>
 </template>
 <style scoped>
-.dashboard{padding:21px 25px 10px;max-width:1280px;margin:auto}.selectors{display:grid;gap:8px;margin-bottom:21px}.selector-heading{display:flex;align-items:baseline;justify-content:space-between;gap:16px}.selector-label{font-size:14px;color:#aab9cf}.selectors select{width:100%;appearance:none;height:48px;border:1px solid #2b4b67;border-radius:7px;background:#081421 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23b8c9e8' stroke-width='2'/%3E%3C/svg%3E") no-repeat calc(100% - 17px) center;color:#e8effa;font-size:17px;padding:0 48px 0 18px}.dashboard-time{display:flex;align-items:baseline;gap:9px;color:#d8dfec;font-variant-numeric:tabular-nums;line-height:17px}.dashboard-date{font-size:13px;color:#8ea1be}.dashboard-clock{font-size:17px;font-weight:600}.temperature-panel{background:radial-gradient(circle at 45% 30%,#0d1d2d,#07121e 70%);border:1px solid #172d42}
+.dashboard{padding:21px 25px 10px;max-width:1280px;margin:auto}.selectors{display:grid;gap:8px;margin-bottom:21px}.selector-heading{display:grid;grid-template-columns:1fr auto 1fr;align-items:baseline;gap:16px}.selector-label{font-size:14px;color:#aab9cf}.selectors select{width:100%;appearance:none;height:48px;border:1px solid #2b4b67;border-radius:7px;background:#081421 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23b8c9e8' stroke-width='2'/%3E%3C/svg%3E") no-repeat calc(100% - 17px) center;color:#e8effa;font-size:17px;padding:0 48px 0 18px}.dashboard-clock{justify-self:center;text-align:center;font-size:17px;font-weight:600;color:#d8dfec;font-variant-numeric:tabular-nums;line-height:17px}.dashboard-date{justify-self:end;text-align:right;font-size:13px;color:#8ea1be;font-variant-numeric:tabular-nums;line-height:17px}.temperature-panel{background:radial-gradient(circle at 45% 30%,#0d1d2d,#07121e 70%);border:1px solid #172d42}
 
 /* ---------- Sensor tiles ----------
    Every sensor for the selected object is on the page at once, each its
@@ -299,6 +305,9 @@ watch(selectedObjectId,pickObject);
 .back-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .back-btn:hover{border-color:#00cce3;color:#00e5ef}
 .range-buttons{display:flex;gap:10px}
+.hour-nav{display:flex;align-items:center;gap:6px;order:1;color:#aab9cf;font-size:13px;font-variant-numeric:tabular-nums}
+.hour-nav button{height:36px;min-width:36px;border:1px solid #2b4b67;border-radius:7px;background:#081421;color:#e8effa;font-size:20px;line-height:1}
+.hour-nav button:disabled{opacity:.35}
 .range-buttons .active{border-color:#00cce3;color:#00e5ef;background:#063142}
 
 /* MIN/AVG/MAX for the currently selected range. */

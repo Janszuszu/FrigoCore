@@ -26,6 +26,15 @@ export const useSensorsStore = defineStore("sensors", () => {
   const rangeLoading = ref(false);
   const error = ref<string | null>(null);
   const currentRange = ref<ChartRange>("24H");
+  // How many whole hours the 1H window is shifted into the past (0 = now).
+  const hourOffset = ref(0);
+
+  function shiftHour(delta: number) {
+    const next = Math.max(0, hourOffset.value + delta);
+    if (next === hourOffset.value) return;
+    hourOffset.value = next;
+    fetchMeasurementsForRange("1H");
+  }
   // Estimated up front from the viewport (the chart hasn't mounted/measured
   // itself yet at store-creation time); corrected via setTargetColumns once
   // the chart reports its real rendered width.
@@ -47,6 +56,7 @@ export const useSensorsStore = defineStore("sensors", () => {
 
   function selectSensor(sensor: SensorItem | null, range: ChartRange = "24H") {
     selectedSensor.value = sensor;
+    hourOffset.value = 0;
     if (sensor) {
       fetchMeasurementsForRange(range);
     } else {
@@ -73,12 +83,14 @@ export const useSensorsStore = defineStore("sensors", () => {
     }
     rangeLoading.value = true;
     try {
-      const now = Date.now();
-      const sinceMs = now - RANGE_DURATION_MS[range];
+      // Hour offset only applies to the 1H view (step back/forward hourly).
+      const offsetMs = range === "1H" ? hourOffset.value * 60 * 60 * 1000 : 0;
+      const until = Date.now() - offsetMs;
+      const sinceMs = until - RANGE_DURATION_MS[range];
       measurements.value = await apiMeasurements.listAggregated(
         sensor.id,
         sinceMs,
-        now,
+        until,
         targetColumns.value,
       );
     } catch {
@@ -153,6 +165,8 @@ export const useSensorsStore = defineStore("sensors", () => {
     error,
     currentRange,
     targetColumns,
+    hourOffset,
+    shiftHour,
     fetchSensors,
     selectSensor,
     fetchMeasurementsForRange,
