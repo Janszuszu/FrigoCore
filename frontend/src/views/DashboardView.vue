@@ -211,9 +211,9 @@ watch(selectedObjectId,pickObject);
      <span>{{ sensorsStore.hourOffset ? `-${sensorsStore.hourOffset} h` : 'TERAZ' }}</span>
      <button type="button" aria-label="Godzinę później" :disabled="!sensorsStore.hourOffset" @click="sensorsStore.shiftHour(-1)">›</button>
     </div>
-    <div class="range-buttons">
-     <button v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :class="{active:range===item}" @click="applyRange(item)">{{item}}</button>
-    </div>
+    <select class="range-select" aria-label="Zakres wykresu" :value="range" @change="applyRange(($event.target as HTMLSelectElement).value as ChartRange)">
+     <option v-for="item in (['LIVE','1H','24H','7D'] as ChartRange[])" :key="item" :value="item">{{item}}</option>
+    </select>
    </div>
    <TemperatureChart
      :sensor="sensor"
@@ -312,7 +312,7 @@ watch(selectedObjectId,pickObject);
   border:1px solid rgba(38,62,86,0.7);border-radius:12px;
   box-shadow:0 8px 24px rgba(0,0,0,0.35);
 }
-.back-btn,.range-buttons button{
+.back-btn,.range-select{
   display:flex;align-items:center;justify-content:center;gap:7px;
   height:40px;padding:0 18px;flex:none;white-space:nowrap;
   background:#091725;border:1px solid #263e56;border-radius:8px;
@@ -320,15 +320,20 @@ watch(selectedObjectId,pickObject);
 }
 .back-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .back-btn:hover{border-color:#00cce3;color:#00e5ef}
-.range-buttons{display:flex;gap:10px}
+.range-select{
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  padding:0 34px 0 16px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23afc0dc' stroke-width='2'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:calc(100% - 14px) center;
+}
+.range-select:hover,.range-select:focus{border-color:#00cce3;color:#00e5ef}
 .hour-nav{display:flex;align-items:center;gap:6px;order:1;color:#aab9cf;font-size:13px;font-variant-numeric:tabular-nums}
 .hour-nav button{height:36px;min-width:36px;border:1px solid #2b4b67;border-radius:7px;background:#081421;color:#e8effa;font-size:20px;line-height:1}
 .hour-nav button:disabled{opacity:.35}
-.range-buttons .active{border-color:#00cce3;color:#00e5ef;background:#063142}
 
 /* MIN/AVG/MAX for the currently selected range. */
 .chart-stats{order:1;margin-right:auto;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:13px;color:#afc0dc;font-variant-numeric:tabular-nums}
-.range-buttons{order:2}
+.range-select{order:2}
 .back-btn{order:3;width:40px;padding:0;justify-content:center}
 .chart-stat b{color:#e8effa;font-weight:700;letter-spacing:.04em;margin-right:4px}
 .chart-stat.min b{color:#ffc457}.chart-stat.avg b{color:#00e77b}.chart-stat.max b{color:#ff717a}.chart-stat.cyc b{color:#00cce3}
@@ -364,7 +369,6 @@ watch(selectedObjectId,pickObject);
  .back-btn span{display:none}
  .back-btn{width:40px;padding:0}
  .ranges{top:8px;left:8px;right:8px;gap:6px;padding:6px 10px}
- .range-buttons{gap:6px}
  .chart-stats{font-size:11px;gap:6px}
 }
 
@@ -374,6 +378,6 @@ watch(selectedObjectId,pickObject);
 @media(max-height:430px){
  .chart-overlay{padding:2px}
  .ranges{top:6px;left:6px;right:6px;padding:5px 8px}
- .ranges button,.back-btn{height:36px}
+ .ranges button,.range-select,.back-btn{height:36px}
 }
 </style>
