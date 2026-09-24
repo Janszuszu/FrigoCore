@@ -83,9 +83,18 @@ export const useSensorsStore = defineStore("sensors", () => {
     }
     if (!silent) rangeLoading.value = true;
     try {
-      // Hour offset only applies to the 1H view (step back/forward hourly).
-      const offsetMs = range === "1H" ? hourOffset.value * 60 * 60 * 1000 : 0;
-      const until = Date.now() - offsetMs;
+      let until: number;
+      if (range === "1H") {
+        // 1H windows are aligned to clock hours, not rolling from "now": at
+        // offset 0 that's the current hour (e.g. 14:00-15:00, growing until
+        // it rolls to the next hour); back/forward steps by a whole aligned
+        // hour, not by however many minutes are left in "now"'s hour.
+        const now = new Date();
+        const hourStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()).getTime();
+        until = hourStart + RANGE_DURATION_MS["1H"] - hourOffset.value * RANGE_DURATION_MS["1H"];
+      } else {
+        until = Date.now();
+      }
       const sinceMs = until - RANGE_DURATION_MS[range];
       measurements.value = await apiMeasurements.listAggregated(
         sensor.id,
