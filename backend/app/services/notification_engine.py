@@ -25,7 +25,8 @@ from typing import TYPE_CHECKING, Any
 from app.enums import AlarmType, NotificationChannel
 from app.models.alarm import Alarm
 from app.models.notification_endpoint import NotificationEndpoint
-from app.services import firebase_client, voipstudio_client
+from app.database import async_session_factory
+from app.services import firebase_client, voip_settings, voipstudio_client
 from app.services.firebase_client import FcmSendResult, FirebaseNotConfiguredError
 
 if TYPE_CHECKING:
@@ -269,8 +270,10 @@ class NotificationEngine:
         if not phone_number:
             logger.warning("Voice endpoint %s has no phone_number configured", endpoint.id)
             return
+        async with async_session_factory() as session:
+            config = await voip_settings.load(session)
         try:
-            await voipstudio_client.place_tts_call(phone_number, message)
+            await voipstudio_client.place_tts_call(phone_number, message, config)
         except voipstudio_client.VoipStudioNotConfiguredError:
             logger.error("VoIPstudio not configured — cannot call voice endpoint %s", endpoint.id)
 

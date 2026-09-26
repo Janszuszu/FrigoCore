@@ -1,12 +1,21 @@
 <script setup lang="ts">
 /**
- * Ustawienia — user administration. Admin only (gated in App.vue).
+ * Ustawienia — user administration and alarm voice calls. Admin only
+ * (gated in App.vue).
  */
 import { computed, onMounted, ref } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useUsersStore } from "@/stores/users";
 import type { UserItem } from "@/types";
 import UserFormModal from "@/components/UserFormModal.vue";
+import VoiceCallSettings from "@/components/VoiceCallSettings.vue";
+
+type Tab = "users" | "voice";
+const TABS: { key: Tab; label: string }[] = [
+  { key: "users", label: "Użytkownicy" },
+  { key: "voice", label: "Połączenia alarmowe" },
+];
+const tab = ref<Tab>("users");
 
 const usersStore = useUsersStore();
 const objectsStore = useObjectsStore();
@@ -54,47 +63,65 @@ async function onDeleted() {
 <template>
   <div class="settings-view">
     <div class="toolbar">
-      <h1>Ustawienia — Użytkownicy</h1>
-      <button type="button" class="primary" @click="creating = true">+ Dodaj użytkownika</button>
+      <h1>Ustawienia</h1>
+      <button v-if="tab === 'users'" type="button" class="primary" @click="creating = true">
+        + Dodaj użytkownika
+      </button>
     </div>
 
-    <p v-if="usersStore.error" class="error">{{ usersStore.error }}</p>
-    <p v-if="usersStore.loading" class="muted">Ładowanie…</p>
+    <nav class="tabs">
+      <button
+        v-for="t in TABS"
+        :key="t.key"
+        type="button"
+        :class="{ active: tab === t.key }"
+        @click="tab = t.key"
+      >
+        {{ t.label }}
+      </button>
+    </nav>
 
-    <table v-else class="grid">
-      <thead>
-        <tr>
-          <th>Użytkownik</th>
-          <th>E-mail</th>
-          <th>Rola</th>
-          <th>Dostęp do obiektów</th>
-          <th>Status</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="user in usersStore.users" :key="user.id">
-          <td>
-            <strong>{{ user.username }}</strong>
-            <small v-if="user.full_name">{{ user.full_name }}</small>
-          </td>
-          <td class="dim">{{ user.email }}</td>
-          <td><span class="role">{{ roleLabel(user.role) }}</span></td>
-          <td class="dim">{{ objectNames(user) }}</td>
-          <td>
-            <span :class="['status', user.is_active ? 'on' : 'off']">
-              {{ user.is_active ? "Aktywny" : "Nieaktywny" }}
-            </span>
-          </td>
-          <td class="right">
-            <button type="button" class="link" @click="editing = user">Edytuj</button>
-          </td>
-        </tr>
-        <tr v-if="!usersStore.users.length">
-          <td colspan="6" class="empty">Brak użytkowników</td>
-        </tr>
-      </tbody>
-    </table>
+    <VoiceCallSettings v-if="tab === 'voice'" />
+
+    <template v-else>
+      <p v-if="usersStore.error" class="error">{{ usersStore.error }}</p>
+      <p v-if="usersStore.loading" class="muted">Ładowanie…</p>
+
+      <table v-else class="grid">
+        <thead>
+          <tr>
+            <th>Użytkownik</th>
+            <th>E-mail</th>
+            <th>Rola</th>
+            <th>Dostęp do obiektów</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="user in usersStore.users" :key="user.id">
+            <td>
+              <strong>{{ user.username }}</strong>
+              <small v-if="user.full_name">{{ user.full_name }}</small>
+            </td>
+            <td class="dim">{{ user.email }}</td>
+            <td><span class="role">{{ roleLabel(user.role) }}</span></td>
+            <td class="dim">{{ objectNames(user) }}</td>
+            <td>
+              <span :class="['status', user.is_active ? 'on' : 'off']">
+                {{ user.is_active ? "Aktywny" : "Nieaktywny" }}
+              </span>
+            </td>
+            <td class="right">
+              <button type="button" class="link" @click="editing = user">Edytuj</button>
+            </td>
+          </tr>
+          <tr v-if="!usersStore.users.length">
+            <td colspan="6" class="empty">Brak użytkowników</td>
+          </tr>
+        </tbody>
+      </table>
+    </template>
 
     <UserFormModal
       v-if="creating"
@@ -131,6 +158,30 @@ async function onDeleted() {
   font-weight: 600;
   margin: 0;
   color: #e9f2ff;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #16324a;
+}
+
+.tabs button {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 8px 14px;
+  color: #8ea6c4;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tabs button.active {
+  color: #e9f2ff;
+  border-bottom-color: #06c7f3;
 }
 
 .primary {

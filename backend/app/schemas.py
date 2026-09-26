@@ -357,3 +357,57 @@ class NotificationEndpointResponse(BaseModel):
     profile_id: UUID
     created_at: datetime
     updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Settings — VoIPstudio (alarm voice calls)
+# ---------------------------------------------------------------------------
+
+class VoipSettingsResponse(BaseModel):
+    token_configured: bool
+    # Last 4 characters only — the full key never leaves the backend.
+    token_hint: str | None
+    token_updated_at: datetime | None
+    token_unreadable: bool
+    caller_id: str
+
+
+class VoipSettingsUpdate(BaseModel):
+    # None = leave unchanged, "" = remove.
+    api_token: str | None = Field(None, max_length=256)
+    caller_id: str | None = Field(None, max_length=32)
+
+
+class VoipTestResult(BaseModel):
+    ok: bool
+    detail: str
+
+
+class VoipTestCallRequest(BaseModel):
+    phone_number: str = Field(..., min_length=1, max_length=32)
+
+
+class VoiceNumberCreate(BaseModel):
+    object_id: UUID
+    phone_number: str = Field(..., min_length=1, max_length=32)
+    label: str = Field("", max_length=256)
+
+
+class VoiceNumberUpdate(BaseModel):
+    phone_number: str | None = Field(None, min_length=1, max_length=32)
+    label: str | None = Field(None, max_length=256)
+    is_enabled: bool | None = None
+
+
+class VoiceNumberResponse(BaseModel):
+    id: UUID
+    object_id: UUID
+    phone_number: str
+    label: str
+    is_enabled: bool
+
+
+class ObjectVoiceNumbers(BaseModel):
+    object_id: UUID
+    object_name: str
+    numbers: list[VoiceNumberResponse]

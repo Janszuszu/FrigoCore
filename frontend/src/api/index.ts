@@ -9,6 +9,11 @@ import type {
   NotificationEndpointUpdate,
   NotificationProfileItem,
   ObjectCreate,
+  ObjectVoiceNumbers,
+  VoiceNumber,
+  VoipSettings,
+  VoipSettingsUpdate,
+  VoipTestResult,
   ObjectItem,
   ObjectUpdate,
   SensorCreate,
@@ -181,6 +186,32 @@ export const apiNotifications = {
     request<void>(`/objects/${objectId}/notification-endpoints/${endpointId}`, {
       method: "DELETE",
     }),
+};
+
+// ─── Settings — VoIPstudio alarm voice calls (admin) ───────────────
+
+export const apiVoip = {
+  get: () => request<VoipSettings>("/settings/voip"),
+  update: (data: VoipSettingsUpdate) =>
+    request<VoipSettings>("/settings/voip", { method: "PATCH", body: JSON.stringify(data) }),
+  test: () => request<VoipTestResult>("/settings/voip/test", { method: "POST" }),
+  testCall: (phone_number: string) =>
+    request<VoipTestResult>("/settings/voip/test-call", {
+      method: "POST",
+      body: JSON.stringify({ phone_number }),
+    }),
+  listNumbers: () => request<ObjectVoiceNumbers[]>("/settings/voip/numbers"),
+  addNumber: (object_id: string, phone_number: string, label: string) =>
+    request<VoiceNumber>("/settings/voip/numbers", {
+      method: "POST",
+      body: JSON.stringify({ object_id, phone_number, label }),
+    }),
+  updateNumber: (id: string, data: Partial<Pick<VoiceNumber, "phone_number" | "label" | "is_enabled">>) =>
+    request<VoiceNumber>(`/settings/voip/numbers/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  deleteNumber: (id: string) => request<void>(`/settings/voip/numbers/${id}`, { method: "DELETE" }),
 };
 
 // ─── Measurements ──────────────────────────────────────────────────

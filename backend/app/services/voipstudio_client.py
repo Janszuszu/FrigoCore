@@ -1,9 +1,9 @@
 """FrigoCore — VoIPstudio REST API client (outbound alarm voice calls).
 
 Places a call to an E.164 number and reads a text-to-speech message to the
-callee via `POST /leadcalls`. Authentication is a permanent API key
-(user_token) generated in the VoIPstudio dashboard (Administration -> Users
--> API Keys) and sent in the `X-Auth-Token` header.
+callee via `POST /leadcalls`. Authentication is an API key (user_token)
+generated in the VoIPstudio dashboard (Administration -> Users -> API Keys),
+entered by an admin in Ustawienia and sent in the `X-Auth-Token` header.
 
 Docs: https://voipstudio.com/docs/api/introduction/
       https://voipstudio.com/docs/api/resources/calls/
@@ -17,6 +17,7 @@ import re
 import httpx
 
 from app.config import settings
+from app.services.voip_settings import VoipConfig
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +32,15 @@ _NATIONAL_NUMBER_LENGTH = 9
 
 
 class VoipStudioNotConfiguredError(RuntimeError):
-    """VOIPSTUDIO_API_TOKEN is not set — calls cannot be placed."""
+    """No VoIPstudio API key is configured — calls cannot be placed."""
 
 
 class VoipStudioCallError(RuntimeError):
-    """VoIPstudio rejected the call request (non-2xx response)."""
+    """VoIPstudio rejected the request (non-2xx response)."""
+
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def normalize_e164(phone_number: str) -> str:
@@ -58,9 +63,31 @@ def normalize_e164(phone_number: str) -> str:
     return digits
 
 
+def _client(config: VoipConfig, transport: httpx.AsyncBaseTransport | None) -> httpx.AsyncClient:
+    if not config.is_configured:
+        raise VoipStudioNotConfiguredError("VoIPstudio API key is not configured")
+    return httpx.AsyncClient(
+        base_url=settings.VOIPSTUDIO_API_URL.rstrip("/") + "/",
+        headers={"X-Auth-Token": config.api_token},
+        timeout=_REQUEST_TIMEOUT_SECONDS,
+        transport=transport,
+    )
+
+
+def _raise_for_error(response: httpx.Response) -> None:
+    if response.is_error:
+        # The body carries VoIPstudio's validation message; the key is only
+        # ever in the request headers, so the body is safe to log/return.
+        raise VoipStudioCallError(
+            f"VoIPstudio HTTP {response.status_code}: {response.text[:500]}",
+            status_code=response.status_code,
+        )
+
+
 async def place_tts_call(
     phone_number: str,
     message: str,
+    config: VoipConfig,
     *,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> int | None:
@@ -68,27 +95,21 @@ async def place_tts_call(
 
     Returns the VoIPstudio call id. `transport` exists for tests only.
     """
-    token = settings.VOIPSTUDIO_API_TOKEN
-    if not token:
-        raise VoipStudioNotConfiguredError("VOIPSTUDIO_API_TOKEN is not set")
-
     body: dict[str, str] = {"to": normalize_e164(phone_number), "tts": message}
-    if settings.VOIPSTUDIO_CALLER_ID:
-        body["caller_id"] = normalize_e164(settings.VOIPSTUDIO_CALLER_ID)
+    if config.caller_id:
+        body["caller_id"] = normalize_e164(config.caller_id)
 
-    async with httpx.AsyncClient(
-        base_url=settings.VOIPSTUDIO_API_URL.rstrip("/") + "/",
-        headers={"X-Auth-Token": token},
-        timeout=_REQUEST_TIMEOUT_SECONDS,
-        transport=transport,
-    ) as client:
+    async with _client(config, transport) as client:
         response = await client.post("leadcalls", json=body)
-
-    if response.is_error:
-        # The body carries VoIPstudio's validation message; the token is
-        # only ever in the request headers, so it is safe to log.
-        raise VoipStudioCallError(f"VoIPstudio HTTP {response.status_code}: {response.text[:500]}")
+    _raise_for_error(response)
 
     call_id = (response.json().get("data") or {}).get("id")
     logger.info("[Voice] call placed to=%s voipstudio_call_id=%s", body["to"], call_id)
     return call_id
+
+
+async def ping(config: VoipConfig, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    """Verify the API key and reset its inactivity-expiry timer."""
+    async with _client(config, transport) as client:
+        response = await client.get("ping")
+    _raise_for_error(response)

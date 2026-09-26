@@ -87,6 +87,42 @@ export interface NotificationEndpointItem {
   updated_at: string;
 }
 
+// ─── Settings — VoIPstudio alarm voice calls ─────────────────────
+
+export interface VoipSettings {
+  token_configured: boolean;
+  /** Last 4 characters only — the full key never leaves the backend. */
+  token_hint: string | null;
+  token_updated_at: string | null;
+  token_unreadable: boolean;
+  caller_id: string;
+}
+
+export interface VoipSettingsUpdate {
+  /** Omit = unchanged, "" = remove. */
+  api_token?: string;
+  caller_id?: string;
+}
+
+export interface VoipTestResult {
+  ok: boolean;
+  detail: string;
+}
+
+export interface VoiceNumber {
+  id: string;
+  object_id: string;
+  phone_number: string;
+  label: string;
+  is_enabled: boolean;
+}
+
+export interface ObjectVoiceNumbers {
+  object_id: string;
+  object_name: string;
+  numbers: VoiceNumber[];
+}
+
 export interface NotificationEndpointCreate {
   channel: NotificationChannel;
   label?: string;

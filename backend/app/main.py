@@ -22,6 +22,7 @@ from app.models.sensor import Sensor
 from app.models.object import Object
 from app.services.alarm_engine import AlarmEngine
 from app.services.escalation_engine import EscalationEngine
+from app.services.voip_settings import VoipKeepalive
 from app.api.websocket import manager as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 alarm_engine = AlarmEngine(async_session_factory)
 escalation_engine = EscalationEngine(async_session_factory)
 mqtt_engine = MQTTEngine(settings, async_session_factory)
+voip_keepalive = VoipKeepalive(async_session_factory)
 
 
 # ---------------------------------------------------------------------------
@@ -118,9 +120,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await mqtt_engine.start()
     await alarm_engine.start()
     await escalation_engine.start()
+    await voip_keepalive.start()
     logger.info("FrigoCore backend is ready")
     yield
     # Shutdown
+    await voip_keepalive.stop()
     await escalation_engine.stop()
     await alarm_engine.stop()
     await mqtt_engine.stop()
@@ -159,6 +163,7 @@ from app.api.routes import (
     sensors_router,
     users_router,
 )
+from app.api.voip_settings import voip_router
 from app.api.websocket import ws_router
 
 # ---------------------------------------------------------------------------
@@ -185,5 +190,6 @@ app.include_router(measurements_router, prefix="/api/v1/sensors", tags=["Measure
 app.include_router(notifications_router, prefix="/api/v1/objects", tags=["Notifications"])
 app.include_router(devices_router, prefix="/api/v1/devices", tags=["Devices"])
 app.include_router(escalation_policies_router, prefix="/api/v1/escalation-policies", tags=["Escalation Policies"])
+app.include_router(voip_router, prefix="/api/v1/settings/voip", tags=["Settings — VoIPstudio"])
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
 app.include_router(sim_router, prefix="/api/v1/sim", tags=["Simulation"])

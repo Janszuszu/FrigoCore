@@ -28,6 +28,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from app.api import routes as r
+from app.api.voip_settings import voip_router
 from app.core.security import create_access_token, hash_password
 from app.database import Base, async_session_factory, engine, get_db, init_db
 from app.enums import UserRole
@@ -49,6 +50,7 @@ def build_test_app() -> FastAPI:
     app.include_router(r.notifications_router, prefix="/api/v1/objects")
     app.include_router(r.devices_router, prefix="/api/v1/devices")
     app.include_router(r.escalation_policies_router, prefix="/api/v1/escalation-policies")
+    app.include_router(voip_router, prefix="/api/v1/settings/voip")
     return app
 
 
