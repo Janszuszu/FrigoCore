@@ -142,10 +142,10 @@ async def test_place_tts_call_sends_leadcall_with_auth_header():
     }
 
 
-async def test_place_tts_call_omits_caller_id_when_unset():
+async def test_place_tts_call_is_anonymous_when_caller_id_unset():
     transport, requests = _recording_transport()
     await place_tts_call("600100200", "x", CONFIG, transport=transport)
-    assert "caller_id" not in json.loads(requests[0].content)
+    assert json.loads(requests[0].content)["caller_id"] == "anonymous"
 
 
 async def test_place_tts_call_without_token_raises():

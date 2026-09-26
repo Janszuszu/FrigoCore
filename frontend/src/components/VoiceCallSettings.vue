@@ -207,7 +207,7 @@ async function removeNumber(entry: ObjectVoiceNumbers, number: VoiceNumber) {
             />
           </label>
           <label class="field">
-            <span>Numer prezentowany (opcjonalnie)</span>
+            <span>Numer prezentowany (puste = numer ukryty)</span>
             <input v-model="callerIdInput" maxlength="32" placeholder="np. +48 22 123 45 67" />
           </label>
         </div>

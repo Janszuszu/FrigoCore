@@ -31,6 +31,7 @@ _CALL_TIMEOUT_SECONDS = 60.0
 # Polish national numbers are 9 digits; anything that short with no country
 # code is assumed to be a PL number, since every FrigoCore site is in Poland.
 _DEFAULT_COUNTRY_CODE = "48"
+ANONYMOUS_CALLER_ID = "anonymous"
 _NATIONAL_NUMBER_LENGTH = 9
 
 
@@ -102,9 +103,14 @@ async def place_tts_call(
 
     Returns the VoIPstudio call id. `transport` exists for tests only.
     """
-    body: dict[str, str] = {"to": normalize_e164(phone_number), "tts": message}
-    if config.caller_id:
-        body["caller_id"] = normalize_e164(config.caller_id)
+    body: dict[str, str] = {
+        "to": normalize_e164(phone_number),
+        "tts": message,
+        # /leadcalls requires a caller ID. VoIPstudio only accepts a number
+        # the account has activated as a CLI; without one, call anonymously
+        # (same as the softphone's "Anonimowy") rather than fail with 503.
+        "caller_id": normalize_e164(config.caller_id) if config.caller_id else ANONYMOUS_CALLER_ID,
+    }
 
     logger.info("[Voice] placing call to=%s", body["to"])
     async with _client(config, transport, _CALL_TIMEOUT_SECONDS) as client:
