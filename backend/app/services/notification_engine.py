@@ -293,8 +293,8 @@ async def _place_voice_call(endpoint_id: Any, phone_number: str, message: str) -
         async with async_session_factory() as session:
             config = await voip_settings.load(session)
         await voipstudio_client.place_tts_call(phone_number, message, config)
-    except voipstudio_client.VoipStudioNotConfiguredError:
-        logger.error("VoIPstudio not configured — cannot call voice endpoint %s", endpoint_id)
+    except voipstudio_client.VoipStudioNotConfiguredError as exc:
+        logger.error("VoIPstudio not configured (%s) — cannot call voice endpoint %s", exc, endpoint_id)
     except Exception:
         logger.exception("[Voice] call failed — endpoint=%s", endpoint_id)
 

@@ -31,12 +31,15 @@ _CALL_TIMEOUT_SECONDS = 60.0
 # Polish national numbers are 9 digits; anything that short with no country
 # code is assumed to be a PL number, since every FrigoCore site is in Poland.
 _DEFAULT_COUNTRY_CODE = "48"
-ANONYMOUS_CALLER_ID = "anonymous"
 _NATIONAL_NUMBER_LENGTH = 9
 
 
 class VoipStudioNotConfiguredError(RuntimeError):
     """No VoIPstudio API key is configured — calls cannot be placed."""
+
+
+class VoipStudioNoCallerIdError(VoipStudioNotConfiguredError):
+    """No caller ID set — /leadcalls requires one of the account's numbers."""
 
 
 class VoipStudioCallError(RuntimeError):
@@ -103,13 +106,14 @@ async def place_tts_call(
 
     Returns the VoIPstudio call id. `transport` exists for tests only.
     """
+    if not config.caller_id:
+        # /leadcalls rejects a missing caller ID and "anonymous" alike
+        # ("DDI not found"): it must be an active number on the account.
+        raise VoipStudioNoCallerIdError("VoIPstudio caller ID (account number) is not configured")
     body: dict[str, str] = {
         "to": normalize_e164(phone_number),
         "tts": message,
-        # /leadcalls requires a caller ID. VoIPstudio only accepts a number
-        # the account has activated as a CLI; without one, call anonymously
-        # (same as the softphone's "Anonimowy") rather than fail with 503.
-        "caller_id": normalize_e164(config.caller_id) if config.caller_id else ANONYMOUS_CALLER_ID,
+        "caller_id": normalize_e164(config.caller_id),
     }
 
     logger.info("[Voice] placing call to=%s", body["to"])

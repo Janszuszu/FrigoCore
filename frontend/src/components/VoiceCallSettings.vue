@@ -207,8 +207,8 @@ async function removeNumber(entry: ObjectVoiceNumbers, number: VoiceNumber) {
             />
           </label>
           <label class="field">
-            <span>Numer prezentowany (puste = numer ukryty)</span>
-            <input v-model="callerIdInput" maxlength="32" placeholder="np. +48 22 123 45 67" />
+            <span>Numer prezentowany (wymagany — aktywny numer z konta VoIPstudio)</span>
+            <input v-model="callerIdInput" maxlength="32" placeholder="np. +48 57 358 61 98" />
           </label>
         </div>
 

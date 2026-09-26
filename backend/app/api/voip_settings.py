@@ -52,12 +52,24 @@ def _phone_or_422(raw: str) -> str:
 
 
 def _failure(exc: Exception) -> VoipTestResult:
+    if isinstance(exc, voipstudio_client.VoipStudioNoCallerIdError):
+        return VoipTestResult(ok=False, detail="Ustaw numer prezentowany — numer telefonu z konta VoIPstudio")
     if isinstance(exc, voipstudio_client.VoipStudioNotConfiguredError):
         return VoipTestResult(ok=False, detail="Brak klucza API")
     if isinstance(exc, voipstudio_client.VoipStudioCallError):
+        text = str(exc)
         if exc.status_code == 401:
             return VoipTestResult(ok=False, detail="VoIPstudio odrzuciło klucz API — jest nieprawidłowy lub wygasł")
-        return VoipTestResult(ok=False, detail=str(exc))
+        if "DDI not found" in text:
+            return VoipTestResult(
+                ok=False, detail="Numer prezentowany nie należy do konta VoIPstudio — wpisz numer z zakładki Numery"
+            )
+        if "PSTN gateway" in text:
+            return VoipTestResult(
+                ok=False,
+                detail="VoIPstudio nie zestawiło połączenia — sprawdź, czy numer prezentowany jest już aktywny",
+            )
+        return VoipTestResult(ok=False, detail=text)
     if isinstance(exc, httpx.TimeoutException):
         return VoipTestResult(
             ok=False,

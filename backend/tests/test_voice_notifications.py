@@ -27,6 +27,7 @@ from app.services.notification_engine import NotificationEngine, build_voice_mes
 from app.services.voip_settings import VoipConfig
 from app.services.voipstudio_client import (
     VoipStudioCallError,
+    VoipStudioNoCallerIdError,
     VoipStudioNotConfiguredError,
     normalize_e164,
     ping,
@@ -35,7 +36,7 @@ from app.services.voipstudio_client import (
 from tests.conftest import auth_headers
 from tests.helpers import make_object
 
-CONFIG = VoipConfig(api_token="test-token")
+CONFIG = VoipConfig(api_token="test-token", caller_id="48573586198")
 SETTINGS_URL = "/api/v1/settings/voip"
 NUMBERS_URL = "/api/v1/settings/voip/numbers"
 
@@ -142,10 +143,12 @@ async def test_place_tts_call_sends_leadcall_with_auth_header():
     }
 
 
-async def test_place_tts_call_is_anonymous_when_caller_id_unset():
+async def test_place_tts_call_requires_caller_id():
+    # VoIPstudio rejects both a missing and an "anonymous" caller ID.
     transport, requests = _recording_transport()
-    await place_tts_call("600100200", "x", CONFIG, transport=transport)
-    assert json.loads(requests[0].content)["caller_id"] == "anonymous"
+    with pytest.raises(VoipStudioNoCallerIdError):
+        await place_tts_call("600100200", "x", VoipConfig(api_token="t"), transport=transport)
+    assert requests == []
 
 
 async def test_place_tts_call_without_token_raises():
@@ -411,6 +414,37 @@ async def test_test_call_timeout_reports_check_history(client, db_session, make_
     )
     assert response.json()["ok"] is False
     assert "historię połączeń" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (400, '{"message":"Validation error.","errors":[{"field":"caller_id","message":"DDI not found."}]}', "nie należy do konta"),
+        (503, '{"message":"Connection to PSTN gateway failed.","errors":[]}', "jest już aktywny"),
+    ],
+)
+async def test_test_call_explains_voipstudio_rejections(client, db_session, make_user, monkeypatch, status, body, expected):
+    admin = await make_user(UserRole.ADMIN)
+    await _save_token(db_session, caller_id="48573586198")
+
+    async def rejected_call(phone_number, message, config, **_kwargs):
+        raise VoipStudioCallError(f"VoIPstudio HTTP {status}: {body}", status_code=status)
+
+    monkeypatch.setattr(voipstudio_client, "place_tts_call", rejected_call)
+    response = await client.post(
+        f"{SETTINGS_URL}/test-call", json={"phone_number": "600100200"}, headers=auth_headers(admin)
+    )
+    assert response.json()["ok"] is False
+    assert expected in response.json()["detail"]
+
+
+async def test_test_call_without_caller_id_asks_for_it(client, db_session, make_user):
+    admin = await make_user(UserRole.ADMIN)
+    await _save_token(db_session)  # token only, no caller ID
+    response = await client.post(
+        f"{SETTINGS_URL}/test-call", json={"phone_number": "600100200"}, headers=auth_headers(admin)
+    )
+    assert response.json() == {"ok": False, "detail": "Ustaw numer prezentowany — numer telefonu z konta VoIPstudio"}
 
 
 async def test_test_call_uses_saved_config(client, db_session, make_user, captured_calls):
