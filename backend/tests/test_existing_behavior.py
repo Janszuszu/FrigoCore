@@ -93,3 +93,23 @@ async def test_legacy_acknowledge_and_archive_still_work(client, db_session, mak
     resp = await client.post(f"/api/v1/alarms/{alarm.id}/archive", headers=auth_headers(serwisant))
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == AlarmStatus.ARCHIVED.value
+
+
+async def test_app_migrations_leave_logging_untouched():
+    """init_db runs Alembic inside the app. alembic.ini's fileConfig would
+    reset the root logger to WARNING and disable every existing app logger,
+    silencing alarm/voice logs in production."""
+    import logging
+
+    from app.database import init_db
+
+    app_logger = logging.getLogger("app.services.notification_engine")
+    root = logging.getLogger()
+    previous_level = root.level
+    root.setLevel(logging.INFO)
+    try:
+        await init_db()  # already at head — only env.py's setup code runs
+        assert root.level == logging.INFO
+        assert not app_logger.disabled
+    finally:
+        root.setLevel(previous_level)

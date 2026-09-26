@@ -71,6 +71,8 @@ def _alembic_config() -> "Config":
     backend_root = Path(__file__).resolve().parent.parent
     cfg = Config(str(backend_root / "alembic.ini"))
     cfg.set_main_option("script_location", str(backend_root / "migrations"))
+    # Keep the app's own logging setup — see migrations/env.py.
+    cfg.attributes["configure_logger"] = False
     return cfg
 
 

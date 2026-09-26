@@ -18,11 +18,12 @@ from app.models.base import Base
 
 config = context.config
 
-if config.config_file_name is not None:
-    # Migrations run inside the app at startup (init_db); the default
-    # disable_existing_loggers=True would silence every app logger created
-    # before this point — alarm, dispatch and voice-call logs included.
-    fileConfig(config.config_file_name, disable_existing_loggers=False)
+# Only the standalone `alembic` CLI configures logging from alembic.ini.
+# When the app runs migrations at startup (init_db), fileConfig would reset
+# the root logger to WARNING and disable every existing app logger —
+# silencing alarm, dispatch and voice-call logs in production.
+if config.config_file_name is not None and config.attributes.get("configure_logger", True):
+    fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 

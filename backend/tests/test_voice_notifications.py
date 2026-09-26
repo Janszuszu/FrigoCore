@@ -204,7 +204,8 @@ async def test_alarm_calls_every_enabled_voice_endpoint_with_saved_config(db_ses
     await NotificationEngine.send_alarm_notification(_make_alarm(), endpoints, object_name="Chłodnia A")
     await drain_voice_calls()
 
-    assert [number for number, _, _ in captured_calls] == ["48600100200", "48600999888"]
+    # Calls run concurrently — order is not guaranteed.
+    assert sorted(number for number, _, _ in captured_calls) == ["48600100200", "48600999888"]
     assert all("Chłodnia A" in message for _, message, _ in captured_calls)
     config = captured_calls[0][2]
     assert (config.api_token, config.caller_id) == ("saved-token", "48221234567")
