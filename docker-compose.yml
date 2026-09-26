@@ -161,6 +161,10 @@ services:
       # so FCM sends fail clearly instead of pretending to deliver until the
       # host actually has a service-account key to mount.
       FIREBASE_CREDENTIALS_PATH: "${FIREBASE_CREDENTIALS_HOST_PATH:+/opt/FrigoCore/secrets/firebase-service-account.json}"
+      # VoIPstudio API key for alarm voice calls ("voice" notification
+      # channel). Empty = voice endpoints log an error instead of calling.
+      VOIPSTUDIO_API_TOKEN: "${VOIPSTUDIO_API_TOKEN:-}"
+      VOIPSTUDIO_CALLER_ID: "${VOIPSTUDIO_CALLER_ID:-}"
     volumes:
       - ${FIREBASE_CREDENTIALS_HOST_PATH:-/dev/null}:/opt/FrigoCore/secrets/firebase-service-account.json:ro
     depends_on:

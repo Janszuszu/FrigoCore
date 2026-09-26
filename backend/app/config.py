@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     # to deliver when this is unset.
     FIREBASE_CREDENTIALS_PATH: str = ""
 
+    # VoIPstudio — outbound voice calls for the "voice" notification channel.
+    # Empty token = voice endpoints fail clearly (logged) instead of silently
+    # pretending a call went out.
+    VOIPSTUDIO_API_TOKEN: str = ""
+    VOIPSTUDIO_API_URL: str = "https://l7api.com/v1.2/voipstudio"
+    # Number shown to the callee (a DID owned in VoIPstudio). Empty = the API
+    # user's default caller ID.
+    VOIPSTUDIO_CALLER_ID: str = ""
+
     # Security
     SECRET_KEY: str = "change-this-to-a-random-secret-key"
     # A single long-lived access token, no refresh-token flow — this is an

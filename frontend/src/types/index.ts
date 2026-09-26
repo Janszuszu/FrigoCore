@@ -73,7 +73,8 @@ export type NotificationChannel =
   | "fcm"
   | "email"
   | "sms"
-  | "webhook";
+  | "webhook"
+  | "voice";
 
 export interface NotificationEndpointItem {
   id: string;

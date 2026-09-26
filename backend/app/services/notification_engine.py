@@ -9,6 +9,7 @@ Supported channels:
   - Email
   - SMS
   - Webhook
+  - Voice (phone call with a TTS message, via VoIPstudio)
 
 Each channel handler is a separate method. In production, these would
 integrate with external SDKs (python-telegram-bot, firebase-admin,
@@ -21,10 +22,10 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from app.enums import NotificationChannel
+from app.enums import AlarmType, NotificationChannel
 from app.models.alarm import Alarm
 from app.models.notification_endpoint import NotificationEndpoint
-from app.services import firebase_client
+from app.services import firebase_client, voipstudio_client
 from app.services.firebase_client import FcmSendResult, FirebaseNotConfiguredError
 
 if TYPE_CHECKING:
@@ -50,18 +51,22 @@ class NotificationEngine:
     async def send_alarm_notification(
         alarm: Alarm,
         endpoints: list[NotificationEndpoint],
+        object_name: str = "",
     ) -> None:
         """Send an alarm notification to all provided endpoints.
 
         Args:
             alarm: The triggered alarm instance.
             endpoints: List of notification endpoints configured for the object.
+            object_name: Site name spoken in voice calls (a freshly-created
+                alarm has no loaded `object` to read it from).
         """
         if not endpoints:
             logger.info("No notification endpoints configured — skipping alarm %s", alarm.id)
             return
 
         payload = _build_alarm_payload(alarm)
+        payload["voice_message"] = build_voice_message(alarm, object_name or alarm.object_name)
 
         for endpoint in endpoints:
             if not endpoint.is_enabled:
@@ -181,6 +186,7 @@ class NotificationEngine:
             NotificationChannel.EMAIL: NotificationEngine._send_email,
             NotificationChannel.SMS: NotificationEngine._send_sms,
             NotificationChannel.WEBHOOK: NotificationEngine._send_webhook,
+            NotificationChannel.VOICE: NotificationEngine._send_voice,
         }
 
         handler = channel_handlers.get(endpoint.channel)
@@ -249,6 +255,25 @@ class NotificationEngine:
         )
         # TODO: Integrate with httpx
 
+    @staticmethod
+    async def _send_voice(endpoint: NotificationEndpoint, payload: dict[str, Any]) -> None:
+        """Phone the endpoint's number and read the alarm out loud.
+
+        Only a TRIGGERED alarm carries `voice_message` — informational
+        notices (e.g. "service on the way") never ring anyone's phone.
+        """
+        message = payload.get("voice_message")
+        if not message:
+            return
+        phone_number = endpoint.config.get("phone_number")
+        if not phone_number:
+            logger.warning("Voice endpoint %s has no phone_number configured", endpoint.id)
+            return
+        try:
+            await voipstudio_client.place_tts_call(phone_number, message)
+        except voipstudio_client.VoipStudioNotConfiguredError:
+            logger.error("VoIPstudio not configured — cannot call voice endpoint %s", endpoint.id)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -296,6 +321,33 @@ def build_service_alarm_payload(
         "created_at": alarm.detected_at.isoformat(),
         "dispatched_at": assignment.dispatched_at.isoformat(),
     }
+
+
+def build_voice_message(alarm: Alarm, object_name: str) -> str:
+    """Polish TTS text read to the callee — short, and repeated once so a
+    listener who picks up mid-sentence still catches the site name."""
+    alarm_type = _enum_value(alarm.alarm_type)
+    value = alarm.trigger_value
+    if alarm_type == AlarmType.HIGH_TEMPERATURE.value:
+        reason = "Wysoka temperatura"
+    elif alarm_type == AlarmType.LOW_TEMPERATURE.value:
+        reason = "Niska temperatura"
+    elif alarm_type == AlarmType.OFFLINE.value:
+        reason = "Brak komunikacji z czujnikiem"
+        value = None
+    else:
+        reason = "Alarm"
+    if value is not None:
+        reason += f", aktualnie {value:.1f} stopni".replace(".", ",")
+
+    parts = ["Uwaga, alarm FrigoCore."]
+    if object_name:
+        parts.append(f"Obiekt: {object_name}.")
+    if alarm.sensor_name:
+        parts.append(f"Czujnik: {alarm.sensor_name}.")
+    parts.append(f"{reason}.")
+    text = " ".join(parts)
+    return f"{text} Powtarzam. {text}"
 
 
 def _build_alarm_payload(alarm: Alarm) -> dict[str, Any]:

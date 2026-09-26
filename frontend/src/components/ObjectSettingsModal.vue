@@ -45,6 +45,7 @@ const CHANNELS: {
   { key: "email", label: "E-mail", hint: "adres e-mail", configKey: "to" },
   { key: "sms", label: "SMS", hint: "numer telefonu", configKey: "phone_number" },
   { key: "webhook", label: "Webhook", hint: "adres URL", configKey: "url" },
+  { key: "voice", label: "Połączenie głosowe", hint: "numer telefonu, np. +48 600 100 200", configKey: "phone_number" },
 ];
 
 const saving = ref(false);

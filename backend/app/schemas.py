@@ -334,7 +334,7 @@ class LoginResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class NotificationEndpointCreate(BaseModel):
-    channel: str = Field(..., pattern=r"^(telegram|fcm|email|sms|webhook)$")
+    channel: str = Field(..., pattern=r"^(telegram|fcm|email|sms|webhook|voice)$")
     label: str = Field("", max_length=256)
     config: dict = Field(default_factory=dict)
     is_enabled: bool = True

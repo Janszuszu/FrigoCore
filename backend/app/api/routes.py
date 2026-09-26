@@ -76,6 +76,7 @@ from app.schemas import (
 )
 from app.services.dispatch_service import escalate, record_event
 from app.services.notification_engine import NotificationEngine
+from app.services.voipstudio_client import normalize_e164
 
 # ---------------------------------------------------------------------------
 # Routers
@@ -1211,6 +1212,18 @@ async def list_notification_endpoints(
     return result.scalars().all()
 
 
+def _validated_endpoint_config(channel: str, config: dict) -> dict:
+    """Reject a voice endpoint whose number could never be dialled, and store
+    it normalized — better a 422 now than a silent failure during an alarm."""
+    if channel != NotificationChannel.VOICE:
+        return config
+    try:
+        phone_number = normalize_e164(str(config.get("phone_number", "")))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Nieprawidłowy numer telefonu") from None
+    return {**config, "phone_number": phone_number}
+
+
 @notifications_router.post("/{object_id}/notification-endpoints", response_model=NotificationEndpointResponse, status_code=status.HTTP_201_CREATED)
 async def create_notification_endpoint(
     object_id: UUID,
@@ -1223,7 +1236,9 @@ async def create_notification_endpoint(
     )
     if profile is None:
         raise HTTPException(status_code=404, detail="Notification profile not found — create one first")
-    endpoint = NotificationEndpoint(profile_id=profile.id, **body.model_dump())
+    data = body.model_dump()
+    data["config"] = _validated_endpoint_config(data["channel"], data["config"])
+    endpoint = NotificationEndpoint(profile_id=profile.id, **data)
     db.add(endpoint)
     await db.commit()
     await db.refresh(endpoint)
@@ -1250,7 +1265,10 @@ async def update_notification_endpoint(
     )
     if profile is None or endpoint.profile_id != profile.id:
         raise HTTPException(status_code=404, detail="Notification endpoint not found")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("config") is not None:
+        changes["config"] = _validated_endpoint_config(endpoint.channel, changes["config"])
+    for field, value in changes.items():
         setattr(endpoint, field, value)
     await db.commit()
     await db.refresh(endpoint)

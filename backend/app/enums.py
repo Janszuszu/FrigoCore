@@ -45,6 +45,7 @@ class NotificationChannel(str, Enum):
     EMAIL = "email"
     SMS = "sms"
     WEBHOOK = "webhook"
+    VOICE = "voice"  # Phone call with TTS message (VoIPstudio)
 
 
 class AssignmentOutcome(str, Enum):

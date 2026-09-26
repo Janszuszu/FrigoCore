@@ -292,4 +292,4 @@ async def _send_triggered_notification(session: AsyncSession, alarm: Alarm) -> N
         return
     await session.refresh(profile, attribute_names=["endpoints"])
     endpoints = profile.endpoints
-    await NotificationEngine.send_alarm_notification(alarm, endpoints)
+    await NotificationEngine.send_alarm_notification(alarm, endpoints, object_name=obj.name)
