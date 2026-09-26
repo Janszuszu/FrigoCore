@@ -21,9 +21,12 @@ from app.services.voip_settings import VoipConfig
 
 logger = logging.getLogger(__name__)
 
-# A phone call is not worth holding the alarm pipeline hostage for — a hung
-# VoIPstudio API must fail fast so the remaining endpoints still get notified.
+# Plain API requests answer in well under a second.
 _REQUEST_TIMEOUT_SECONDS = 10.0
+# POST /leadcalls can hold the response open while the call is being set up.
+# Alarm calls run as background tasks (see notification_engine), so a long
+# wait here never blocks the alarm pipeline.
+_CALL_TIMEOUT_SECONDS = 60.0
 
 # Polish national numbers are 9 digits; anything that short with no country
 # code is assumed to be a PL number, since every FrigoCore site is in Poland.
@@ -63,13 +66,17 @@ def normalize_e164(phone_number: str) -> str:
     return digits
 
 
-def _client(config: VoipConfig, transport: httpx.AsyncBaseTransport | None) -> httpx.AsyncClient:
+def _client(
+    config: VoipConfig,
+    transport: httpx.AsyncBaseTransport | None,
+    timeout: float = _REQUEST_TIMEOUT_SECONDS,
+) -> httpx.AsyncClient:
     if not config.is_configured:
         raise VoipStudioNotConfiguredError("VoIPstudio API key is not configured")
     return httpx.AsyncClient(
         base_url=settings.VOIPSTUDIO_API_URL.rstrip("/") + "/",
         headers={"X-Auth-Token": config.api_token},
-        timeout=_REQUEST_TIMEOUT_SECONDS,
+        timeout=timeout,
         transport=transport,
     )
 
@@ -99,7 +106,8 @@ async def place_tts_call(
     if config.caller_id:
         body["caller_id"] = normalize_e164(config.caller_id)
 
-    async with _client(config, transport) as client:
+    logger.info("[Voice] placing call to=%s", body["to"])
+    async with _client(config, transport, _CALL_TIMEOUT_SECONDS) as client:
         response = await client.post("leadcalls", json=body)
     _raise_for_error(response)
 

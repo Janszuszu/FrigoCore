@@ -7,10 +7,11 @@ exactly what would be sent.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -21,8 +22,8 @@ from app.models.alarm import Alarm
 from app.models.app_setting import AppSetting
 from app.models.notification_endpoint import NotificationEndpoint
 from app.models.notification_profile import NotificationProfile
-from app.services import notification_engine, voip_settings, voipstudio_client
-from app.services.notification_engine import NotificationEngine, build_voice_message
+from app.services import voip_settings, voipstudio_client
+from app.services.notification_engine import NotificationEngine, build_voice_message, drain_voice_calls
 from app.services.voip_settings import VoipConfig
 from app.services.voipstudio_client import (
     VoipStudioCallError,
@@ -201,6 +202,7 @@ async def test_alarm_calls_every_enabled_voice_endpoint_with_saved_config(db_ses
     ]
 
     await NotificationEngine.send_alarm_notification(_make_alarm(), endpoints, object_name="Chłodnia A")
+    await drain_voice_calls()
 
     assert [number for number, _, _ in captured_calls] == ["48600100200", "48600999888"]
     assert all("Chłodnia A" in message for _, message, _ in captured_calls)
@@ -221,24 +223,52 @@ async def test_failed_call_does_not_block_remaining_endpoints(monkeypatch):
     endpoints = [_voice_endpoint("48600100200"), _voice_endpoint("48600999888")]
 
     await NotificationEngine.send_alarm_notification(_make_alarm(), endpoints, object_name="A")
+    await drain_voice_calls()
 
-    assert dialled == ["48600100200", "48600999888"]
+    assert sorted(dialled) == ["48600100200", "48600999888"]
+
+
+async def test_slow_call_does_not_block_alarm_notification(monkeypatch):
+    release = asyncio.Event()
+    started: list[str] = []
+
+    async def hanging_place_tts_call(phone_number, message, config, **_kwargs):
+        started.append(phone_number)
+        await release.wait()
+        return 1
+
+    monkeypatch.setattr(voipstudio_client, "place_tts_call", hanging_place_tts_call)
+    endpoints = [_voice_endpoint("48600100200"), _voice_endpoint("48600999888")]
+
+    # Returns while both calls are still in flight.
+    await asyncio.wait_for(
+        NotificationEngine.send_alarm_notification(_make_alarm(), endpoints, object_name="A"), timeout=1
+    )
+    for _ in range(100):  # tasks load the VoIP config from the DB first
+        if len(started) == 2:
+            break
+        await asyncio.sleep(0.01)
+    assert sorted(started) == ["48600100200", "48600999888"]
+
+    release.set()
+    await drain_voice_calls(timeout=1)
 
 
 async def test_service_on_the_way_notice_never_rings_phones(captured_calls):
     await NotificationEngine.send_service_on_the_way(_make_alarm(), [_voice_endpoint()])
+    await drain_voice_calls()
     assert captured_calls == []
 
 
-async def test_unconfigured_voipstudio_is_logged_not_raised(monkeypatch):
-    # caplog can't be used: Alembic's fileConfig disables app loggers.
-    logger = MagicMock()
-    monkeypatch.setattr(notification_engine, "logger", logger)
+async def test_unconfigured_voipstudio_is_logged_not_raised(caplog):
+    # Also guards the Alembic fileConfig fix: with disable_existing_loggers
+    # left at True, app loggers are silenced after migrations and caplog
+    # (like production logs) would see nothing.
+    with caplog.at_level(logging.ERROR, logger="app.services.notification_engine"):
+        await NotificationEngine.send_alarm_notification(_make_alarm(), [_voice_endpoint()], object_name="A")
+        await drain_voice_calls()
 
-    await NotificationEngine.send_alarm_notification(_make_alarm(), [_voice_endpoint()], object_name="A")
-
-    logger.error.assert_called_once()
-    assert "VoIPstudio not configured" in logger.error.call_args.args[0]
+    assert "VoIPstudio not configured" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +395,21 @@ async def test_connection_test_reports_rejected_token(client, db_session, make_u
         "ok": False,
         "detail": "VoIPstudio odrzuciło klucz API — jest nieprawidłowy lub wygasł",
     }
+
+
+async def test_test_call_timeout_reports_check_history(client, db_session, make_user, monkeypatch):
+    admin = await make_user(UserRole.ADMIN)
+    await _save_token(db_session)
+
+    async def timing_out_call(phone_number, message, config, **_kwargs):
+        raise httpx.ReadTimeout("timed out")
+
+    monkeypatch.setattr(voipstudio_client, "place_tts_call", timing_out_call)
+    response = await client.post(
+        f"{SETTINGS_URL}/test-call", json={"phone_number": "600100200"}, headers=auth_headers(admin)
+    )
+    assert response.json()["ok"] is False
+    assert "historię połączeń" in response.json()["detail"]
 
 
 async def test_test_call_uses_saved_config(client, db_session, make_user, captured_calls):

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,7 +58,12 @@ def _failure(exc: Exception) -> VoipTestResult:
         if exc.status_code == 401:
             return VoipTestResult(ok=False, detail="VoIPstudio odrzuciło klucz API — jest nieprawidłowy lub wygasł")
         return VoipTestResult(ok=False, detail=str(exc))
-    # Network errors / timeouts — the class name is enough, never a traceback.
+    if isinstance(exc, httpx.TimeoutException):
+        return VoipTestResult(
+            ok=False,
+            detail="VoIPstudio nie odpowiedziało na czas — sprawdź historię połączeń w panelu VoIPstudio",
+        )
+    # Network errors — the class name is enough, never a traceback.
     return VoipTestResult(ok=False, detail=f"Brak połączenia z VoIPstudio ({type(exc).__name__})")
 
 

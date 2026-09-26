@@ -18,6 +18,7 @@ smtplib, twilio, httpx). Here, we log the notification payload.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -270,12 +271,38 @@ class NotificationEngine:
         if not phone_number:
             logger.warning("Voice endpoint %s has no phone_number configured", endpoint.id)
             return
+        # VoIPstudio can hold the HTTP request open for tens of seconds while
+        # the call is set up; run it in the background so one slow call never
+        # delays the alarm pipeline or the other endpoints.
+        task = asyncio.create_task(_place_voice_call(endpoint.id, phone_number, message))
+        _voice_tasks.add(task)
+        task.add_done_callback(_voice_tasks.discard)
+
+
+# ---------------------------------------------------------------------------
+# Background voice calls
+# ---------------------------------------------------------------------------
+
+# Strong references — asyncio only keeps weak ones, so an unreferenced
+# in-flight call task could be garbage-collected mid-request.
+_voice_tasks: set[asyncio.Task[None]] = set()
+
+
+async def _place_voice_call(endpoint_id: Any, phone_number: str, message: str) -> None:
+    try:
         async with async_session_factory() as session:
             config = await voip_settings.load(session)
-        try:
-            await voipstudio_client.place_tts_call(phone_number, message, config)
-        except voipstudio_client.VoipStudioNotConfiguredError:
-            logger.error("VoIPstudio not configured — cannot call voice endpoint %s", endpoint.id)
+        await voipstudio_client.place_tts_call(phone_number, message, config)
+    except voipstudio_client.VoipStudioNotConfiguredError:
+        logger.error("VoIPstudio not configured — cannot call voice endpoint %s", endpoint_id)
+    except Exception:
+        logger.exception("[Voice] call failed — endpoint=%s", endpoint_id)
+
+
+async def drain_voice_calls(timeout: float | None = None) -> None:
+    """Wait for in-flight voice calls (shutdown, tests)."""
+    if _voice_tasks:
+        await asyncio.wait(set(_voice_tasks), timeout=timeout)
 
 
 # ---------------------------------------------------------------------------

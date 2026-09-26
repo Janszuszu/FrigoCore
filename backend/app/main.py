@@ -22,6 +22,7 @@ from app.models.sensor import Sensor
 from app.models.object import Object
 from app.services.alarm_engine import AlarmEngine
 from app.services.escalation_engine import EscalationEngine
+from app.services.notification_engine import drain_voice_calls
 from app.services.voip_settings import VoipKeepalive
 from app.api.websocket import manager as ws_manager
 
@@ -129,6 +130,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
     # Shutdown
     await voip_keepalive.stop()
+    await drain_voice_calls(timeout=15)
     await escalation_engine.stop()
     await alarm_engine.stop()
     await mqtt_engine.stop()
