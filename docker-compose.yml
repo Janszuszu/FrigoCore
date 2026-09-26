@@ -150,6 +150,9 @@ services:
       EMQX_PORT: 1883
       MQTT_USER: frigocore-backend
       MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD:?Set MQTT_BACKEND_PASSWORD in .env}
+      # Required: the code default is public, and anyone holding it could
+      # forge login tokens and decrypt stored integration secrets.
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env (openssl rand -hex 32)}
       ENVIRONMENT: production
       DEBUG: "false"
       # The SPA is served from the same origin as the API (Caddy proxies

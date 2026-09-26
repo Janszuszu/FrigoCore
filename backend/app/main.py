@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
+from app.config import Settings, settings
 from app.database import async_session_factory, init_db, get_db
 from app.mqtt.client import MQTTEngine
 from app.models.measurement import Measurement
@@ -103,6 +103,10 @@ async def simulate_measurement(
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup / shutdown lifecycle."""
     # Startup
+    if settings.ENVIRONMENT == "production" and settings.SECRET_KEY == Settings.model_fields["SECRET_KEY"].default:
+        # The default is in the public repo: login tokens would be forgeable
+        # and DB-stored integration secrets decryptable. Refuse to run.
+        raise RuntimeError("SECRET_KEY is the public default — set a random SECRET_KEY in .env")
     await init_db()
     # Auto-seed demo data if DB is empty — development only. A production
     # deployment starting against a fresh volume must not invent objects,
