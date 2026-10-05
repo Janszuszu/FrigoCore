@@ -165,6 +165,15 @@ async def test_place_tts_call_raises_on_api_error():
     assert excinfo.value.status_code == 400
 
 
+async def test_rejected_call_is_logged(caplog):
+    transport, _ = _recording_transport(503, {"message": "Connection to PSTN gateway failed.", "errors": []})
+    with caplog.at_level(logging.WARNING, logger="app.services.voipstudio_client"):
+        with pytest.raises(VoipStudioCallError):
+            await place_tts_call("600100200", "x", CONFIG, transport=transport)
+    assert "VoIPstudio rejected call to=48600100200 HTTP 503" in caplog.text
+    assert "PSTN gateway failed" in caplog.text
+
+
 async def test_ping_hits_ping_endpoint():
     transport, requests = _recording_transport(200, {"message": "Pong"})
     await ping(CONFIG, transport=transport)

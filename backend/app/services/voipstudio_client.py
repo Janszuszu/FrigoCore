@@ -116,9 +116,18 @@ async def place_tts_call(
         "caller_id": normalize_e164(config.caller_id),
     }
 
-    logger.info("[Voice] placing call to=%s", body["to"])
+    logger.info("[Voice] placing call to=%s caller_id=%s", body["to"], body["caller_id"])
     async with _client(config, transport, _CALL_TIMEOUT_SECONDS) as client:
         response = await client.post("leadcalls", json=body)
+    if response.is_error:
+        # Logged here so test calls (whose result only reaches the admin's
+        # screen) and alarm calls both leave a trace on the server.
+        logger.warning(
+            "[Voice] VoIPstudio rejected call to=%s HTTP %s: %s",
+            body["to"],
+            response.status_code,
+            response.text[:500],
+        )
     _raise_for_error(response)
 
     call_id = (response.json().get("data") or {}).get("id")
