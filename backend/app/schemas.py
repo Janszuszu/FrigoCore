@@ -370,12 +370,14 @@ class VoipSettingsResponse(BaseModel):
     token_updated_at: datetime | None
     token_unreadable: bool
     caller_id: str
+    announcement_number: str
 
 
 class VoipSettingsUpdate(BaseModel):
     # None = leave unchanged, "" = remove.
     api_token: str | None = Field(None, max_length=256)
     caller_id: str | None = Field(None, max_length=32)
+    announcement_number: str | None = Field(None, max_length=32)
 
 
 class VoipTestResult(BaseModel):

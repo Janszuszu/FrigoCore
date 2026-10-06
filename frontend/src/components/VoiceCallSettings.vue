@@ -6,7 +6,7 @@
  */
 import { onMounted, reactive, ref } from "vue";
 import { apiVoip } from "@/api";
-import type { ObjectVoiceNumbers, VoiceNumber, VoipSettings, VoipTestResult } from "@/types";
+import type { ObjectVoiceNumbers, VoiceNumber, VoipSettings, VoipSettingsUpdate, VoipTestResult } from "@/types";
 
 const config = ref<VoipSettings | null>(null);
 const objects = ref<ObjectVoiceNumbers[]>([]);
@@ -15,6 +15,7 @@ const loadError = ref("");
 
 const tokenInput = ref("");
 const callerIdInput = ref("");
+const announcementInput = ref("");
 const savingConfig = ref(false);
 const configMessage = ref<VoipTestResult | null>(null);
 
@@ -63,6 +64,7 @@ async function load() {
     const [settings, numbers] = await Promise.all([apiVoip.get(), apiVoip.listNumbers()]);
     config.value = settings;
     callerIdInput.value = settings.caller_id ? `+${settings.caller_id}` : "";
+    announcementInput.value = settings.announcement_number ? `+${settings.announcement_number}` : "";
     objects.value = numbers;
   } catch (e) {
     loadError.value = errorText(e, "Nie udało się wczytać ustawień");
@@ -77,10 +79,14 @@ async function saveConfig() {
   savingConfig.value = true;
   configMessage.value = null;
   try {
-    const update: { api_token?: string; caller_id: string } = { caller_id: callerIdInput.value.trim() };
+    const update: VoipSettingsUpdate = {
+      caller_id: callerIdInput.value.trim(),
+      announcement_number: announcementInput.value.trim(),
+    };
     if (tokenInput.value.trim()) update.api_token = tokenInput.value.trim();
     config.value = await apiVoip.update(update);
     callerIdInput.value = config.value.caller_id ? `+${config.value.caller_id}` : "";
+    announcementInput.value = config.value.announcement_number ? `+${config.value.announcement_number}` : "";
     tokenInput.value = "";
     configMessage.value = { ok: true, detail: "Zapisano" };
   } catch (e) {
@@ -208,9 +214,17 @@ async function removeNumber(entry: ObjectVoiceNumbers, number: VoiceNumber) {
           </label>
           <label class="field">
             <span>Numer prezentowany (wymagany — aktywny numer z konta VoIPstudio)</span>
-            <input v-model="callerIdInput" maxlength="32" placeholder="np. +48 57 358 61 98" />
+            <input v-model="callerIdInput" maxlength="32" placeholder="np. +48 57 358 61 93" />
+          </label>
+          <label class="field">
+            <span>Numer z zapowiedzią (opcjonalny — zapasowo, gdy synteza mowy nie działa)</span>
+            <input v-model="announcementInput" maxlength="32" placeholder="np. +48 57 358 61 93" />
           </label>
         </div>
+        <p class="muted">
+          Gdy VoIPstudio nie zestawi połączenia z syntezą mowy, system połączy odbiorcę z nagraną zapowiedzią
+          przypisaną w panelu VoIPstudio do numeru z zapowiedzią. Puste pole = bez wariantu zapasowego.
+        </p>
 
         <div class="actions">
           <button type="button" class="primary" :disabled="savingConfig" @click="saveConfig">

@@ -36,7 +36,7 @@ from app.services.voipstudio_client import (
 from tests.conftest import auth_headers
 from tests.helpers import make_object
 
-CONFIG = VoipConfig(api_token="test-token", caller_id="48573586198")
+CONFIG = VoipConfig(api_token="test-token", caller_id="48573586193")
 SETTINGS_URL = "/api/v1/settings/voip"
 NUMBERS_URL = "/api/v1/settings/voip/numbers"
 
@@ -149,6 +149,65 @@ async def test_place_tts_call_requires_caller_id():
     with pytest.raises(VoipStudioNoCallerIdError):
         await place_tts_call("600100200", "x", VoipConfig(api_token="t"), transport=transport)
     assert requests == []
+
+
+def _leadcall_failing_transport(leadcall_status: int = 503):
+    """/leadcalls answers `leadcall_status`; /webcalls succeeds with id 777."""
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/leadcalls"):
+            return httpx.Response(
+                leadcall_status, json={"message": "Connection to PSTN gateway failed.", "errors": []}
+            )
+        return httpx.Response(201, json={"data": {"id": 777}})
+
+    return httpx.MockTransport(handler), requests
+
+
+async def test_place_tts_call_falls_back_to_announcement_on_gateway_error():
+    transport, requests = _leadcall_failing_transport()
+    config = VoipConfig(api_token="t", caller_id="48573586193", announcement_number="+48 57 358 61 93")
+
+    call_id = await place_tts_call("600100200", "Uwaga, alarm", config, transport=transport)
+
+    assert call_id == 777
+    leadcall, webcall = requests
+    assert leadcall.url.path.endswith("/leadcalls")
+    assert str(webcall.url) == "https://voip.test/v1.2/voipstudio/webcalls"
+    assert webcall.headers["X-Auth-Token"] == "t"
+    assert json.loads(webcall.content) == {"from": "48573586193", "to": "48600100200"}
+
+
+async def test_place_tts_call_falls_back_on_network_error():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/leadcalls"):
+            raise httpx.ReadTimeout("slow", request=request)
+        return httpx.Response(201, json={"data": {"id": 778}})
+
+    config = VoipConfig(api_token="t", caller_id="48573586193", announcement_number="48573586193")
+    assert await place_tts_call("600100200", "x", config, transport=httpx.MockTransport(handler)) == 778
+    assert [r.url.path.rsplit("/", 1)[1] for r in requests] == ["leadcalls", "webcalls"]
+
+
+async def test_place_tts_call_without_announcement_number_does_not_fall_back():
+    transport, requests = _leadcall_failing_transport()
+    with pytest.raises(VoipStudioCallError, match="PSTN gateway"):
+        await place_tts_call("600100200", "x", CONFIG, transport=transport)
+    assert len(requests) == 1
+
+
+async def test_place_tts_call_client_error_does_not_fall_back():
+    # A 4xx means our request is wrong — calling a different way would hide it.
+    transport, requests = _leadcall_failing_transport(leadcall_status=400)
+    config = VoipConfig(api_token="t", caller_id="48573586193", announcement_number="48573586193")
+    with pytest.raises(VoipStudioCallError):
+        await place_tts_call("600100200", "x", config, transport=transport)
+    assert len(requests) == 1
 
 
 async def test_place_tts_call_without_token_raises():
@@ -368,6 +427,20 @@ async def test_settings_update_without_token_keeps_it_and_empty_clears_it(client
 
     cleared = await client.patch(SETTINGS_URL, json={"api_token": ""}, headers=auth_headers(admin))
     assert cleared.json()["token_configured"] is False
+
+
+async def test_settings_save_and_clear_announcement_number(client, make_user):
+    admin = await make_user(UserRole.ADMIN)
+    saved = await client.patch(
+        SETTINGS_URL, json={"announcement_number": "+48 57 358 61 93"}, headers=auth_headers(admin)
+    )
+    assert saved.json()["announcement_number"] == "48573586193"
+
+    cleared = await client.patch(SETTINGS_URL, json={"announcement_number": ""}, headers=auth_headers(admin))
+    assert cleared.json()["announcement_number"] == ""
+
+    invalid = await client.patch(SETTINGS_URL, json={"announcement_number": "abc"}, headers=auth_headers(admin))
+    assert invalid.status_code == 422
 
 
 async def test_settings_reject_invalid_caller_id(client, make_user):

@@ -91,6 +91,7 @@ def _settings_response(config: voip_settings.VoipConfig) -> VoipSettingsResponse
         token_updated_at=config.token_updated_at,
         token_unreadable=config.token_unreadable,
         caller_id=config.caller_id,
+        announcement_number=config.announcement_number,
     )
 
 
@@ -107,7 +108,12 @@ async def update_voip_settings(
     caller_id = body.caller_id.strip() if body.caller_id is not None else None
     if caller_id:
         caller_id = _phone_or_422(caller_id)
-    await voip_settings.save(db, api_token=api_token, caller_id=caller_id)
+    announcement_number = body.announcement_number.strip() if body.announcement_number is not None else None
+    if announcement_number:
+        announcement_number = _phone_or_422(announcement_number)
+    await voip_settings.save(
+        db, api_token=api_token, caller_id=caller_id, announcement_number=announcement_number
+    )
     await db.commit()
     return _settings_response(await voip_settings.load(db))
 

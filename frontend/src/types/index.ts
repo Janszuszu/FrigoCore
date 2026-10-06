@@ -96,12 +96,15 @@ export interface VoipSettings {
   token_updated_at: string | null;
   token_unreadable: boolean;
   caller_id: string;
+  /** Number routed to a recorded announcement — /webcalls fallback; "" = off. */
+  announcement_number: string;
 }
 
 export interface VoipSettingsUpdate {
   /** Omit = unchanged, "" = remove. */
   api_token?: string;
   caller_id?: string;
+  announcement_number?: string;
 }
 
 export interface VoipTestResult {

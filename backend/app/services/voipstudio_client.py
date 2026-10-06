@@ -1,7 +1,9 @@
 """FrigoCore — VoIPstudio REST API client (outbound alarm voice calls).
 
 Places a call to an E.164 number and reads a text-to-speech message to the
-callee via `POST /leadcalls`. Authentication is an API key (user_token)
+callee via `POST /leadcalls`. If that fails server-side and an announcement
+number is configured, falls back to `POST /webcalls` (a recorded message
+instead of TTS). Authentication is an API key (user_token)
 generated in the VoIPstudio dashboard (Administration -> Users -> API Keys),
 entered by an admin in Ustawienia and sent in the `X-Auth-Token` header.
 
@@ -117,8 +119,30 @@ async def place_tts_call(
     }
 
     logger.info("[Voice] placing call to=%s caller_id=%s", body["to"], body["caller_id"])
-    async with _client(config, transport, _CALL_TIMEOUT_SECONDS) as client:
-        response = await client.post("leadcalls", json=body)
+    try:
+        async with _client(config, transport, _CALL_TIMEOUT_SECONDS) as client:
+            response = await client.post("leadcalls", json=body)
+    except httpx.TransportError as exc:
+        if not config.announcement_number:
+            raise
+        logger.warning(
+            "[Voice] /leadcalls to=%s failed (%s) — falling back to announcement",
+            body["to"],
+            type(exc).__name__,
+        )
+        return await place_announcement_call(body["to"], config, transport=transport)
+    if response.status_code >= 500 and config.announcement_number:
+        # VoIPstudio's PSTN gateway for /leadcalls is broken (their ref
+        # L7D-11516); their support's workaround is /webcalls from a number
+        # routed to a recorded announcement — fixed audio instead of TTS,
+        # but an alarm call that actually rings beats a perfect one that doesn't.
+        logger.warning(
+            "[Voice] /leadcalls to=%s HTTP %s: %s — falling back to announcement",
+            body["to"],
+            response.status_code,
+            response.text[:500],
+        )
+        return await place_announcement_call(body["to"], config, transport=transport)
     if response.is_error:
         # Logged here so test calls (whose result only reaches the admin's
         # screen) and alarm calls both leave a trace on the server.
@@ -132,6 +156,35 @@ async def place_tts_call(
 
     call_id = (response.json().get("data") or {}).get("id")
     logger.info("[Voice] call placed to=%s voipstudio_call_id=%s", body["to"], call_id)
+    return call_id
+
+
+async def place_announcement_call(
+    phone_number: str,
+    config: VoipConfig,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> int | None:
+    """Connect `phone_number` to the recorded announcement via `POST /webcalls`.
+
+    `from` is the account number that VoIPstudio routes to the announcement
+    (set up in the VoIPstudio panel); the callee hears that recording.
+    """
+    body = {"from": normalize_e164(config.announcement_number), "to": normalize_e164(phone_number)}
+    logger.info("[Voice] placing announcement call to=%s from=%s", body["to"], body["from"])
+    async with _client(config, transport) as client:
+        response = await client.post("webcalls", json=body)
+    if response.is_error:
+        logger.warning(
+            "[Voice] VoIPstudio rejected announcement call to=%s HTTP %s: %s",
+            body["to"],
+            response.status_code,
+            response.text[:500],
+        )
+    _raise_for_error(response)
+
+    call_id = (response.json().get("data") or {}).get("id")
+    logger.info("[Voice] announcement call placed to=%s voipstudio_call_id=%s", body["to"], call_id)
     return call_id
 
 

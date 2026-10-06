@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 TOKEN_KEY = "voipstudio.api_token"
 CALLER_ID_KEY = "voipstudio.caller_id"
+# Account number routed to a recorded announcement — the /webcalls fallback
+# used when /leadcalls (TTS) fails on VoIPstudio's side. Empty = no fallback.
+ANNOUNCEMENT_NUMBER_KEY = "voipstudio.announcement_number"
 
 KEEPALIVE_INTERVAL_SECONDS = 24 * 60 * 60
 
@@ -31,6 +34,7 @@ KEEPALIVE_INTERVAL_SECONDS = 24 * 60 * 60
 class VoipConfig:
     api_token: str = ""
     caller_id: str = ""
+    announcement_number: str = ""
     token_updated_at: datetime | None = None
     # True when a token is stored but cannot be decrypted (SECRET_KEY rotated).
     token_unreadable: bool = False
@@ -44,7 +48,7 @@ async def load(session: AsyncSession) -> VoipConfig:
     rows = {
         row.key: row
         for row in await session.scalars(
-            select(AppSetting).where(AppSetting.key.in_([TOKEN_KEY, CALLER_ID_KEY]))
+            select(AppSetting).where(AppSetting.key.in_([TOKEN_KEY, CALLER_ID_KEY, ANNOUNCEMENT_NUMBER_KEY]))
         )
     }
     token_row = rows.get(TOKEN_KEY)
@@ -56,9 +60,11 @@ async def load(session: AsyncSession) -> VoipConfig:
             logger.error("Stored VoIPstudio API key cannot be decrypted — re-enter it in Ustawienia")
             unreadable = True
     caller_row = rows.get(CALLER_ID_KEY)
+    announcement_row = rows.get(ANNOUNCEMENT_NUMBER_KEY)
     return VoipConfig(
         api_token=api_token,
         caller_id=caller_row.value if caller_row is not None else "",
+        announcement_number=announcement_row.value if announcement_row is not None else "",
         token_updated_at=token_row.updated_at if token_row is not None and token_row.value else None,
         token_unreadable=unreadable,
     )
@@ -69,12 +75,15 @@ async def save(
     *,
     api_token: str | None = None,
     caller_id: str | None = None,
+    announcement_number: str | None = None,
 ) -> None:
     """Persist the given fields; None leaves a field unchanged, "" clears it."""
     if api_token is not None:
         await _upsert(session, TOKEN_KEY, secret_box.encrypt(api_token) if api_token else "")
     if caller_id is not None:
         await _upsert(session, CALLER_ID_KEY, caller_id)
+    if announcement_number is not None:
+        await _upsert(session, ANNOUNCEMENT_NUMBER_KEY, announcement_number)
 
 
 async def _upsert(session: AsyncSession, key: str, value: str) -> None:
