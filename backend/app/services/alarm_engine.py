@@ -31,8 +31,12 @@ from app.api.websocket import manager as ws_manager
 from app.models.notification_profile import NotificationProfile
 from app.models.sensor import Sensor
 from app.schemas import AlarmResponse
-from app.services.dispatch_service import record_event
-from app.services.notification_engine import NotificationEngine
+from app.services.dispatch_service import notify_object_owners, record_event
+from app.services.notification_engine import (
+    CLIENT_ALARM_EVENT_RESOLVED,
+    CLIENT_ALARM_EVENT_TRIGGERED,
+    NotificationEngine,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +219,7 @@ class AlarmEngine:
                     logger.exception(
                         "Failed to dispatch notification for alarm %s", alarm.id
                     )
+                await notify_object_owners(session, alarm, CLIENT_ALARM_EVENT_TRIGGERED)
 
     # ------------------------------------------------------------------
     # Step 3 — Auto-resolve alarms
@@ -257,6 +262,7 @@ class AlarmEngine:
                         resolved = True
 
             if resolved:
+                was_triggered = alarm.status == AlarmStatus.TRIGGERED
                 alarm.status = AlarmStatus.RESOLVED
                 alarm.resolved_at = now
                 session.add(alarm)
@@ -264,6 +270,10 @@ class AlarmEngine:
                 logger.info("Alarm RESOLVED — type=%s sensor=%s", alarm_type_str, sensor.name)
                 await ws_manager.broadcast("alarm.resolved", _alarm_payload(alarm))
                 await record_event(session, alarm.id, AlarmEventType.ALARM_RESOLVED, message="Condition auto-cleared")
+                # A PENDING alarm that clears inside its delay was never
+                # announced to the owner, so there is nothing to close out.
+                if was_triggered:
+                    await notify_object_owners(session, alarm, CLIENT_ALARM_EVENT_RESOLVED)
 
 
 def _build_description(alarm_type: AlarmType, value: float | None) -> str:

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Polityka prywatności — FrigoCore</title>
+  <style>
+    :root { --fg: #1c2530; --muted: #5b6672; --bg: #f4f6f8; --card: #fff; --accent: #0b5fa5; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg: #e6eaee; --muted: #a3adb8; --bg: #12161b; --card: #1b2128; --accent: #6aa9e0; }
+    }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+    article { background: var(--card); border-radius: 12px; padding: 24px 28px; }
+    h1 { margin-top: 0; font-size: 1.7rem; }
+    h2 { font-size: 1.15rem; margin-top: 2rem; color: var(--accent); }
+    p.meta { color: var(--muted); margin-top: -0.5rem; }
+    li { margin: 0.3rem 0; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+<article>
+  <h1>Polityka prywatności aplikacji FrigoCore</h1>
+  <p class="meta">Obowiązuje od: 6 października 2026 r.</p>
+
+  <p>Ta polityka opisuje, jakie dane przetwarza system FrigoCore (aplikacja mobilna na Androida oraz panel
+  www pod adresem frigocore.pl), w jakim celu i jakie prawa Ci przysługują. System służy do monitorowania temperatury
+  w instalacjach chłodniczych i powiadamiania o alarmach.</p>
+
+  <h2>1. Administrator danych</h2>
+  <p>Klimatyka Jan Szulia<br>
+  ul. ks. Jerzego Popiełuszki 18 lok. 33, 10-693 Olsztyn<br>
+  NIP: 7393301758, REGON: 364633200<br>
+  Kontakt w sprawach danych osobowych: <a href="mailto:serwis@frigocore.pl">serwis@frigocore.pl</a></p>
+
+  <h2>2. Jakie dane przetwarzamy</h2>
+  <ul>
+    <li><strong>Dane konta:</strong> nazwa użytkownika, adres e-mail, imię i nazwisko, rola (właściciel obiektu,
+      serwisant, kierownik, administrator) oraz lista przypisanych obiektów. Konta zakłada administrator systemu —
+      aplikacja nie pozwala na samodzielną rejestrację.</li>
+    <li><strong>Hasło</strong> — przechowywane wyłącznie w postaci skrótu (hash), nigdy jawnym tekstem.</li>
+    <li><strong>Identyfikator urządzenia do powiadomień</strong> (token Firebase Cloud Messaging) i typ platformy —
+      potrzebne, aby wysłać powiadomienie o alarmie na Twój telefon.</li>
+    <li><strong>Dane z obiektów:</strong> odczyty temperatury z czujników, historia alarmów oraz działania podjęte
+      przez serwis (przyjęcie, wyjazd, zakończenie zgłoszenia, z datą i osobą wykonującą).</li>
+    <li><strong>Numery telefonów</strong> skonfigurowane do powiadomień głosowych o alarmach.</li>
+  </ul>
+  <p>Aplikacja <strong>nie</strong> zbiera lokalizacji, kontaktów, zdjęć ani danych reklamowych, nie zawiera reklam
+  i nie korzysta z narzędzi śledzących.</p>
+
+  <h2>3. Cel i podstawa przetwarzania</h2>
+  <ul>
+    <li>Świadczenie usługi monitoringu i obsługi alarmów: art. 6 ust. 1 lit. b RODO (wykonanie umowy).</li>
+    <li>Prowadzenie historii zdarzeń jako dowodu przebiegu obsługi alarmu: art. 6 ust. 1 lit. f RODO (prawnie
+      uzasadniony interes).</li>
+  </ul>
+
+  <h2>4. Komu przekazujemy dane</h2>
+  <ul>
+    <li>Google (Firebase Cloud Messaging): dostarczanie powiadomień push.</li>
+    <li>VoIPstudio: wykonywanie połączeń głosowych z komunikatem o alarmie.</li>
+    <li>Korbank S.A.: infrastruktura serwerowa, na której działa system.</li>
+  </ul>
+  <p>Nie sprzedajemy danych i nie udostępniamy ich w celach marketingowych.</p>
+
+  <h2>5. Bezpieczeństwo</h2>
+  <p>Cała komunikacja odbywa się szyfrowanym połączeniem HTTPS. Na telefonie token sesji jest przechowywany w
+  zaszyfrowanym magazynie systemu Android.</p>
+
+  <h2>6. Jak długo przechowujemy dane</h2>
+  <p>Dane konta: do czasu usunięcia konta. Odczyty temperatury i historia alarmów: przez czas trwania umowy oraz
+  12 miesięcy po jej zakończeniu. Token powiadomień jest usuwany po wylogowaniu z aplikacji.</p>
+
+  <h2>7. Twoje prawa i usunięcie konta</h2>
+  <p>Masz prawo do dostępu do danych, ich sprostowania, usunięcia, ograniczenia przetwarzania, przeniesienia oraz
+  wniesienia sprzeciwu. Aby usunąć konto i powiązane dane, napisz na <a href="mailto:serwis@frigocore.pl">serwis@frigocore.pl</a>; zrobimy to w ciągu
+  30 dni. Możesz też złożyć skargę do Prezesa Urzędu Ochrony Danych Osobowych.</p>
+
+  <h2>8. Zmiany polityki</h2>
+  <p>O istotnych zmianach poinformujemy w aplikacji lub e-mailem.</p>
+</article>
+</main>
+</body>
+</html>

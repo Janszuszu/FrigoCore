@@ -74,8 +74,12 @@ from app.schemas import (
     UserResponse,
     UserUpdate,
 )
-from app.services.dispatch_service import escalate, record_event
-from app.services.notification_engine import NotificationEngine
+from app.services.dispatch_service import escalate, notify_object_owners, record_event
+from app.services.notification_engine import (
+    CLIENT_ALARM_EVENT_EN_ROUTE,
+    CLIENT_ALARM_EVENT_RESOLVED,
+    NotificationEngine,
+)
 from app.services.voipstudio_client import normalize_e164
 
 # ---------------------------------------------------------------------------
@@ -799,6 +803,7 @@ async def alarm_en_route(
     except Exception:
         pass  # Notification failure must not block the state transition
     await record_event(db, alarm.id, AlarmEventType.CLIENT_NOTIFIED, message="Service is on the way")
+    await notify_object_owners(db, alarm, CLIENT_ALARM_EVENT_EN_ROUTE)
 
     await db.commit()
     await db.refresh(alarm)
@@ -825,6 +830,7 @@ async def resolve_alarm(
     alarm.status = AlarmStatus.RESOLVED
     alarm.resolved_at = now
     await record_event(db, alarm.id, AlarmEventType.ALARM_RESOLVED, actor_user_id=user.id)
+    await notify_object_owners(db, alarm, CLIENT_ALARM_EVENT_RESOLVED)
     await db.commit()
     await db.refresh(alarm)
     return alarm

@@ -27,7 +27,7 @@ from app.models.alarm_event import AlarmEvent
 from app.models.device_token import DeviceToken
 from app.models.escalation_policy import EscalationPolicy, EscalationTier
 from app.models.object import Object
-from app.models.user import User
+from app.models.user import User, user_objects
 from app.services.notification_engine import NotificationEngine
 
 logger = logging.getLogger(__name__)
@@ -167,6 +167,42 @@ async def dispatch_tier(
         logger.exception("Failed to dispatch service alarm push for assignment %s", assignment.id)
 
     return assignment
+
+
+async def notify_object_owners(session: AsyncSession, alarm: Alarm, event: str) -> None:
+    """Informational push to the owners (role `user`) assigned to the
+    alarm's object. Never raises — an owner notice failing must not block
+    the alarm state transition that triggered it."""
+    try:
+        obj = await session.get(Object, alarm.object_id)
+        if obj is None:
+            return
+        owner_ids = (
+            await session.execute(
+                select(user_objects.c.user_id)
+                .join(User, User.id == user_objects.c.user_id)
+                .where(
+                    user_objects.c.object_id == obj.id,
+                    User.role == UserRole.USER,
+                    User.is_active == True,
+                )
+            )
+        ).scalars().all()
+        if not owner_ids:
+            return
+        tokens = (
+            await session.execute(
+                select(DeviceToken).where(DeviceToken.user_id.in_(owner_ids), DeviceToken.is_active == True)
+            )
+        ).scalars().all()
+        if not tokens:
+            return
+        if alarm.sensor_id is not None:
+            await session.refresh(alarm, attribute_names=["sensor"])
+        await NotificationEngine.send_owner_alarm_push(alarm, obj, list(tokens), event)
+        logger.info("Owner push (%s) sent to %d device(s) for alarm %s", event, len(tokens), alarm.id)
+    except Exception:
+        logger.exception("Failed to send owner push (%s) for alarm %s", event, alarm.id)
 
 
 async def start_dispatch(session: AsyncSession, alarm: Alarm) -> Optional[AlarmAssignment]:

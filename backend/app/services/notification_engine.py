@@ -141,6 +141,35 @@ class NotificationEngine:
                 )
 
     # ------------------------------------------------------------------
+    # Owner-facing informational push (object owners' own devices)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def send_owner_alarm_push(
+        alarm: Alarm,
+        obj: "Object",
+        device_tokens: list["DeviceToken"],
+        event: str,
+    ) -> None:
+        """Push an informational CLIENT_ALARM payload to the devices of the
+        object's owners (role `user`). Unlike SERVICE_ALARM it never asks for
+        an action — the owner is told what happened, the technician acts."""
+        active_tokens = [device for device in device_tokens if device.is_active]
+        if not active_tokens:
+            return
+
+        payload = build_client_alarm_payload(alarm, obj, event)
+        firebase_client.get_firebase_app()
+
+        for device in active_tokens:
+            result = firebase_client.send_to_token(device.fcm_token, payload)
+            if result == FcmSendResult.INVALID_TOKEN:
+                device.is_active = False
+                logger.info("Deactivated invalid FCM token for owner user=%s", device.user_id)
+            elif result != FcmSendResult.SENT:
+                logger.warning("FCM owner push error for user=%s alarm=%s", device.user_id, alarm.id)
+
+    # ------------------------------------------------------------------
     # Client-facing "service is on the way" (EN_ROUTE gating)
     # ------------------------------------------------------------------
 
@@ -353,9 +382,14 @@ def build_service_alarm_payload(
     }
 
 
-def build_voice_message(alarm: Alarm, object_name: str) -> str:
-    """Polish TTS text read to the callee — short, and repeated once so a
-    listener who picks up mid-sentence still catches the site name."""
+CLIENT_ALARM_PAYLOAD_VERSION = 1
+CLIENT_ALARM_EVENT_TRIGGERED = "triggered"
+CLIENT_ALARM_EVENT_EN_ROUTE = "en_route"
+CLIENT_ALARM_EVENT_RESOLVED = "resolved"
+
+
+def _alarm_reason(alarm: Alarm, value_suffix: str) -> str:
+    """Polish one-line cause, e.g. "Wysoka temperatura, aktualnie 8,2 stopni"."""
     alarm_type = _enum_value(alarm.alarm_type)
     value = alarm.trigger_value
     if alarm_type == AlarmType.HIGH_TEMPERATURE.value:
@@ -368,7 +402,41 @@ def build_voice_message(alarm: Alarm, object_name: str) -> str:
     else:
         reason = "Alarm"
     if value is not None:
-        reason += f", aktualnie {value:.1f} stopni".replace(".", ",")
+        reason += value_suffix.format(value=value).replace(".", ",")
+    return reason
+
+
+def build_client_alarm_payload(alarm: Alarm, obj: "Object", event: str) -> dict[str, Any]:
+    """Build the informational CLIENT_ALARM push for object owners."""
+    sensor = f"{alarm.sensor_name}: " if alarm.sensor_name else ""
+    if event == CLIENT_ALARM_EVENT_EN_ROUTE:
+        title = "Serwis w drodze"
+        message = "Serwisant jedzie na obiekt."
+    elif event == CLIENT_ALARM_EVENT_RESOLVED:
+        title = "Alarm zakończony"
+        message = f"{sensor}sytuacja wróciła do normy."
+    else:
+        title = "Alarm"
+        message = sensor + _alarm_reason(alarm, " ({value:.1f}°C)")
+    return {
+        "type": "CLIENT_ALARM",
+        "version": CLIENT_ALARM_PAYLOAD_VERSION,
+        "event": event,
+        "alarm_id": str(alarm.id),
+        "site_id": str(obj.id),
+        "site_name": obj.name,
+        "alarm_type": _enum_value(alarm.alarm_type).upper(),
+        "title": title,
+        "message": message,
+        "sensor_name": alarm.sensor_name,
+        "created_at": alarm.detected_at.isoformat(),
+    }
+
+
+def build_voice_message(alarm: Alarm, object_name: str) -> str:
+    """Polish TTS text read to the callee — short, and repeated once so a
+    listener who picks up mid-sentence still catches the site name."""
+    reason = _alarm_reason(alarm, ", aktualnie {value:.1f} stopni")
 
     parts = ["Uwaga, alarm FrigoCore."]
     if object_name:
