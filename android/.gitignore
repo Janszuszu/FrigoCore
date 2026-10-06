@@ -17,3 +17,6 @@ app/google-services.json
 keystore.properties
 *.jks
 *.keystore
+
+# Google Play reviewer test account (local only)
+store/reviewer_credentials.txt
