@@ -6,6 +6,9 @@ import pl.frigocore.service.data.model.DeviceTokenRegister
 import pl.frigocore.service.data.model.DeviceTokenResponse
 import pl.frigocore.service.data.model.LoginRequest
 import pl.frigocore.service.data.model.LoginResponse
+import pl.frigocore.service.data.model.MeasurementResponse
+import pl.frigocore.service.data.model.ObjectResponse
+import pl.frigocore.service.data.model.SensorResponse
 import pl.frigocore.service.data.model.UserResponse
 import retrofit2.Response
 import retrofit2.http.Body
@@ -27,6 +30,29 @@ interface FrigoCoreApi {
 
     @GET("auth/me")
     suspend fun me(): Response<UserResponse>
+
+    @GET("objects")
+    suspend fun listObjects(): Response<List<ObjectResponse>>
+
+    @GET("objects/{objectId}")
+    suspend fun getObject(@Path("objectId") objectId: String): Response<ObjectResponse>
+
+    @GET("objects/{objectId}/sensors")
+    suspend fun listSensors(@Path("objectId") objectId: String): Response<List<SensorResponse>>
+
+    @GET("objects/{objectId}/sensors/{sensorId}")
+    suspend fun getSensor(
+        @Path("objectId") objectId: String,
+        @Path("sensorId") sensorId: String,
+    ): Response<SensorResponse>
+
+    /** Newest-first, decimated server-side to ~target_points (min/max per bucket). */
+    @GET("sensors/{sensorId}/measurements/aggregated")
+    suspend fun listMeasurementsAggregated(
+        @Path("sensorId") sensorId: String,
+        @Query("since") since: String,
+        @Query("target_points") targetPoints: Int = 120,
+    ): Response<List<MeasurementResponse>>
 
     @GET("alarms")
     suspend fun listAlarms(

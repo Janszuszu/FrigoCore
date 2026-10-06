@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -32,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import pl.frigocore.service.R
 import pl.frigocore.service.data.model.AlarmStatus
+import pl.frigocore.service.data.model.AlarmType
+import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.theme.FrigoCritical
 import pl.frigocore.service.ui.theme.FrigoOk
 import pl.frigocore.service.ui.theme.FrigoWarning
@@ -44,6 +47,8 @@ fun AlarmScreen(
     onEnRoute: () -> Unit,
     onResolve: () -> Unit,
     onDismissError: () -> Unit,
+    /** False for object owners: they see the alarm, technicians act on it. */
+    canAct: Boolean = true,
 ) {
     val actionInProgress = uiState.actionInFlight != AlarmActionInFlight.NONE
 
@@ -51,6 +56,7 @@ fun AlarmScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(FrigoCritical)
+            .safeDrawingPadding()
             .padding(20.dp),
         verticalArrangement = Arrangement.Top,
     ) {
@@ -63,16 +69,19 @@ fun AlarmScreen(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        StatusBadge(status = uiState.effectiveStatus)
+        StatusBadge(status = Formatters.alarmStatus(uiState.effectiveStatus))
 
         Spacer(modifier = Modifier.height(20.dp))
 
         InfoCard {
             InfoRow("Obiekt", (uiState.alarm?.object_name?.ifBlank { null } ?: uiState.siteName).ifBlank { "—" })
-            InfoRow("Typ alarmu", (uiState.alarm?.alarm_type ?: uiState.payloadAlarmType).uppercase())
+            InfoRow("Typ alarmu", Formatters.alarmType(uiState.alarm?.alarm_type ?: uiState.payloadAlarmType))
+            uiState.alarm?.trigger_value?.takeIf { uiState.alarm.alarm_type != AlarmType.OFFLINE }?.let {
+                InfoRow("Odczyt", Formatters.temperature(it))
+            }
             InfoRow("Sensor", (uiState.alarm?.sensor_name?.ifBlank { null } ?: uiState.payloadSensorName).ifBlank { "—" })
-            InfoRow("Wysłano", uiState.alarm?.notification_sent_at ?: uiState.payloadDispatchedAt)
-            InfoRow("Status", uiState.effectiveStatus.uppercase())
+            InfoRow("Wykryto", Formatters.dateTime(uiState.alarm?.detected_at ?: uiState.payloadCreatedAt))
+            InfoRow("Status", Formatters.alarmStatus(uiState.effectiveStatus))
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -80,6 +89,20 @@ fun AlarmScreen(
         if (uiState.actionError != null) {
             ErrorBanner(message = uiState.actionError, onDismiss = onDismissError)
             Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        if (!canAct) {
+            Text(
+                text = when (uiState.effectiveStatus) {
+                    AlarmStatus.RESOLVED, AlarmStatus.ARCHIVED -> "Alarm zakończony"
+                    AlarmStatus.EN_ROUTE -> "Serwisant jest w drodze na obiekt."
+                    AlarmStatus.ACKNOWLEDGED -> "Serwis przyjął zgłoszenie."
+                    else -> "Serwis został powiadomiony."
+                },
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            return@Column
         }
 
         when (uiState.effectiveStatus) {

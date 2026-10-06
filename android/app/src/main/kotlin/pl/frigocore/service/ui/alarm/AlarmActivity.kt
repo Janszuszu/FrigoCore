@@ -6,16 +6,21 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.getSystemService
 import dagger.hilt.android.AndroidEntryPoint
 import pl.frigocore.service.data.model.ServiceAlarmPayload
+import pl.frigocore.service.data.model.UserRole
+import pl.frigocore.service.data.repository.AuthRepository
 import pl.frigocore.service.fcm.getAlarmPayloadExtra
 import pl.frigocore.service.fcm.putAlarmPayloadExtra
 import pl.frigocore.service.ui.theme.FrigoCoreTheme
+import javax.inject.Inject
 
 /**
  * Dedicated full-screen screen for a critical SERVICE_ALARM, launched either
@@ -30,8 +35,15 @@ class AlarmActivity : ComponentActivity() {
 
     private val viewModel: AlarmViewModel by viewModels()
 
+    @Inject lateinit var authRepository: AuthRepository
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Red alarm background behind the system bars needs light icons.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
@@ -55,6 +67,7 @@ class AlarmActivity : ComponentActivity() {
                     onEnRoute = viewModel::markEnRoute,
                     onResolve = viewModel::resolve,
                     onDismissError = viewModel::dismissError,
+                    canAct = authRepository.currentUser?.role != UserRole.USER,
                 )
             }
         }

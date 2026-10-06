@@ -13,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import pl.frigocore.service.R
+import pl.frigocore.service.data.model.ClientAlarmPayload
 import pl.frigocore.service.data.model.ServiceAlarmPayload
 import pl.frigocore.service.ui.alarm.AlarmActivity
 import javax.inject.Inject
@@ -90,6 +91,37 @@ class AlarmNotificationHelper @Inject constructor(
         }
     }
 
+    /** Ordinary heads-up notification for an object owner. The same alarm's
+     * later events (en route, resolved) replace the earlier entry. */
+    fun showOwnerAlarm(payload: ClientAlarmPayload) {
+        val contentIntent = PendingIntent.getActivity(
+            context,
+            ownerNotificationId(payload.alarmId),
+            AlarmActivity.newIntent(context, payload.toServiceAlarmPayload()),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val title = if (payload.siteName.isBlank()) payload.title else "${payload.title} — ${payload.siteName}"
+        val notification = NotificationCompat.Builder(context, context.getString(R.string.notification_channel_owner_id))
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(payload.message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(payload.message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setAutoCancel(true)
+            .setContentIntent(contentIntent)
+            .build()
+
+        val hasPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (hasPermission) {
+            NotificationManagerCompat.from(context).notify(ownerNotificationId(payload.alarmId), notification)
+        } else {
+            Log.w(TAG, "POST_NOTIFICATIONS not granted — cannot show owner notice for ${payload.alarmId}")
+        }
+    }
+
     fun clearAlarm(alarmId: String) {
         NotificationManagerCompat.from(context).cancel(notificationId(alarmId))
     }
@@ -99,7 +131,10 @@ class AlarmNotificationHelper @Inject constructor(
          * alarm_id updates rather than duplicates the tray entry. */
         fun notificationId(alarmId: String): Int = ALARM_NOTIFICATION_BASE + (alarmId.hashCode() and 0x00FFFFFF)
 
+        fun ownerNotificationId(alarmId: String): Int = OWNER_NOTIFICATION_BASE + (alarmId.hashCode() and 0x00FFFFFF)
+
         private const val ALARM_NOTIFICATION_BASE = 90_000
+        private const val OWNER_NOTIFICATION_BASE = 0x20000000
         private const val TAG = "AlarmNotificationHelper"
     }
 }

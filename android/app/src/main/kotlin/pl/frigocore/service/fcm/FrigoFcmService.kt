@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import pl.frigocore.service.data.local.SessionStore
+import pl.frigocore.service.data.model.ClientAlarmPayload
 import pl.frigocore.service.data.model.ServiceAlarmPayload
 import pl.frigocore.service.data.repository.ApiResult
 import pl.frigocore.service.data.repository.DeviceRepository
@@ -47,6 +48,10 @@ class FrigoFcmService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        ClientAlarmPayload.fromDataMap(message.data)?.let {
+            alarmNotificationHelper.showOwnerAlarm(it)
+            return
+        }
         val payload = ServiceAlarmPayload.fromDataMap(message.data) ?: run {
             Log.w(TAG, "Ignoring non-SERVICE_ALARM or malformed push: ${message.data}")
             return

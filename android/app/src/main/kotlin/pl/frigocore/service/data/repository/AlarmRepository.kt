@@ -10,8 +10,12 @@ import javax.inject.Singleton
 class AlarmRepository @Inject constructor(
     private val api: FrigoCoreApi,
 ) {
-    suspend fun listAlarms(status: String? = null): ApiResult<List<AlarmResponse>> =
-        safeApiCall { api.listAlarms(status = status) }
+    suspend fun listAlarms(
+        status: String? = null,
+        objectId: String? = null,
+        limit: Int = 100,
+    ): ApiResult<List<AlarmResponse>> =
+        safeApiCall { api.listAlarms(objectId = objectId, status = status, limit = limit) }
 
     suspend fun getAlarm(alarmId: String): ApiResult<AlarmResponse> =
         safeApiCall { api.getAlarm(alarmId) }

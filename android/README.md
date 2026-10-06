@@ -1,8 +1,18 @@
-# FrigoCore Service (Android)
+# FrigoCore (Android)
 
-Native Android client for FrigoCore technicians — receives and acts on
-critical service alarms dispatched by the existing FastAPI backend
-(`backend/app/api/routes.py`, `backend/app/services/dispatch_service.py`).
+Native Android client for FrigoCore, for two audiences selected by the
+logged-in user's role:
+
+- **Technicians** (`serwisant`, `kierownik`, `admin`) — receive and act on
+  critical SERVICE_ALARM pushes (full-screen alarm, accept / en route /
+  resolve) and can browse every object.
+- **Object owners** (`user`) — see only their assigned objects: live sensor
+  temperatures, 6 h / 24 h / 7 d charts, open alarms, and get informational
+  CLIENT_ALARM pushes (alarm raised, service en route, alarm closed).
+
+Backend contract: `backend/app/api/routes.py`,
+`backend/app/services/dispatch_service.py:notify_object_owners`,
+`backend/app/services/notification_engine.py`.
 
 ## applicationId
 
@@ -29,6 +39,25 @@ restored once that app is registered in the Firebase console.
    `API_BASE_URL=https://frigocore.pl/api/v1/`. Change `API_BASE_URL` if
    pointing at a different backend (e.g. a local dev server).
 3. Build: `./gradlew assembleDebug`
+
+## Release build (Google Play)
+
+1. Create the upload key once and keep it backed up outside the repo —
+   losing it means Play support has to reset the upload key:
+   `keytool -genkeypair -v -keystore frigocore-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`
+2. Create `android/keystore.properties` (gitignored):
+   ```
+   storeFile=frigocore-upload.jks
+   storePassword=...
+   keyAlias=upload
+   keyPassword=...
+   ```
+3. Bump `versionCode` in `app/build.gradle.kts`, then `./gradlew :app:bundleRelease`
+   → `app/build/outputs/bundle/release/app-release.aab`.
+4. Enrol in Play App Signing when uploading the first bundle.
+
+Privacy policy for the store listing: `https://frigocore.pl/privacy.html`
+(`frontend/public/privacy.html`).
 
 ## Architecture
 

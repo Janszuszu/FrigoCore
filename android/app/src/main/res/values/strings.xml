@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">FrigoCore Service</string>
+    <string name="app_name">FrigoCore</string>
     <string name="notification_channel_alarms_id">service_alarms_critical</string>
     <string name="notification_channel_alarms_name">Alarmy serwisowe</string>
     <string name="notification_channel_alarms_description">Krytyczne alarmy wymagające natychmiastowej reakcji technika</string>
+    <string name="notification_channel_owner_id">object_alarms</string>
+    <string name="notification_channel_owner_name">Alarmy obiektów</string>
+    <string name="notification_channel_owner_description">Informacje o alarmach na Twoich obiektach i przyjeździe serwisu</string>
 
     <string name="action_accept">PRZYJMUJĘ</string>
     <string name="action_decline">ODRZUCAM</string>
@@ -16,7 +19,7 @@
     <string name="status_resolved">ZAKOŃCZONY</string>
     <string name="status_archived">ZARCHIWIZOWANY</string>
 
-    <string name="login_title">FrigoCore Service</string>
+    <string name="login_title">FrigoCore</string>
     <string name="login_username">Nazwa użytkownika</string>
     <string name="login_password">Hasło</string>
     <string name="login_submit">Zaloguj się</string>
@@ -34,4 +37,8 @@
     <string name="alarm_critical_label">ALARM KRYTYCZNY</string>
     <string name="alarm_action_failed">Nie udało się potwierdzić akcji. Spróbuj ponownie.</string>
     <string name="alarm_action_pending">Wysyłanie…</string>
+
+    <string name="permission_notifications_warning">Powiadomienia są wyłączone — alarmy nie będą wyświetlane. Włącz je w ustawieniach.</string>
+    <string name="permission_full_screen_warning">Ekran alarmu nie będzie otwierał się automatycznie. Włącz uprawnienie \"Pełny ekran\" w ustawieniach systemowych.</string>
+    <string name="permission_open_settings">USTAWIENIA</string>
 </resources>

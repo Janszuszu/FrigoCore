@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
@@ -24,7 +25,7 @@ import pl.frigocore.service.data.local.SessionExpiredNotifier
 import pl.frigocore.service.data.model.ServiceAlarmPayload
 import pl.frigocore.service.data.repository.AuthRepository
 import pl.frigocore.service.ui.alarm.AlarmActivity
-import pl.frigocore.service.ui.dashboard.DashboardScreen
+import pl.frigocore.service.ui.home.HomeScreen
 import pl.frigocore.service.ui.login.LoginScreen
 import pl.frigocore.service.ui.theme.FrigoCoreTheme
 import javax.inject.Inject
@@ -38,6 +39,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
 
         setContent {
             FrigoCoreTheme {
@@ -63,7 +65,7 @@ class MainActivity : ComponentActivity() {
 
 private object Routes {
     const val LOGIN = "login"
-    const val DASHBOARD = "dashboard"
+    const val HOME = "home"
 }
 
 @Composable
@@ -86,20 +88,20 @@ private fun FrigoCoreNavHost(
 
     NavHost(
         navController = navController,
-        startDestination = if (startLoggedIn) Routes.DASHBOARD else Routes.LOGIN,
+        startDestination = if (startLoggedIn) Routes.HOME else Routes.LOGIN,
     ) {
         composable(Routes.LOGIN) {
             LoginScreen(
                 onLoggedIn = {
-                    navController.navigate(Routes.DASHBOARD) {
+                    navController.navigate(Routes.HOME) {
                         popUpTo(Routes.LOGIN) { inclusive = true }
                     }
                 },
             )
         }
-        composable(Routes.DASHBOARD) {
+        composable(Routes.HOME) {
             val context = LocalContext.current
-            DashboardScreen(
+            HomeScreen(
                 onAlarmClick = { alarmId ->
                     // Reuses the same full-screen alarm UI as a push —
                     // AlarmViewModel.loadDetail() fetches the authoritative

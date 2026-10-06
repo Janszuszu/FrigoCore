@@ -11,7 +11,6 @@ import pl.frigocore.service.data.model.AlarmResponse
 import pl.frigocore.service.data.model.AlarmStatus
 import pl.frigocore.service.data.repository.AlarmRepository
 import pl.frigocore.service.data.repository.ApiResult
-import pl.frigocore.service.data.repository.AuthRepository
 import javax.inject.Inject
 
 data class DashboardUiState(
@@ -30,15 +29,10 @@ data class DashboardUiState(
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val alarmRepository: AlarmRepository,
-    private val authRepository: AuthRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DashboardUiState())
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
-
-    init {
-        refresh()
-    }
 
     fun refresh() {
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
@@ -47,13 +41,6 @@ class DashboardViewModel @Inject constructor(
                 is ApiResult.Success -> _uiState.value = _uiState.value.copy(isLoading = false, alarms = result.data)
                 is ApiResult.Error -> _uiState.value = _uiState.value.copy(isLoading = false, error = result.message)
             }
-        }
-    }
-
-    fun logout(onDone: () -> Unit) {
-        viewModelScope.launch {
-            authRepository.logout()
-            onDone()
         }
     }
 }

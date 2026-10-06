@@ -48,6 +48,15 @@ class FrigoCoreApplication : Application() {
             setSound(alarmSound, audioAttributes)
         }
 
-        getSystemService<NotificationManager>()?.createNotificationChannel(channel)
+        val ownerChannel = NotificationChannel(
+            getString(R.string.notification_channel_owner_id),
+            getString(R.string.notification_channel_owner_name),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = getString(R.string.notification_channel_owner_description)
+            enableVibration(true)
+        }
+
+        getSystemService<NotificationManager>()?.createNotificationChannels(listOf(channel, ownerChannel))
     }
 }

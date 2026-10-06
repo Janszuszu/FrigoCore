@@ -12,3 +12,8 @@ local.properties
 # Firebase client config — registered per-environment in the Firebase
 # console, never committed.
 app/google-services.json
+
+# Release signing — the upload key and its passwords never leave this machine.
+keystore.properties
+*.jks
+*.keystore
