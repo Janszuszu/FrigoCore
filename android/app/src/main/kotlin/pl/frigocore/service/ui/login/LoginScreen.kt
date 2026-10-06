@@ -15,12 +15,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -97,6 +99,18 @@ fun LoginScreen(
                 } else {
                     Text(stringResourceCompat(R.string.login_submit))
                 }
+            }
+
+            // Google Play requires the privacy policy to be reachable from inside the app.
+            val uriHandler = LocalUriHandler.current
+            val privacyUrl = stringResourceCompat(R.string.privacy_policy_url)
+            TextButton(
+                onClick = { uriHandler.openUri(privacyUrl) },
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(top = 16.dp),
+            ) {
+                Text(stringResourceCompat(R.string.privacy_policy))
             }
         }
     }

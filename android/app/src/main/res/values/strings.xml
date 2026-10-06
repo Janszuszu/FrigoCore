@@ -24,6 +24,8 @@
     <string name="login_password">Hasło</string>
     <string name="login_submit">Zaloguj się</string>
     <string name="login_error_invalid">Nieprawidłowa nazwa użytkownika lub hasło</string>
+    <string name="privacy_policy">Polityka prywatności</string>
+    <string name="privacy_policy_url" translatable="false">https://frigocore.pl/privacy.html</string>
     <string name="login_error_network">Brak połączenia z serwerem. Spróbuj ponownie.</string>
 
     <string name="dashboard_title">Alarmy serwisowe</string>
