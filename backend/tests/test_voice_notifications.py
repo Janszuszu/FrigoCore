@@ -502,7 +502,7 @@ async def test_test_call_timeout_reports_check_history(client, db_session, make_
     ("status", "body", "expected"),
     [
         (400, '{"message":"Validation error.","errors":[{"field":"caller_id","message":"DDI not found."}]}', "nie należy do konta"),
-        (503, '{"message":"Connection to PSTN gateway failed.","errors":[]}', "jest już aktywny"),
+        (503, '{"message":"Connection to PSTN gateway failed.","errors":[]}', "awaria bramki PSTN"),
     ],
 )
 async def test_test_call_explains_voipstudio_rejections(client, db_session, make_user, monkeypatch, status, body, expected):

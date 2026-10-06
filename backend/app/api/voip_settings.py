@@ -67,7 +67,10 @@ def _failure(exc: Exception) -> VoipTestResult:
         if "PSTN gateway" in text:
             return VoipTestResult(
                 ok=False,
-                detail="VoIPstudio nie zestawiło połączenia — sprawdź, czy numer prezentowany jest już aktywny",
+                detail=(
+                    "VoIPstudio nie zestawiło połączenia (awaria bramki PSTN po stronie VoIPstudio). "
+                    "Ustaw numer z zapowiedzią, aby alarmy dzwoniły wariantem zapasowym"
+                ),
             )
         return VoipTestResult(ok=False, detail=text)
     if isinstance(exc, httpx.TimeoutException):
