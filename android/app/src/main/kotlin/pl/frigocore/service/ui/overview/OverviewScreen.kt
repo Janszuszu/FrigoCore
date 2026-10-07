@@ -27,7 +27,6 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -143,13 +143,17 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
         SensorStatus.ALARM -> FrigoCritical
         SensorStatus.OFFLINE -> FrigoTextMuted
     }
+    val edge = if (card.status == SensorStatus.ALARM) FrigoCritical else FrigoAccent
+    val shape = RoundedCornerShape(14.dp)
     Card(
         onClick = onClick,
-        border = BorderStroke(1.dp, if (card.status == SensorStatus.ALARM) FrigoCritical else FrigoOutline),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
+        border = BorderStroke(1.dp, edge.copy(alpha = 0.35f)),
+        shape = shape,
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(10.dp, shape, ambientColor = edge.copy(alpha = 0.5f), spotColor = edge.copy(alpha = 0.5f)),
     ) {
-        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 10.dp)) {
+        Column(Modifier.padding(start = 14.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
             CardTitle(sensor.name, card.status)
             Spacer(Modifier.height(8.dp))
             Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
@@ -157,7 +161,10 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
                     Modifier
                         .size(56.dp)
                         .border(1.5.dp, FrigoAccent.copy(alpha = 0.6f), CircleShape)
-                        .background(FrigoAccent.copy(alpha = 0.06f), CircleShape),
+                        .background(
+                            Brush.radialGradient(listOf(FrigoAccent.copy(alpha = 0.22f), FrigoAccent.copy(alpha = 0.02f))),
+                            CircleShape,
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(sensorIcon(sensor.icon), contentDescription = null, tint = FrigoAccent, modifier = Modifier.size(30.dp))
@@ -194,28 +201,33 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
     }
 }
 
-/** "——  CHŁODNIA  ——"; a non-OK status is appended in its own colour. */
+/** Sensor name, top-right; a non-OK status is appended in its own colour. */
 @Composable
 private fun CardTitle(name: String, status: SensorStatus) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        HorizontalDivider(Modifier.weight(1f).padding(start = 40.dp, end = 12.dp), color = FrigoAccent)
-        Text(name.uppercase(), color = FrigoTextMuted, fontSize = 16.sp, letterSpacing = 1.sp, maxLines = 1)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Text(
+            name.uppercase(),
+            color = FrigoText.copy(alpha = 0.8f),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Light,
+            letterSpacing = 0.5.sp,
+            maxLines = 1,
+        )
         if (status != SensorStatus.OK) {
             Text(
                 " · ${status.name}",
                 color = if (status == SensorStatus.ALARM) FrigoCritical else FrigoTextMuted,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
         }
-        HorizontalDivider(Modifier.weight(1f).padding(start = 12.dp, end = 40.dp), color = FrigoAccent)
     }
 }
 
 @Composable
 private fun StatDivider() {
-    VerticalDivider(Modifier.fillMaxHeight().padding(vertical = 6.dp), color = FrigoOutline)
+    VerticalDivider(Modifier.fillMaxHeight().padding(vertical = 6.dp), thickness = 1.dp, color = FrigoAccent.copy(alpha = 0.25f))
 }
 
 @Composable
