@@ -918,6 +918,10 @@ async def archive_alarm(
     if alarm.status not in (AlarmStatus.ACKNOWLEDGED, AlarmStatus.RESOLVED):
         raise HTTPException(status_code=400, detail="Only completed alarms can be archived")
     alarm.status = AlarmStatus.ARCHIVED
+    # An ACKNOWLEDGED alarm was never resolved; without an end time the chart
+    # would treat it as still ongoing and stretch it up to "now".
+    if alarm.resolved_at is None:
+        alarm.resolved_at = datetime.now(timezone.utc)
     await record_event(db, alarm.id, AlarmEventType.ALARM_ARCHIVED, actor_user_id=user.id)
     await db.commit()
     await db.refresh(alarm)

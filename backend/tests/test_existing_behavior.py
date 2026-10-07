@@ -93,6 +93,8 @@ async def test_legacy_acknowledge_and_archive_still_work(client, db_session, mak
     resp = await client.post(f"/api/v1/alarms/{alarm.id}/archive", headers=auth_headers(serwisant))
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == AlarmStatus.ARCHIVED.value
+    # Archiving closes the alarm, so the chart must not treat it as ongoing.
+    assert resp.json()["resolved_at"] is not None
 
 
 async def test_app_migrations_leave_logging_untouched():
