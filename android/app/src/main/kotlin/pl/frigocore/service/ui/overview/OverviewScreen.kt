@@ -140,8 +140,8 @@ private fun AlarmBanner(alarm: AlarmResponse, onClick: () -> Unit) {
 
 @Composable
 private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
-    // The current reading and its chart share one colour: the 24 h trend,
-    // or the alarm / offline state when that applies.
+    // The name, the current reading and the chart share one colour: the 24 h
+    // trend, or the alarm / offline state when that applies.
     val trendColor = when (card.status) {
         SensorStatus.OK -> heatColor(tempHeat(card.sensor.current_temperature, card.stats))
         SensorStatus.ALARM -> FrigoCritical
@@ -157,7 +157,7 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
     ) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                CardTitle(card.sensor.name, card.status, Modifier.weight(1f))
+                CardTitle(card.sensor.name, card.status, trendColor, Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     buildAnnotatedString {
@@ -196,19 +196,15 @@ private fun heatColor(heat: Double?): Color = when {
     else -> FrigoOk
 }
 
-/** Sensor name, top-left; a non-OK status is appended in its own colour. */
+/** Sensor name, top-left, in [color]; a non-OK status is appended to it. */
 @Composable
-private fun CardTitle(name: String, status: SensorStatus, modifier: Modifier = Modifier) {
+private fun CardTitle(name: String, status: SensorStatus, color: Color, modifier: Modifier = Modifier) {
     Text(
         buildAnnotatedString {
             append(name.uppercase())
-            if (status != SensorStatus.OK) {
-                withStyle(SpanStyle(color = if (status == SensorStatus.ALARM) FrigoCritical else FrigoTextMuted)) {
-                    append(" · ${status.name}")
-                }
-            }
+            if (status != SensorStatus.OK) append(" · ${status.name}")
         },
-        color = FrigoText,
+        color = color,
         fontSize = 19.sp,
         fontWeight = FontWeight.Bold,
         maxLines = 1,
@@ -237,8 +233,8 @@ private fun Stat(label: String, value: Double?, modifier: Modifier = Modifier) {
     }
 }
 
-/** Last 24 h as a step line in [color] over a three-level grid, with a time
- * axis every 4 h, filled under the line. Tapping the card opens the full chart. */
+/** Last 24 h as a step line in [color] over a three-level grid, with five
+ * time labels from the window start to now, filled under the line. Tapping the card opens the full chart. */
 @Composable
 private fun CardChart(points: List<ChartPoint>, color: Color, modifier: Modifier = Modifier) {
     val textMeasurer = rememberTextMeasurer()
@@ -266,15 +262,18 @@ private fun CardChart(points: List<ChartPoint>, color: Color, modifier: Modifier
             drawLine(if (i == 0) FrigoTextMuted else FrigoOutline, Offset(leftPad, yy), Offset(size.width, yy), 1f)
         }
 
-        // Time axis + dashed vertical grid every 4 h, ticked below the axis
+        // Time axis: five evenly spaced labels across the window (start, every
+        // 6 h, now), each with a dashed grid line and a tick below the axis.
         val dash = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))
-        // A tick before the window start would pile up on the left edge.
-        hourTicks(now).filter { it.toEpochMilli() >= tStart }.forEach { t ->
-            val xx = x(t)
+        for (i in 0..4) {
+            val f = i / 4f
+            val t = Instant.ofEpochMilli(tStart + (tSpan * f).toLong())
+            val xx = leftPad + chartW * f
             drawLine(FrigoOutline, Offset(xx, topPad), Offset(xx, topPad + chartH), 1f, pathEffect = dash)
             drawLine(FrigoTextMuted, Offset(xx, topPad + chartH), Offset(xx, topPad + chartH + 4.dp.toPx()), 1f)
             val label = textMeasurer.measure(t.atZone(ZoneId.systemDefault()).format(hourFormat), labelStyle)
-            val lx = (xx - label.size.width / 2).coerceIn(0f, size.width - label.size.width)
+            // First label hangs right of its tick, last one left of it, the rest centred.
+            val lx = (xx - label.size.width * f).coerceIn(0f, size.width - label.size.width)
             drawText(label, topLeft = Offset(lx, size.height - label.size.height))
         }
 
