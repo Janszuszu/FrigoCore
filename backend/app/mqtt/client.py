@@ -34,6 +34,12 @@ logger = logging.getLogger(__name__)
 QOS = 1
 TOPIC_WILDCARD = "frigo/#"
 
+
+def is_gateway_topic(topic: str) -> bool:
+    """Gateway liveness/status traffic (<prefix>/gateway/heartbeat, /status,
+    /config-ack) shares the frigo/# tree but carries no temperature."""
+    return "/gateway/" in f"/{topic}/"
+
 # ---------------------------------------------------------------------------
 # MQTT Engine
 # ---------------------------------------------------------------------------
@@ -166,6 +172,9 @@ class MQTTEngine:
 
     async def _handle_message(self, topic: str, payload: bytes) -> None:
         """Map MQTT topic to sensor, validate payload, persist measurement."""
+        if is_gateway_topic(topic):
+            logger.debug("Gateway control message — topic=%s — not a measurement", topic)
+            return
         try:
             # 1. Parse and validate payload
             temperature = self._parse_payload(payload)
