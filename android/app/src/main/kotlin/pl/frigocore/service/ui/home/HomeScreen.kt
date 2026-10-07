@@ -266,12 +266,12 @@ private fun FrigoHeader() {
                     withStyle(SpanStyle(color = FrigoAccent)) { append("CORE") }
                 },
                 fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
+                fontSize = 22.sp,
                 modifier = Modifier.weight(1f),
             )
-            Text(local.format(dateFormat), color = FrigoTextMuted, fontSize = 15.sp)
+            Text(local.format(dateFormat), color = FrigoTextMuted, fontSize = 18.sp)
             Spacer(Modifier.width(10.dp))
-            Text(local.format(clockFormat), color = FrigoText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(local.format(clockFormat), color = FrigoText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
         HorizontalDivider(color = FrigoOutline)
     }
