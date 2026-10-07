@@ -4,7 +4,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,23 +24,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -58,9 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import kotlinx.coroutines.delay
 import pl.frigocore.service.data.model.AlarmResponse
-import pl.frigocore.service.data.model.ObjectResponse
 import pl.frigocore.service.data.model.SensorResponse
 import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.common.LoadingState
@@ -90,8 +80,6 @@ fun OverviewScreen(
     PollWhileVisible { viewModel.refresh() }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-        ClockRow()
-        ObjectSelector(uiState.objects, uiState.selectedObject, viewModel::selectObject)
         Spacer(Modifier.height(10.dp))
         Box(Modifier.weight(1f)) {
             when {
@@ -117,68 +105,7 @@ fun OverviewScreen(
     }
 }
 
-private val clockFormat = DateTimeFormatter.ofPattern("HH:mm:ss")
-private val dateFormat = DateTimeFormatter.ofPattern("d.MM.yyyy")
 private val hourFormat = DateTimeFormatter.ofPattern("HH:mm")
-
-@Composable
-private fun ClockRow() {
-    var now by remember { mutableStateOf(Instant.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = Instant.now()
-            delay(1_000)
-        }
-    }
-    val local = now.atZone(ZoneId.systemDefault())
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("OBIEKT", color = FrigoTextMuted, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-        Text(local.format(dateFormat), color = FrigoTextMuted, style = MaterialTheme.typography.labelLarge)
-        Spacer(Modifier.width(12.dp))
-        Text(
-            local.format(clockFormat),
-            color = FrigoText,
-            fontWeight = FontWeight.SemiBold,
-            style = MaterialTheme.typography.labelLarge,
-        )
-    }
-}
-
-@Composable
-private fun ObjectSelector(objects: List<ObjectResponse>, selected: ObjectResponse?, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.5.dp, FrigoText.copy(alpha = 0.85f), RoundedCornerShape(10.dp))
-                .clickable(enabled = objects.size > 1) { expanded = true }
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                selected?.name ?: "—",
-                color = FrigoText,
-                fontSize = 17.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (objects.size > 1) Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Wybierz obiekt", tint = FrigoText)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            objects.forEach { obj ->
-                DropdownMenuItem(
-                    text = { Text(obj.name, fontWeight = if (obj.id == selected?.id) FontWeight.Bold else FontWeight.Normal) },
-                    onClick = {
-                        expanded = false
-                        onSelect(obj.id)
-                    },
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun AlarmBanner(alarm: AlarmResponse, onClick: () -> Unit) {

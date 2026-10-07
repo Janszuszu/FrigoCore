@@ -96,13 +96,6 @@ class OverviewViewModel @Inject constructor(
     private var historyObjectId: String? = null
     private var historyFetchedAt: Instant = Instant.EPOCH
 
-    fun selectObject(objectId: String) {
-        if (objectId == _uiState.value.selectedObjectId) return
-        selectedObjectStore.select(objectId)
-        _uiState.value = _uiState.value.copy(selectedObjectId = objectId, cards = emptyList(), isLoading = true, error = null)
-        refresh()
-    }
-
     fun refresh() {
         viewModelScope.launch {
             val objectsJob = async { objectRepository.listObjects() }
