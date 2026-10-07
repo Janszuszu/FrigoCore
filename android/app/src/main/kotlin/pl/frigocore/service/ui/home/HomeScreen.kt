@@ -75,7 +75,6 @@ import pl.frigocore.service.data.model.UserRole
 import pl.frigocore.service.data.repository.AlarmRepository
 import pl.frigocore.service.data.repository.ApiResult
 import pl.frigocore.service.data.repository.AuthRepository
-import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.common.PollWhileVisible
 import pl.frigocore.service.ui.dashboard.DashboardScreen
 import pl.frigocore.service.ui.objects.ObjectsScreen
@@ -302,11 +301,11 @@ private fun FrigoHeader(header: HeaderState, onAlarmsClick: () -> Unit) {
                 text = if (live) "LIVE" else "OFFLINE",
             )
             VerticalDivider(Modifier.height(24.dp).padding(horizontal = 8.dp), color = FrigoOutline)
-            // "ALARM" always; it fills in red (with the count) once something is open.
+            // Always just "ALARM"; it fills in red once something is open.
             Pill(
                 color = FrigoCritical,
                 leading = { Icon(Icons.Filled.Notifications, contentDescription = null, tint = FrigoCritical, modifier = Modifier.size(16.dp)) },
-                text = if (header.openAlarms > 0) Formatters.alarmCount(header.openAlarms) else "ALARM",
+                text = "ALARM",
                 onClick = onAlarmsClick,
                 filled = header.openAlarms > 0,
             )

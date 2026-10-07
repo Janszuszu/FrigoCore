@@ -57,16 +57,6 @@ object Formatters {
         return Duration.between(last, now).seconds <= sensor.offline_timeout_seconds
     }
 
-    /** "1 ALARM", "3 ALARMY", "0 ALARMÓW" — Polish plural rules. */
-    fun alarmCount(count: Int): String {
-        val word = when {
-            count == 1 -> "ALARM"
-            count % 10 in 2..4 && count % 100 !in 12..14 -> "ALARMY"
-            else -> "ALARMÓW"
-        }
-        return "$count $word"
-    }
-
     /** Value without the unit, e.g. "-18,9" — the card renders "°C" smaller. */
     fun temperatureValue(value: Double?): String =
         if (value == null) "—" else String.format(Locale.forLanguageTag("pl"), "%.1f", value)

@@ -57,13 +57,4 @@ class FormattersTest {
         assertEquals("Serwis w drodze", Formatters.alarmStatus("en_route"))
     }
 
-    @Test
-    fun `alarm count uses Polish plural forms`() {
-        assertEquals("0 ALARMÓW", Formatters.alarmCount(0))
-        assertEquals("1 ALARM", Formatters.alarmCount(1))
-        assertEquals("3 ALARMY", Formatters.alarmCount(3))
-        assertEquals("5 ALARMÓW", Formatters.alarmCount(5))
-        assertEquals("12 ALARMÓW", Formatters.alarmCount(12))
-        assertEquals("22 ALARMY", Formatters.alarmCount(22))
-    }
 }
