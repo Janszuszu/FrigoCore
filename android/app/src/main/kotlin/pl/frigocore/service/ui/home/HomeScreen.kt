@@ -240,10 +240,9 @@ private fun MenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
-private val dateFormat = DateTimeFormatter.ofPattern("d.MM.yyyy")
 private val clockFormat = DateTimeFormatter.ofPattern("HH:mm:ss")
 
-/** Logo on the left, live date and clock on the right. */
+/** Logo on the left, live clock on the right. */
 @Composable
 private fun FrigoHeader() {
     var now by remember { mutableStateOf(Instant.now()) }
@@ -272,8 +271,6 @@ private fun FrigoHeader() {
                 softWrap = false,
                 modifier = Modifier.weight(1f),
             )
-            Text(local.format(dateFormat), color = FrigoAccent, fontSize = 15.sp, maxLines = 1, style = TabularNumbers)
-            Spacer(Modifier.width(8.dp))
             Text(local.format(clockFormat), color = FrigoAccent, fontSize = 16.sp, maxLines = 1, fontWeight = FontWeight.Bold, style = TabularNumbers)
         }
         HorizontalDivider(color = FrigoOutline)
