@@ -19,8 +19,12 @@ import pl.frigocore.service.data.repository.AlarmRepository
 import pl.frigocore.service.data.repository.ApiResult
 import pl.frigocore.service.data.repository.ObjectRepository
 import pl.frigocore.service.ui.common.Formatters
+import pl.frigocore.service.ui.sensor.ChartPoint
 import java.time.Duration
 import java.time.Instant
+import java.time.temporal.ChronoUnit
+import kotlin.math.ceil
+import kotlin.math.floor
 import javax.inject.Inject
 
 enum class SensorStatus { OK, ALARM, OFFLINE }
@@ -31,9 +35,27 @@ data class SensorCard(
     val sensor: SensorResponse,
     val status: SensorStatus,
     val stats: TempStats? = null,
-    /** Oldest-first 24 h values for the sparkline. */
-    val spark: List<Double> = emptyList(),
+    /** Oldest-first 24 h readings for the card's chart. */
+    val history: List<ChartPoint> = emptyList(),
 )
+
+/** Three y-axis ticks on whole degrees (e.g. 3/6/9, -24/-18/-12) that
+ * enclose [min]..[max]: lowest tick, step. */
+internal fun cardAxis(min: Double, max: Double): Pair<Int, Int> {
+    var step = maxOf(1, ceil((max - min) / 2).toInt())
+    while (true) {
+        val lo = floor(min / step).toInt() * step
+        if (lo + 2 * step >= max) return lo to step
+        step++
+    }
+}
+
+/** Time ticks every 4 h counting back from the current full hour, so a 24 h
+ * card reads 10:00, 14:00, ... 10:00 at 10:xx. */
+internal fun hourTicks(now: Instant, hours: Long = 24, every: Long = 4): List<Instant> {
+    val end = now.truncatedTo(ChronoUnit.HOURS)
+    return (0..hours / every).map { end.minus(it * every, ChronoUnit.HOURS) }.reversed()
+}
 
 data class OverviewUiState(
     val isLoading: Boolean = true,
@@ -113,7 +135,7 @@ class OverviewViewModel @Inject constructor(
             val now = Instant.now()
             if (historyObjectId != selectedId || Duration.between(historyFetchedAt, now).toMinutes() >= 5) {
                 history = sensors.map { s ->
-                    async { s.id to ((objectRepository.history(s.id, 24, targetPoints = 60) as? ApiResult.Success)?.data) }
+                    async { s.id to ((objectRepository.history(s.id, 24, targetPoints = 144) as? ApiResult.Success)?.data) }
                 }.awaitAll().mapNotNull { (id, data) -> data?.let { id to it } }.toMap()
                 historyObjectId = selectedId
                 historyFetchedAt = now
@@ -128,8 +150,10 @@ class OverviewViewModel @Inject constructor(
                 selectedObjectId = selectedId,
                 openAlarms = openAlarms,
                 cards = sensors.map { sensor ->
-                    val values = history[sensor.id].orEmpty().map { it.temperature }
-                    SensorCard(sensor, sensorStatus(sensor, openAlarms, now), tempStats(values), values)
+                    val points = history[sensor.id].orEmpty().mapNotNull { m ->
+                        Formatters.parseInstant(m.received_at)?.let { ChartPoint(it, m.temperature) }
+                    }
+                    SensorCard(sensor, sensorStatus(sensor, openAlarms, now), tempStats(points.map { it.value }), points)
                 },
             )
         }

@@ -31,7 +31,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,12 +44,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,6 +67,7 @@ import pl.frigocore.service.ui.common.LoadingState
 import pl.frigocore.service.ui.common.MessageState
 import pl.frigocore.service.ui.common.PollWhileVisible
 import pl.frigocore.service.ui.common.sensorIcon
+import pl.frigocore.service.ui.sensor.ChartPoint
 import pl.frigocore.service.ui.theme.FrigoAccent
 import pl.frigocore.service.ui.theme.FrigoCritical
 import pl.frigocore.service.ui.theme.FrigoMin
@@ -74,6 +78,7 @@ import pl.frigocore.service.ui.theme.FrigoTextMuted
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 @Composable
 fun OverviewScreen(
@@ -114,6 +119,7 @@ fun OverviewScreen(
 
 private val clockFormat = DateTimeFormatter.ofPattern("HH:mm:ss")
 private val dateFormat = DateTimeFormatter.ofPattern("d.MM.yyyy")
+private val hourFormat = DateTimeFormatter.ofPattern("HH:mm")
 
 @Composable
 private fun ClockRow() {
@@ -127,13 +133,13 @@ private fun ClockRow() {
     val local = now.atZone(ZoneId.systemDefault())
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("OBIEKT", color = FrigoTextMuted, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-        Text(local.format(clockFormat), color = FrigoText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        Text(local.format(dateFormat), color = FrigoTextMuted, style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.width(12.dp))
         Text(
-            local.format(dateFormat),
-            color = FrigoTextMuted,
+            local.format(clockFormat),
+            color = FrigoText,
+            fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.weight(1f),
-            textAlign = androidx.compose.ui.text.style.TextAlign.End,
         )
     }
 }
@@ -220,26 +226,25 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(Modifier.height(IntrinsicSize.Min).padding(14.dp)) {
-            // Left: icon, name, live reading, status
-            Row(Modifier.weight(0.46f)) {
+        Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier
-                        .size(44.dp)
-                        .border(1.dp, FrigoAccent.copy(alpha = 0.5f), CircleShape)
-                        .background(FrigoAccent.copy(alpha = 0.08f), CircleShape),
+                        .size(50.dp)
+                        .border(1.5.dp, FrigoAccent.copy(alpha = 0.6f), CircleShape)
+                        .background(FrigoAccent.copy(alpha = 0.06f), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(sensorIcon(sensor.icon), contentDescription = null, tint = FrigoAccent, modifier = Modifier.size(24.dp))
+                    Icon(sensorIcon(sensor.icon), contentDescription = null, tint = FrigoAccent, modifier = Modifier.size(28.dp))
                 }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(0.42f)) {
                     Text(
                         sensor.name.uppercase(),
                         color = FrigoText,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        maxLines = 2,
+                        fontSize = 15.sp,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Row(verticalAlignment = Alignment.Bottom) {
@@ -247,35 +252,35 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
                             Formatters.temperatureValue(sensor.current_temperature),
                             color = tempColor,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 34.sp,
+                            fontSize = 36.sp,
                             maxLines = 1,
                         )
-                        Text("°C", color = tempColor, fontWeight = FontWeight.Bold, fontSize = 17.sp, modifier = Modifier.padding(bottom = 5.dp, start = 2.dp))
+                        Text(
+                            "°C",
+                            color = tempColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            modifier = Modifier.padding(bottom = 6.dp, start = 2.dp),
+                        )
                     }
+                }
+                Column(Modifier.weight(0.58f), horizontalAlignment = Alignment.End) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(9.dp).background(statusColor, CircleShape))
                         Spacer(Modifier.width(6.dp))
-                        Text(card.status.name, color = statusColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(card.status.name, color = statusColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
-                    Text(Formatters.ago(sensor.last_message_at), color = FrigoTextMuted, fontSize = 12.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                        VerticalDivider(Modifier.fillMaxHeight().padding(end = 6.dp), color = FrigoOutline)
+                        Stat("MIN 24h", card.stats?.min, FrigoMin, Modifier.weight(1f))
+                        Stat("ŚREDNIA 24h", card.stats?.avg, FrigoText, Modifier.weight(1.25f))
+                        Stat("MAX 24h", card.stats?.max, FrigoCritical, Modifier.weight(1f))
+                    }
                 }
             }
-            VerticalDivider(Modifier.fillMaxHeight().padding(horizontal = 10.dp), color = FrigoOutline)
-            // Right: 24 h stats + sparkline
-            Column(Modifier.weight(0.54f)) {
-                Row(Modifier.fillMaxWidth()) {
-                    Stat("MIN 24h", card.stats?.min, FrigoMin, Modifier.weight(1f))
-                    Stat("ŚREDNIA 24h", card.stats?.avg, FrigoText, Modifier.weight(1.2f))
-                    Stat("MAX 24h", card.stats?.max, FrigoCritical, Modifier.weight(1f))
-                }
-                HorizontalDivider(Modifier.padding(vertical = 8.dp), color = FrigoOutline)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Sparkline(card.spark, Modifier.weight(1f).height(44.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("24h", color = FrigoText, fontSize = 12.sp)
-                    Icon(Icons.Filled.ChevronRight, contentDescription = "Wykres", tint = FrigoText, modifier = Modifier.size(18.dp))
-                }
-            }
+            Spacer(Modifier.height(10.dp))
+            CardChart(card.history, Modifier.fillMaxWidth().height(130.dp))
         }
     }
 }
@@ -283,28 +288,66 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
 @Composable
 private fun Stat(label: String, value: Double?, color: Color, modifier: Modifier = Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, color = FrigoTextMuted, fontSize = 10.sp, maxLines = 1)
-        Text(Formatters.temperature(value), color = color, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Text(label, color = FrigoTextMuted, fontSize = 11.sp, maxLines = 1)
+        Text(Formatters.temperature(value), color = color, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 
+/** Last 24 h with a degree axis (three whole-degree ticks) and a time axis
+ * every 4 h, filled under the line. Tapping the card opens the full chart. */
 @Composable
-private fun Sparkline(values: List<Double>, modifier: Modifier = Modifier) {
+private fun CardChart(points: List<ChartPoint>, modifier: Modifier = Modifier) {
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = TextStyle(fontSize = 11.sp, color = FrigoTextMuted)
     Canvas(modifier) {
-        if (values.size < 2) return@Canvas
-        val min = values.min()
-        val span = (values.max() - min).coerceAtLeast(0.5)
-        val stepX = size.width / (values.size - 1)
-        fun y(v: Double) = (size.height * (1 - (v - min) / span)).toFloat().coerceIn(1f, size.height - 1f)
+        if (points.size < 2) return@Canvas
+        val now = Instant.now()
+        val tStart = now.minus(24, ChronoUnit.HOURS).toEpochMilli()
+        val tSpan = (now.toEpochMilli() - tStart).toFloat()
+        val (lo, step) = cardAxis(points.minOf { it.value }, points.maxOf { it.value })
+        val hi = lo + 2 * step
+
+        val leftPad = 40.dp.toPx()
+        val bottomPad = 18.dp.toPx()
+        val topPad = 6.dp.toPx()
+        val chartW = size.width - leftPad
+        val chartH = size.height - bottomPad - topPad
+        fun x(t: Instant) = leftPad + ((t.toEpochMilli() - tStart) / tSpan).coerceIn(0f, 1f) * chartW
+        fun y(v: Double) = topPad + ((hi - v) / (hi - lo)).toFloat() * chartH
+
+        // Degree axis + horizontal grid
+        for (i in 0..2) {
+            val v = lo + i * step
+            val yy = y(v.toDouble())
+            drawLine(FrigoOutline, Offset(leftPad, yy), Offset(size.width, yy), 1f)
+            val label = textMeasurer.measure("$v°C", labelStyle)
+            drawText(label, topLeft = Offset(leftPad - label.size.width - 6.dp.toPx(), yy - label.size.height / 2))
+        }
+        drawLine(FrigoTextMuted, Offset(leftPad, topPad), Offset(leftPad, topPad + chartH), 1.5f)
+
+        // Time axis + vertical grid every 4 h
+        hourTicks(now).forEach { t ->
+            val xx = x(t)
+            drawLine(FrigoOutline, Offset(xx, topPad), Offset(xx, topPad + chartH), 1f)
+            val label = textMeasurer.measure(t.atZone(ZoneId.systemDefault()).format(hourFormat), labelStyle)
+            val lx = (xx - label.size.width / 2).coerceIn(leftPad - 6.dp.toPx(), size.width - label.size.width)
+            drawText(label, topLeft = Offset(lx, size.height - label.size.height))
+        }
+
+        val visible = points.filter { it.time.toEpochMilli() >= tStart }
+        if (visible.size < 2) return@Canvas
         val line = Path()
-        values.forEachIndexed { i, v -> if (i == 0) line.moveTo(0f, y(v)) else line.lineTo(i * stepX, y(v)) }
+        visible.forEachIndexed { i, p -> if (i == 0) line.moveTo(x(p.time), y(p.value)) else line.lineTo(x(p.time), y(p.value)) }
         val fill = Path().apply {
             addPath(line)
-            lineTo(size.width, size.height)
-            lineTo(0f, size.height)
+            lineTo(x(visible.last().time), topPad + chartH)
+            lineTo(x(visible.first().time), topPad + chartH)
             close()
         }
-        drawPath(fill, Brush.verticalGradient(listOf(FrigoAccent.copy(alpha = 0.45f), FrigoAccent.copy(alpha = 0.05f))))
+        drawPath(
+            fill,
+            Brush.verticalGradient(listOf(FrigoAccent.copy(alpha = 0.55f), FrigoAccent.copy(alpha = 0.04f)), topPad, topPad + chartH),
+        )
         drawPath(line, FrigoAccent, style = Stroke(width = 1.5.dp.toPx(), join = StrokeJoin.Round))
     }
 }

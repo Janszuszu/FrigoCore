@@ -65,4 +65,21 @@ class OverviewLogicTest {
         assertEquals(false, isOpen(alarm(AlarmStatus.RESOLVED)))
         assertEquals(false, isOpen(alarm(AlarmStatus.ARCHIVED)))
     }
+
+    @Test
+    fun `card axis uses three whole-degree ticks that enclose the data`() {
+        assertEquals(3 to 3, cardAxis(3.7, 8.9))      // 3 / 6 / 9
+        assertEquals(-24 to 6, cardAxis(-22.1, -12.2)) // -24 / -18 / -12
+        assertEquals(18 to 1, cardAxis(18.6, 19.7))    // 18 / 19 / 20
+        val (lo, step) = cardAxis(14.1, 18.2)
+        assertEquals(true, lo <= 14.1 && lo + 2 * step >= 18.2)
+    }
+
+    @Test
+    fun `hour ticks run every 4 h back from the current full hour`() {
+        val ticks = hourTicks(Instant.parse("2026-10-07T10:50:47Z"))
+        assertEquals(7, ticks.size)
+        assertEquals(Instant.parse("2026-10-06T10:00:00Z"), ticks.first())
+        assertEquals(Instant.parse("2026-10-07T10:00:00Z"), ticks.last())
+    }
 }
