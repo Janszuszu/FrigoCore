@@ -279,7 +279,14 @@ private fun CardChart(points: List<ChartPoint>, modifier: Modifier = Modifier) {
         val visible = points.filter { it.time.toEpochMilli() >= tStart }
         if (visible.size < 2) return@Canvas
         val line = Path()
-        visible.forEachIndexed { i, p -> if (i == 0) line.moveTo(x(p.time), y(p.value)) else line.lineTo(x(p.time), y(p.value)) }
+        // Step line: hold each reading level until the next one, then jump.
+        visible.forEachIndexed { i, p ->
+            if (i == 0) line.moveTo(x(p.time), y(p.value))
+            else {
+                line.lineTo(x(p.time), y(visible[i - 1].value))
+                line.lineTo(x(p.time), y(p.value))
+            }
+        }
         val fill = Path().apply {
             addPath(line)
             lineTo(x(visible.last().time), topPad + chartH)
@@ -290,6 +297,6 @@ private fun CardChart(points: List<ChartPoint>, modifier: Modifier = Modifier) {
             fill,
             Brush.verticalGradient(listOf(FrigoAccent.copy(alpha = 0.55f), FrigoAccent.copy(alpha = 0.04f)), topPad, topPad + chartH),
         )
-        drawPath(line, FrigoAccent, style = Stroke(width = 1.5.dp.toPx(), join = StrokeJoin.Round))
+        drawPath(line, FrigoAccent, style = Stroke(width = 1.5.dp.toPx(), join = StrokeJoin.Miter))
     }
 }

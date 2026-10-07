@@ -95,7 +95,14 @@ fun TemperatureChart(points: List<ChartPoint>, showDates: Boolean, modifier: Mod
 
         // Line + soft fill
         val line = Path()
-        points.forEachIndexed { i, p -> if (i == 0) line.moveTo(x(p), y(p.value)) else line.lineTo(x(p), y(p.value)) }
+        // Step line: hold each reading level until the next one, then jump.
+        points.forEachIndexed { i, p ->
+            if (i == 0) line.moveTo(x(p), y(p.value))
+            else {
+                line.lineTo(x(p), y(points[i - 1].value))
+                line.lineTo(x(p), y(p.value))
+            }
+        }
         val fill = Path().apply {
             addPath(line)
             lineTo(x(points.last()), topPad + chartH)
@@ -103,7 +110,7 @@ fun TemperatureChart(points: List<ChartPoint>, showDates: Boolean, modifier: Mod
             close()
         }
         drawPath(fill, Brush.verticalGradient(listOf(lineColor.copy(alpha = 0.25f), lineColor.copy(alpha = 0f)), topPad, topPad + chartH))
-        drawPath(line, lineColor, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(line, lineColor, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Butt, join = StrokeJoin.Miter))
 
         // Selected point tooltip
         selectedX?.let { sx ->
