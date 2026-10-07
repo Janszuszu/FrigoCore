@@ -17,9 +17,9 @@ import java.time.Instant
 import javax.inject.Inject
 
 enum class HistoryRange(val label: String, val hours: Long) {
-    H6("6 godz.", 6),
-    H24("24 godz.", 24),
-    D7("7 dni", 168),
+    H6("6H", 6),
+    H24("24H", 24),
+    D7("7D", 168),
 }
 
 data class ChartPoint(val time: Instant, val value: Double)
@@ -33,6 +33,7 @@ data class SensorUiState(
 ) {
     val min: Double? get() = points.minOfOrNull { it.value }
     val max: Double? get() = points.maxOfOrNull { it.value }
+    val avg: Double? get() = points.takeIf { it.isNotEmpty() }?.map { it.value }?.average()
 }
 
 @HiltViewModel

@@ -1,42 +1,45 @@
 package pl.frigocore.service.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-val FrigoPrimary = Color(0xFF0B5FA5)
-val FrigoPrimaryDark = Color(0xFF08406F)
-val FrigoCritical = Color(0xFFD32F2F)
-val FrigoCriticalDark = Color(0xFFB71C1C)
-val FrigoWarning = Color(0xFFF57C00)
-val FrigoOk = Color(0xFF2E7D32)
-val FrigoBackground = Color(0xFFF4F6F8)
-val FrigoSurface = Color(0xFFFFFFFF)
+// Dark navy palette shared with the web dashboard (frigocore.pl). The app is
+// always dark — it mirrors the control-room look rather than the system theme.
+val FrigoBackground = Color(0xFF060A11)
+val FrigoSurface = Color(0xFF0B1422)
+val FrigoSurfaceHigh = Color(0xFF111D2F)
+val FrigoOutline = Color(0xFF1C2E47)
+val FrigoAccent = Color(0xFF1EB8F2)
+val FrigoText = Color(0xFFE8EEF6)
+val FrigoTextMuted = Color(0xFF8A9BB2)
 
-private val LightColors = lightColorScheme(
-    primary = FrigoPrimary,
-    onPrimary = Color.White,
+val FrigoCritical = Color(0xFFEF4444)
+val FrigoWarning = Color(0xFFF59E0B)
+val FrigoOk = Color(0xFF22C55E)
+val FrigoMin = Color(0xFF4DB5FF)
+
+private val Colors = darkColorScheme(
+    primary = FrigoAccent,
+    onPrimary = FrigoBackground,
     secondary = FrigoWarning,
     background = FrigoBackground,
+    onBackground = FrigoText,
     surface = FrigoSurface,
-    error = FrigoCritical,
-)
-
-private val DarkColors = darkColorScheme(
-    primary = FrigoPrimary,
-    onPrimary = Color.White,
-    secondary = FrigoWarning,
+    onSurface = FrigoText,
+    surfaceVariant = FrigoSurfaceHigh,
+    onSurfaceVariant = FrigoTextMuted,
+    surfaceContainer = FrigoSurface,
+    surfaceContainerLow = FrigoSurface,
+    surfaceContainerHigh = FrigoSurfaceHigh,
+    surfaceContainerHighest = FrigoSurfaceHigh,
+    outline = FrigoOutline,
+    outlineVariant = FrigoOutline,
     error = FrigoCritical,
 )
 
 @Composable
-fun FrigoCoreTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit,
-) {
-    val colors = if (darkTheme) DarkColors else LightColors
-    MaterialTheme(colorScheme = colors, content = content)
+fun FrigoCoreTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = Colors, content = content)
 }

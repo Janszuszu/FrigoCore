@@ -3,8 +3,6 @@ package pl.frigocore.service.ui.sensor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,7 +38,8 @@ internal fun axisBounds(min: Double, max: Double): Pair<Double, Double> {
     return floor(min - pad) to ceil(max + pad)
 }
 
-/** Line chart of temperature over time; touch or drag to read a value. */
+/** Line chart of temperature over time; touch or drag to read a value.
+ * Fills whatever size [modifier] gives it. */
 @Composable
 fun TemperatureChart(points: List<ChartPoint>, showDates: Boolean, modifier: Modifier = Modifier) {
     val lineColor = MaterialTheme.colorScheme.primary
@@ -54,8 +53,6 @@ fun TemperatureChart(points: List<ChartPoint>, showDates: Boolean, modifier: Mod
 
     Canvas(
         modifier = modifier
-            .fillMaxWidth()
-            .height(240.dp)
             .pointerInput(points) {
                 detectTapGestures { selectedX = it.x }
             }

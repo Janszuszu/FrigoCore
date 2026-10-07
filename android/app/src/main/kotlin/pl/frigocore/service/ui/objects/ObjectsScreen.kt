@@ -1,5 +1,6 @@
 package pl.frigocore.service.ui.objects
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,7 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.outlined.Apartment
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +36,7 @@ import pl.frigocore.service.ui.common.PollWhileVisible
 import pl.frigocore.service.ui.common.StatusChip
 import pl.frigocore.service.ui.theme.FrigoCritical
 import pl.frigocore.service.ui.theme.FrigoOk
+import pl.frigocore.service.ui.theme.FrigoOutline
 import pl.frigocore.service.ui.theme.FrigoWarning
 
 @Composable
@@ -63,13 +65,17 @@ fun ObjectsScreen(
 
 @Composable
 private fun ObjectCard(obj: ObjectResponse, openAlarms: Int, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    Card(
+        onClick = onClick,
+        border = BorderStroke(1.dp, if (openAlarms > 0) FrigoCritical else FrigoOutline),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.Filled.Storefront,
+                Icons.Outlined.Apartment,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(32.dp),

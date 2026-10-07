@@ -1,106 +1,187 @@
 package pl.frigocore.service.ui.sensor
 
-import androidx.compose.foundation.layout.Arrangement
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.common.PollWhileVisible
-import pl.frigocore.service.ui.common.StatusChip
+import pl.frigocore.service.ui.theme.FrigoBackground
 import pl.frigocore.service.ui.theme.FrigoCritical
 import pl.frigocore.service.ui.theme.FrigoOk
+import pl.frigocore.service.ui.theme.FrigoOutline
+import pl.frigocore.service.ui.theme.FrigoSurface
+import pl.frigocore.service.ui.theme.FrigoText
+import pl.frigocore.service.ui.theme.FrigoTextMuted
+import pl.frigocore.service.ui.theme.FrigoWarning
 
+/** Full-screen landscape chart, the same way the web dashboard presents one:
+ * a MIN/AVG/MAX strip with a range picker and a close button over the plot. */
 @Composable
-fun SensorScreen(viewModel: SensorViewModel = hiltViewModel()) {
+fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
     PollWhileVisible(intervalMillis = 60_000) { viewModel.refresh() }
-    val sensor = uiState.sensor
+    FullScreenLandscape()
 
     Column(
-        modifier = Modifier
+        Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .background(FrigoBackground)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(FrigoSurface, RoundedCornerShape(12.dp))
+                .border(BorderStroke(1.dp, FrigoOutline), RoundedCornerShape(12.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                Formatters.temperature(sensor?.current_temperature),
-                fontSize = 44.sp,
+                uiState.sensor?.name.orEmpty(),
+                color = FrigoText,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
             )
-            if (sensor != null) {
-                val online = Formatters.isOnline(sensor)
-                StatusChip(if (online) "Online" else "Offline", if (online) FrigoOk else FrigoCritical)
+            Spacer(Modifier.width(16.dp))
+            StatLabel("MIN", uiState.min, FrigoWarning)
+            Separator()
+            StatLabel("AVG", uiState.avg, FrigoOk)
+            Separator()
+            StatLabel("MAX", uiState.max, FrigoCritical)
+            Spacer(Modifier.weight(1f))
+            RangePicker(uiState.range, viewModel::selectRange)
+            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .border(1.dp, FrigoOutline, RoundedCornerShape(8.dp))
+                    .clickable(onClick = onClose),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Close, contentDescription = "Zamknij", tint = FrigoText)
             }
         }
-        Text(
-            "Ostatni odczyt: ${Formatters.dateTime(sensor?.last_message_at)} (${Formatters.ago(sensor?.last_message_at)})",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
 
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HistoryRange.entries.forEach { range ->
-                FilterChip(
-                    selected = uiState.range == range,
-                    onClick = { viewModel.selectRange(range) },
-                    label = { Text(range.label) },
+        Box(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+            when {
+                uiState.isLoadingHistory -> CircularProgressIndicator()
+                uiState.points.size < 2 -> Text(uiState.error ?: "Brak odczytów w tym okresie", color = FrigoTextMuted)
+                else -> TemperatureChart(
+                    uiState.points,
+                    showDates = uiState.range == HistoryRange.D7,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
-        }
-
-        Spacer(Modifier.height(8.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Box(Modifier.padding(12.dp), contentAlignment = Alignment.Center) {
-                when {
-                    uiState.isLoadingHistory -> Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                    uiState.points.size < 2 -> Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
-                        Text(uiState.error ?: "Brak odczytów w tym okresie", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    else -> TemperatureChart(uiState.points, showDates = uiState.range == HistoryRange.D7)
-                }
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatCard("Minimum", Formatters.temperature(uiState.min), Modifier.weight(1f))
-            StatCard("Maksimum", Formatters.temperature(uiState.max), Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(modifier = modifier) {
-        Column(Modifier.padding(14.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+private fun StatLabel(label: String, value: Double?, color: Color) {
+    Text(label, color = color, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+    Spacer(Modifier.width(6.dp))
+    Text(Formatters.temperature(value), color = FrigoText, fontSize = 14.sp)
+}
+
+@Composable
+private fun Separator() {
+    Text("|", color = FrigoOutline, modifier = Modifier.padding(horizontal = 10.dp))
+}
+
+@Composable
+private fun RangePicker(selected: HistoryRange, onSelect: (HistoryRange) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier
+                .border(1.dp, FrigoOutline, RoundedCornerShape(8.dp))
+                .clickable { expanded = true }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(selected.label, color = FrigoText, fontWeight = FontWeight.Bold)
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Zakres", tint = FrigoText)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            HistoryRange.entries.forEach { range ->
+                DropdownMenuItem(
+                    text = { Text(range.label, fontWeight = if (range == selected) FontWeight.Bold else FontWeight.Normal) },
+                    onClick = {
+                        expanded = false
+                        onSelect(range)
+                    },
+                )
+            }
         }
     }
+}
+
+/** Landscape + hidden system bars while the chart is on screen; restored on
+ * leaving. Not restored across the rotation-induced recreate itself, or the
+ * new activity would start in portrait and bounce back and forth. */
+@Composable
+private fun FullScreenLandscape() {
+    val activity = LocalContext.current.findActivity() ?: return
+    DisposableEffect(activity) {
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        val insets = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        insets.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        insets.hide(WindowInsetsCompat.Type.systemBars())
+        onDispose {
+            if (!activity.isChangingConfigurations) {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                insets.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
