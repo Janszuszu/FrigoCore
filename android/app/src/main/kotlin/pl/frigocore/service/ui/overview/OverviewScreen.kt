@@ -160,11 +160,11 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
             Text(
                 buildAnnotatedString {
                     append(Formatters.temperatureValue(card.sensor.current_temperature))
-                    withStyle(SpanStyle(fontSize = 36.sp)) { append("°C") }
+                    withStyle(SpanStyle(fontSize = 28.sp)) { append("°C") }
                 },
                 color = tempColor,
                 fontWeight = FontWeight.Bold,
-                fontSize = 46.sp,
+                fontSize = 38.sp,
                 maxLines = 1,
                 style = TabularNumbers,
             )
@@ -226,7 +226,7 @@ private fun Stat(value: Double?, color: Color, modifier: Modifier = Modifier) {
     Text(
         Formatters.temperature(value),
         color = color,
-        fontSize = 19.sp,
+        fontSize = 15.sp,
         style = TabularNumbers,
         fontWeight = FontWeight.Medium,
         maxLines = 1,
@@ -249,7 +249,7 @@ private fun CardChart(points: List<ChartPoint>, modifier: Modifier = Modifier) {
         val (lo, step) = cardAxis(points.minOf { it.value }, points.maxOf { it.value })
         val hi = lo + 2 * step
 
-        val leftPad = 44.dp.toPx()
+        val leftPad = 0f
         val bottomPad = 24.dp.toPx()
         val topPad = 6.dp.toPx()
         val chartW = size.width - leftPad
@@ -257,24 +257,22 @@ private fun CardChart(points: List<ChartPoint>, modifier: Modifier = Modifier) {
         fun x(t: Instant) = leftPad + ((t.toEpochMilli() - tStart) / tSpan).coerceIn(0f, 1f) * chartW
         fun y(v: Double) = topPad + ((hi - v) / (hi - lo)).toFloat() * chartH
 
-        // Degree axis + horizontal grid
+        // Horizontal grid on the three whole-degree levels; no degree labels,
+        // so the plot runs the full width of the section.
         for (i in 0..2) {
-            val v = lo + i * step
-            val yy = y(v.toDouble())
+            val yy = y((lo + i * step).toDouble())
             drawLine(if (i == 0) FrigoTextMuted else FrigoOutline, Offset(leftPad, yy), Offset(size.width, yy), 1f)
-            val label = textMeasurer.measure("$v°C", labelStyle)
-            drawText(label, topLeft = Offset(leftPad - label.size.width - 6.dp.toPx(), yy - label.size.height / 2))
         }
-        drawLine(FrigoTextMuted, Offset(leftPad, topPad), Offset(leftPad, topPad + chartH), 1.5f)
 
         // Time axis + dashed vertical grid every 4 h, ticked below the axis
         val dash = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))
-        hourTicks(now).forEach { t ->
+        // A tick before the window start would pile up on the left edge.
+        hourTicks(now).filter { it.toEpochMilli() >= tStart }.forEach { t ->
             val xx = x(t)
             drawLine(FrigoOutline, Offset(xx, topPad), Offset(xx, topPad + chartH), 1f, pathEffect = dash)
             drawLine(FrigoTextMuted, Offset(xx, topPad + chartH), Offset(xx, topPad + chartH + 4.dp.toPx()), 1f)
             val label = textMeasurer.measure(t.atZone(ZoneId.systemDefault()).format(hourFormat), labelStyle)
-            val lx = (xx - label.size.width / 2).coerceIn(leftPad - 6.dp.toPx(), size.width - label.size.width)
+            val lx = (xx - label.size.width / 2).coerceIn(0f, size.width - label.size.width)
             drawText(label, topLeft = Offset(lx, size.height - label.size.height))
         }
 

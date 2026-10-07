@@ -267,12 +267,14 @@ private fun FrigoHeader() {
                     withStyle(SpanStyle(color = FrigoAccent)) { append("CORE") }
                 },
                 fontWeight = FontWeight.Bold,
-                fontSize = 22.sp,
+                fontSize = 20.sp,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier.weight(1f),
             )
-            Text(local.format(dateFormat), color = FrigoTextMuted, fontSize = 18.sp, style = TabularNumbers)
-            Spacer(Modifier.width(10.dp))
-            Text(local.format(clockFormat), color = FrigoText, fontSize = 18.sp, fontWeight = FontWeight.Bold, style = TabularNumbers)
+            Text(local.format(dateFormat), color = FrigoTextMuted, fontSize = 15.sp, maxLines = 1, style = TabularNumbers)
+            Spacer(Modifier.width(8.dp))
+            Text(local.format(clockFormat), color = FrigoText, fontSize = 16.sp, maxLines = 1, fontWeight = FontWeight.Bold, style = TabularNumbers)
         }
         HorizontalDivider(color = FrigoOutline)
     }
