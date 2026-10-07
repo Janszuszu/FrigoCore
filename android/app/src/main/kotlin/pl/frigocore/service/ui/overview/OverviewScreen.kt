@@ -19,14 +19,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -51,7 +49,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -68,6 +66,7 @@ import pl.frigocore.service.ui.theme.FrigoMax
 import pl.frigocore.service.ui.theme.FrigoMin
 import pl.frigocore.service.ui.theme.FrigoOk
 import pl.frigocore.service.ui.theme.FrigoOutline
+import pl.frigocore.service.ui.theme.FrigoSurface
 import pl.frigocore.service.ui.theme.FrigoText
 import pl.frigocore.service.ui.theme.FrigoTextMuted
 import java.time.Instant
@@ -95,14 +94,13 @@ fun OverviewScreen(
                 uiState.cards.isEmpty() -> MessageState("Ten obiekt nie ma jeszcze czujników.")
                 else -> LazyColumn(
                     contentPadding = PaddingValues(bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     val objectAlarms = uiState.openAlarms.filter { it.object_id == uiState.selectedObjectId }
                     items(objectAlarms, key = { "alarm-${it.id}" }) { alarm ->
                         AlarmBanner(alarm) { onAlarmClick(alarm.id) }
                     }
-                    itemsIndexed(uiState.cards, key = { _, card -> card.sensor.id }) { i, card ->
-                        if (i > 0) HorizontalDivider(color = FrigoAccent.copy(alpha = 0.45f))
+                    items(uiState.cards, key = { it.sensor.id }) { card ->
                         SensorCardView(card) { onSensorClick(card.sensor) }
                     }
                 }
@@ -142,43 +140,49 @@ private fun AlarmBanner(alarm: AlarmResponse, onClick: () -> Unit) {
 
 @Composable
 private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
-    val tempColor = when (card.status) {
+    // The current reading and its chart share one colour: the 24 h trend,
+    // or the alarm / offline state when that applies.
+    val trendColor = when (card.status) {
         SensorStatus.OK -> heatColor(tempHeat(card.sensor.current_temperature, card.stats))
         SensorStatus.ALARM -> FrigoCritical
         SensorStatus.OFFLINE -> FrigoTextMuted
     }
-    // No card chrome: each sensor is a section, separated by a thin line in the list.
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(start = 4.dp, end = 4.dp, top = 16.dp, bottom = 14.dp),
+    val edge = if (card.status == SensorStatus.ALARM) FrigoCritical else FrigoAccent
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, edge.copy(alpha = 0.35f)),
+        colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        CardTitle(card.sensor.name, card.status)
-        Spacer(Modifier.height(6.dp))
-        Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                buildAnnotatedString {
-                    append(Formatters.temperatureValue(card.sensor.current_temperature))
-                    withStyle(SpanStyle(fontSize = 28.sp)) { append("°C") }
-                },
-                color = tempColor,
-                fontWeight = FontWeight.Bold,
-                fontSize = 38.sp,
-                maxLines = 1,
-                style = TabularNumbers,
-            )
-            Spacer(Modifier.width(12.dp))
-            // 24 h min / average / max — colour says which is which.
-            StatDivider()
-            Stat(card.stats?.min, FrigoMin, Modifier.weight(1f))
-            StatDivider()
-            Stat(card.stats?.avg, FrigoOk, Modifier.weight(1f))
-            StatDivider()
-            Stat(card.stats?.max, FrigoMax, Modifier.weight(1f))
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CardTitle(card.sensor.name, card.status, Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    buildAnnotatedString {
+                        append(Formatters.temperatureValue(card.sensor.current_temperature))
+                        withStyle(SpanStyle(fontSize = 24.sp)) { append("°C") }
+                    },
+                    color = trendColor,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 36.sp,
+                    maxLines = 1,
+                    style = TabularNumbers,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            CardChart(card.history, trendColor, Modifier.fillMaxWidth().height(130.dp))
+            Spacer(Modifier.height(10.dp))
+            // 24 h min / average / max, all in the brand colour.
+            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                Stat("MIN", card.stats?.min, Modifier.weight(1f))
+                StatDivider()
+                Stat("ŚREDNIA", card.stats?.avg, Modifier.weight(1f))
+                StatDivider()
+                Stat("MAX", card.stats?.max, Modifier.weight(1f))
+            }
         }
-        Spacer(Modifier.height(16.dp))
-        CardChart(card.history, Modifier.fillMaxWidth().height(120.dp))
     }
 }
 
@@ -192,28 +196,25 @@ private fun heatColor(heat: Double?): Color = when {
     else -> FrigoOk
 }
 
-/** Sensor name, top-right; a non-OK status is appended in its own colour. */
+/** Sensor name, top-left; a non-OK status is appended in its own colour. */
 @Composable
-private fun CardTitle(name: String, status: SensorStatus) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Text(
-            name.uppercase(),
-            color = FrigoTextMuted,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Normal,
-            letterSpacing = 0.5.sp,
-            maxLines = 1,
-        )
-        if (status != SensorStatus.OK) {
-            Text(
-                " · ${status.name}",
-                color = if (status == SensorStatus.ALARM) FrigoCritical else FrigoTextMuted,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
-        }
-    }
+private fun CardTitle(name: String, status: SensorStatus, modifier: Modifier = Modifier) {
+    Text(
+        buildAnnotatedString {
+            append(name.uppercase())
+            if (status != SensorStatus.OK) {
+                withStyle(SpanStyle(color = if (status == SensorStatus.ALARM) FrigoCritical else FrigoTextMuted)) {
+                    append(" · ${status.name}")
+                }
+            }
+        },
+        color = FrigoText,
+        fontSize = 19.sp,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -222,23 +223,24 @@ private fun StatDivider() {
 }
 
 @Composable
-private fun Stat(value: Double?, color: Color, modifier: Modifier = Modifier) {
-    Text(
-        Formatters.temperature(value),
-        color = color,
-        fontSize = 15.sp,
-        style = TabularNumbers,
-        fontWeight = FontWeight.Medium,
-        maxLines = 1,
-        textAlign = TextAlign.Center,
-        modifier = modifier,
-    )
+private fun Stat(label: String, value: Double?, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp, maxLines = 1)
+        Text(
+            Formatters.temperature(value),
+            color = FrigoAccent,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            style = TabularNumbers,
+        )
+    }
 }
 
-/** Last 24 h with a degree axis (three whole-degree ticks) and a time axis
- * every 4 h, filled under the line. Tapping the card opens the full chart. */
+/** Last 24 h as a step line in [color] over a three-level grid, with a time
+ * axis every 4 h, filled under the line. Tapping the card opens the full chart. */
 @Composable
-private fun CardChart(points: List<ChartPoint>, modifier: Modifier = Modifier) {
+private fun CardChart(points: List<ChartPoint>, color: Color, modifier: Modifier = Modifier) {
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = TextStyle(fontSize = 12.sp, color = FrigoText.copy(alpha = 0.75f))
     Canvas(modifier) {
@@ -295,8 +297,8 @@ private fun CardChart(points: List<ChartPoint>, modifier: Modifier = Modifier) {
         }
         drawPath(
             fill,
-            Brush.verticalGradient(listOf(FrigoAccent.copy(alpha = 0.55f), FrigoAccent.copy(alpha = 0.04f)), topPad, topPad + chartH),
+            Brush.verticalGradient(listOf(color.copy(alpha = 0.55f), color.copy(alpha = 0.04f)), topPad, topPad + chartH),
         )
-        drawPath(line, FrigoAccent, style = Stroke(width = 1.5.dp.toPx(), join = StrokeJoin.Miter))
+        drawPath(line, color, style = Stroke(width = 1.5.dp.toPx(), join = StrokeJoin.Miter))
     }
 }
