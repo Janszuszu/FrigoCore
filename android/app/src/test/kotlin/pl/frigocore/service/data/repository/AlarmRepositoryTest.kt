@@ -11,6 +11,7 @@ import org.junit.Test
 import pl.frigocore.service.data.api.FrigoCoreApi
 import pl.frigocore.service.data.model.AlarmResponse
 import pl.frigocore.service.data.model.AlarmStatus
+import pl.frigocore.service.data.model.ArchiveResolvedResponse
 import retrofit2.Response
 import java.io.IOException
 
@@ -108,6 +109,29 @@ class AlarmRepositoryTest {
 
         assertThat(result).isInstanceOf(ApiResult.Success::class.java)
         assertThat((result as ApiResult.Success).data.status).isEqualTo(AlarmStatus.RESOLVED)
+    }
+
+    @Test
+    fun `clear history returns the number of archived alarms`() = runTest {
+        coEvery { api.archiveResolvedAlarms() } returns Response.success(ArchiveResolvedResponse(archived = 7))
+
+        val result = repository.archiveResolvedAlarms()
+
+        assertThat(result).isEqualTo(ApiResult.Success(7))
+    }
+
+    @Test
+    fun `clear history forbidden for an object owner surfaces 403`() = runTest {
+        coEvery { api.archiveResolvedAlarms() } returns Response.error(
+            403,
+            "{\"detail\":\"Tylko serwis może czyścić historię alarmów\"}"
+                .toResponseBody("application/json".toMediaType()),
+        )
+
+        val result = repository.archiveResolvedAlarms()
+
+        assertThat(result).isInstanceOf(ApiResult.Error::class.java)
+        assertThat((result as ApiResult.Error).httpCode).isEqualTo(403)
     }
 
     @Test

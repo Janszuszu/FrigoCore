@@ -26,6 +26,11 @@ data class AlarmResponse(
     val updated_at: String,
 )
 
+@Serializable
+data class ArchiveResolvedResponse(
+    val archived: Int,
+)
+
 object AlarmStatus {
     const val PENDING = "pending"
     const val TRIGGERED = "triggered"

@@ -2,6 +2,7 @@ package pl.frigocore.service.data.api
 
 import pl.frigocore.service.data.model.AlarmEventResponse
 import pl.frigocore.service.data.model.AlarmResponse
+import pl.frigocore.service.data.model.ArchiveResolvedResponse
 import pl.frigocore.service.data.model.DeviceTokenRegister
 import pl.frigocore.service.data.model.DeviceTokenResponse
 import pl.frigocore.service.data.model.LoginRequest
@@ -76,6 +77,10 @@ interface FrigoCoreApi {
 
     @POST("alarms/{alarmId}/resolve")
     suspend fun resolveAlarm(@Path("alarmId") alarmId: String): Response<AlarmResponse>
+
+    /** Service staff only: archives every RESOLVED alarm ("clear history"). */
+    @POST("alarms/archive-resolved")
+    suspend fun archiveResolvedAlarms(): Response<ArchiveResolvedResponse>
 
     @GET("alarms/{alarmId}/events")
     suspend fun listAlarmEvents(@Path("alarmId") alarmId: String): Response<List<AlarmEventResponse>>

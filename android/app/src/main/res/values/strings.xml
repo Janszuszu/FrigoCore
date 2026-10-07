@@ -34,6 +34,12 @@
     <string name="dashboard_section_en_route">W drodze</string>
     <string name="dashboard_section_recent">Ostatnie</string>
     <string name="dashboard_empty">Brak alarmów</string>
+    <string name="dashboard_clear_history">Wyczyść</string>
+    <string name="dashboard_clear_history_title">Wyczyścić historię?</string>
+    <string name="dashboard_clear_history_body">Zakończone alarmy znikną z listy u wszystkich użytkowników. Pozostaną zapisane i widoczne na wykresach.</string>
+    <string name="dashboard_clear_history_confirm">Wyczyść</string>
+    <string name="dashboard_clear_history_cancel">Anuluj</string>
+    <string name="dashboard_clear_history_done">Wyczyszczono alarmy: %1$d</string>
     <string name="dashboard_logout">Wyloguj</string>
 
     <string name="alarm_critical_label">ALARM KRYTYCZNY</string>

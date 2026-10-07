@@ -928,6 +928,30 @@ async def archive_alarm(
     return alarm
 
 
+@alarms_router.post("/archive-resolved")
+async def archive_resolved_alarms(
+    object_id: UUID | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """"Clear history" for service staff: archive every RESOLVED alarm at once.
+
+    Archiving only hides alarms from the history list — records, events and
+    chart evidence stay. It applies to everyone, so object owners may not do it.
+    """
+    if user.role not in (UserRole.ADMIN, UserRole.SERWISANT):
+        raise HTTPException(status_code=403, detail="Tylko serwis może czyścić historię alarmów")
+    stmt = select(Alarm).where(Alarm.status == AlarmStatus.RESOLVED)
+    if object_id is not None:
+        stmt = stmt.where(Alarm.object_id == object_id)
+    alarms = (await db.execute(stmt)).scalars().all()
+    for alarm in alarms:
+        alarm.status = AlarmStatus.ARCHIVED
+        await record_event(db, alarm.id, AlarmEventType.ALARM_ARCHIVED, actor_user_id=user.id)
+    await db.commit()
+    return {"archived": len(alarms)}
+
+
 # ===================================================================
 # Device tokens (FCM)
 # ===================================================================

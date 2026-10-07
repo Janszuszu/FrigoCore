@@ -34,6 +34,13 @@ class AlarmRepository @Inject constructor(
     suspend fun resolveAlarm(alarmId: String): ApiResult<AlarmResponse> =
         safeApiCall { api.resolveAlarm(alarmId) }
 
+    /** Returns how many alarms were archived. */
+    suspend fun archiveResolvedAlarms(): ApiResult<Int> =
+        when (val result = safeApiCall { api.archiveResolvedAlarms() }) {
+            is ApiResult.Success -> ApiResult.Success(result.data.archived)
+            is ApiResult.Error -> result
+        }
+
     suspend fun listEvents(alarmId: String): ApiResult<List<AlarmEventResponse>> =
         safeApiCall { api.listAlarmEvents(alarmId) }
 }

@@ -1,5 +1,6 @@
 package pl.frigocore.service.ui.dashboard
 
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -13,11 +14,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +37,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import pl.frigocore.service.R
 import pl.frigocore.service.data.model.AlarmResponse
 import pl.frigocore.service.data.model.AlarmType
+import pl.frigocore.service.data.repository.ApiResult
 import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.common.LoadingState
 import pl.frigocore.service.ui.common.MessageState
@@ -55,6 +59,7 @@ fun DashboardScreen(
     val context = LocalContext.current
     var notificationsEnabled by remember { mutableStateOf(AlarmPermissions.notificationsEnabled(context)) }
     var fullScreenIntentAllowed by remember { mutableStateOf(AlarmPermissions.canUseFullScreenIntent(context)) }
+    var showClearConfirm by remember { mutableStateOf(false) }
     // Both settings screens are launched for a result purely so returning
     // from them (technician flips the toggle, taps back) re-checks state —
     // the result code itself carries no information.
@@ -82,21 +87,58 @@ fun DashboardScreen(
             when {
                 uiState.isLoading && uiState.alarms.isEmpty() -> LoadingState()
                 uiState.error != null && uiState.alarms.isEmpty() -> MessageState(uiState.error.orEmpty(), viewModel::refresh)
-                uiState.alarms.isEmpty() -> MessageState(stringResource(R.string.dashboard_empty))
+                uiState.isEmpty -> MessageState(stringResource(R.string.dashboard_empty))
                 else -> {
                     val activeTitle = stringResource(R.string.dashboard_section_active)
                     val acknowledgedTitle = stringResource(R.string.dashboard_section_acknowledged)
                     val enRouteTitle = stringResource(R.string.dashboard_section_en_route)
                     val recentTitle = stringResource(R.string.dashboard_section_recent)
+                    val clearLabel = stringResource(R.string.dashboard_clear_history)
                     LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
                         section(activeTitle, uiState.active, FrigoCritical, onAlarmClick)
                         section(acknowledgedTitle, uiState.acknowledged, FrigoWarning, onAlarmClick)
                         section(enRouteTitle, uiState.enRoute, FrigoWarning, onAlarmClick)
-                        section(recentTitle, uiState.recent, FrigoOk, onAlarmClick)
+                        // Clearing hides history for everyone, so owners don't get it.
+                        section(
+                            recentTitle, uiState.recent, FrigoOk, onAlarmClick,
+                            actionLabel = clearLabel.takeIf { isTechnician },
+                            actionEnabled = !uiState.isClearingHistory,
+                            onAction = { showClearConfirm = true },
+                        )
                     }
                 }
             }
         }
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text(stringResource(R.string.dashboard_clear_history_title)) },
+            text = { Text(stringResource(R.string.dashboard_clear_history_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearConfirm = false
+                    viewModel.clearHistory()
+                }) { Text(stringResource(R.string.dashboard_clear_history_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) {
+                    Text(stringResource(R.string.dashboard_clear_history_cancel))
+                }
+            },
+        )
+    }
+
+    val clearResult = uiState.clearHistoryResult
+    LaunchedEffect(clearResult) {
+        if (clearResult == null) return@LaunchedEffect
+        val message = when (clearResult) {
+            is ApiResult.Success -> context.getString(R.string.dashboard_clear_history_done, clearResult.data)
+            is ApiResult.Error -> clearResult.message
+        }
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        viewModel.clearHistoryResultShown()
     }
 }
 
@@ -122,15 +164,26 @@ private fun androidx.compose.foundation.lazy.LazyListScope.section(
     alarms: List<AlarmResponse>,
     accentColor: Color,
     onAlarmClick: (String) -> Unit,
+    actionLabel: String? = null,
+    actionEnabled: Boolean = true,
+    onAction: () -> Unit = {},
 ) {
     if (alarms.isEmpty()) return
     item {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            if (actionLabel != null) {
+                TextButton(onClick = onAction, enabled = actionEnabled) { Text(text = actionLabel) }
+            }
+        }
     }
     items(alarms, key = { it.id }) { alarm ->
         AlarmRow(alarm = alarm, accentColor = accentColor, onClick = { onAlarmClick(alarm.id) })
