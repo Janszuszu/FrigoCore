@@ -1,5 +1,6 @@
 package pl.frigocore.service.ui.theme
 
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -14,6 +15,10 @@ val FrigoOutline = Color(0xFF1C2E47)
 val FrigoAccent = Color(0xFF1EB8F2)
 val FrigoText = Color(0xFFE8EEF6)
 val FrigoTextMuted = Color(0xFF8A9BB2)
+
+/** Equal-width digits, so a ticking clock or a changing reading doesn't
+ * make its neighbours shuffle left and right. */
+val TabularNumbers = TextStyle(fontFeatureSettings = "tnum")
 
 val FrigoCritical = Color(0xFFEF4444)
 val FrigoWarning = Color(0xFFF59E0B)

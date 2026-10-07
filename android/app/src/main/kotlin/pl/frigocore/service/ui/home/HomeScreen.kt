@@ -1,5 +1,6 @@
 package pl.frigocore.service.ui.home
 
+import pl.frigocore.service.ui.theme.TabularNumbers
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -269,9 +270,9 @@ private fun FrigoHeader() {
                 fontSize = 22.sp,
                 modifier = Modifier.weight(1f),
             )
-            Text(local.format(dateFormat), color = FrigoTextMuted, fontSize = 18.sp)
+            Text(local.format(dateFormat), color = FrigoTextMuted, fontSize = 18.sp, style = TabularNumbers)
             Spacer(Modifier.width(10.dp))
-            Text(local.format(clockFormat), color = FrigoText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(local.format(clockFormat), color = FrigoText, fontSize = 18.sp, fontWeight = FontWeight.Bold, style = TabularNumbers)
         }
         HorizontalDivider(color = FrigoOutline)
     }

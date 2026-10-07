@@ -1,5 +1,6 @@
 package pl.frigocore.service.ui.sensor
 
+import pl.frigocore.service.ui.theme.TabularNumbers
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -124,7 +125,7 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
 private fun StatLabel(label: String, value: Double?, color: Color) {
     Text(label, color = color, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     Spacer(Modifier.width(6.dp))
-    Text(Formatters.temperature(value), color = FrigoText, fontSize = 14.sp)
+    Text(Formatters.temperature(value), color = FrigoText, fontSize = 14.sp, style = TabularNumbers)
 }
 
 @Composable

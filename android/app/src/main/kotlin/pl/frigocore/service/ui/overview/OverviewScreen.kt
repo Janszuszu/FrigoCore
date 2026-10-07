@@ -1,5 +1,6 @@
 package pl.frigocore.service.ui.overview
 
+import pl.frigocore.service.ui.theme.TabularNumbers
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -165,6 +166,7 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
                 fontWeight = FontWeight.Bold,
                 fontSize = 46.sp,
                 maxLines = 1,
+                style = TabularNumbers,
             )
             Spacer(Modifier.width(12.dp))
             // 24 h min / average / max — colour says which is which.
@@ -225,6 +227,7 @@ private fun Stat(value: Double?, color: Color, modifier: Modifier = Modifier) {
         Formatters.temperature(value),
         color = color,
         fontSize = 19.sp,
+        style = TabularNumbers,
         fontWeight = FontWeight.Medium,
         maxLines = 1,
         textAlign = TextAlign.Center,
