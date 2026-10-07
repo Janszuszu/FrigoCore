@@ -82,4 +82,22 @@ class OverviewLogicTest {
         assertEquals(Instant.parse("2026-10-06T10:00:00Z"), ticks.first())
         assertEquals(Instant.parse("2026-10-07T10:00:00Z"), ticks.last())
     }
+
+    @Test
+    fun `tempHeat is 0 at the average and saturates at the 24 h extremes`() {
+        val stats = TempStats(min = 3.0, avg = 5.0, max = 10.0)
+        assertEquals(0.0, tempHeat(5.0, stats)!!, 1e-9)
+        assertEquals(0.5, tempHeat(7.5, stats)!!, 1e-9)
+        assertEquals(1.0, tempHeat(12.0, stats)!!, 1e-9)
+        assertEquals(-0.5, tempHeat(4.0, stats)!!, 1e-9)
+        assertEquals(-1.0, tempHeat(1.0, stats)!!, 1e-9)
+    }
+
+    @Test
+    fun `tempHeat keeps a flat day from looking extreme`() {
+        val flat = TempStats(min = 4.9, avg = 5.0, max = 5.1)
+        assertEquals(0.2, tempHeat(5.1, flat)!!, 1e-9)
+        assertNull(tempHeat(null, flat))
+        assertNull(tempHeat(5.0, null))
+    }
 }

@@ -18,7 +18,8 @@ val FrigoTextMuted = Color(0xFF8A9BB2)
 val FrigoCritical = Color(0xFFEF4444)
 val FrigoWarning = Color(0xFFF59E0B)
 val FrigoOk = Color(0xFF22C55E)
-val FrigoMin = Color(0xFF4DB5FF)
+val FrigoMin = Color(0xFF29ABF5)
+val FrigoMax = Color(0xFFFF8A1F)
 
 private val Colors = darkColorScheme(
     primary = FrigoAccent,

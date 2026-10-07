@@ -74,6 +74,16 @@ internal fun isOpen(alarm: AlarmResponse): Boolean =
 internal fun tempStats(values: List<Double>): TempStats? =
     if (values.isEmpty()) null else TempStats(values.min(), values.average(), values.max())
 
+/** Where [current] sits in the last 24 h: 0 at the average, +1 at (or
+ * above) the max, -1 at (or below) the min. The half-ranges are at least
+ * 0.5 °C so a near-flat day doesn't turn tiny wobbles into extremes. */
+internal fun tempHeat(current: Double?, stats: TempStats?): Double? {
+    if (current == null || stats == null) return null
+    val d = current - stats.avg
+    val half = if (d >= 0) stats.max - stats.avg else stats.avg - stats.min
+    return (d / half.coerceAtLeast(0.5)).coerceIn(-1.0, 1.0)
+}
+
 internal fun sensorStatus(sensor: SensorResponse, openAlarms: List<AlarmResponse>, now: Instant = Instant.now()): SensorStatus =
     when {
         openAlarms.any { it.sensor_id == sensor.id && it.alarm_type != "offline" } -> SensorStatus.ALARM
