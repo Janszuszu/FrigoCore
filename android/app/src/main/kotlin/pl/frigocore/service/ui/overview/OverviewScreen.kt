@@ -1,6 +1,7 @@
 package pl.frigocore.service.ui.overview
 
 import pl.frigocore.service.ui.theme.TabularNumbers
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +34,9 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -82,6 +87,9 @@ fun OverviewScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     PollWhileVisible { viewModel.refresh() }
+    // Sensors start as a list of slim rows so as many as possible fit on
+    // one phone screen; a tapped row unfolds into the chart and 24 h stats.
+    var expanded by rememberSaveable { mutableStateOf(emptyList<String>()) }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         Spacer(Modifier.height(10.dp))
@@ -94,14 +102,20 @@ fun OverviewScreen(
                 uiState.cards.isEmpty() -> MessageState("Ten obiekt nie ma jeszcze czujników.")
                 else -> LazyColumn(
                     contentPadding = PaddingValues(bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     val objectAlarms = uiState.openAlarms.filter { it.object_id == uiState.selectedObjectId }
                     items(objectAlarms, key = { "alarm-${it.id}" }) { alarm ->
                         AlarmBanner(alarm) { onAlarmClick(alarm.id) }
                     }
                     items(uiState.cards, key = { it.sensor.id }) { card ->
-                        SensorCardView(card) { onSensorClick(card.sensor) }
+                        val id = card.sensor.id
+                        SensorCardView(
+                            card,
+                            expanded = id in expanded,
+                            onToggle = { expanded = if (id in expanded) expanded - id else expanded + id },
+                            onOpenChart = { onSensorClick(card.sensor) },
+                        )
                     }
                 }
             }
@@ -139,7 +153,7 @@ private fun AlarmBanner(alarm: AlarmResponse, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
+private fun SensorCardView(card: SensorCard, expanded: Boolean, onToggle: () -> Unit, onOpenChart: () -> Unit) {
     // The name, the current reading and the chart share one colour: the 24 h
     // trend, or the alarm / offline state when that applies.
     val trendColor = when (card.status) {
@@ -149,39 +163,54 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
     }
     val edge = if (card.status == SensorStatus.ALARM) FrigoCritical else FrigoAccent
     Card(
-        onClick = onClick,
+        onClick = onToggle,
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, edge.copy(alpha = 0.35f)),
+        border = BorderStroke(1.dp, edge.copy(alpha = if (card.status == SensorStatus.ALARM) 0.8f else 0.35f)),
         colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CardTitle(card.sensor.name, card.status, trendColor, Modifier.weight(1f))
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Row(Modifier.heightIn(min = 34.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    CardTitle(card.sensor.name, card.status, trendColor)
+                    if (card.status == SensorStatus.OFFLINE) {
+                        Text(
+                            "Ostatni odczyt: ${Formatters.ago(card.sensor.last_message_at)}",
+                            color = FrigoTextMuted,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                        )
+                    }
+                }
                 Spacer(Modifier.width(8.dp))
                 Text(
                     buildAnnotatedString {
                         append(Formatters.readingValue(card.sensor.current_temperature, card.sensor.unit))
                         val unit = card.sensor.unit
-                        withStyle(SpanStyle(fontSize = 24.sp)) { append(if (unit == "°C") unit else " $unit") }
+                        withStyle(SpanStyle(fontSize = 15.sp)) { append(if (unit == "°C") unit else " $unit") }
                     },
                     color = trendColor,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 36.sp,
+                    fontSize = 22.sp,
                     maxLines = 1,
                     style = TabularNumbers,
                 )
             }
-            Spacer(Modifier.height(8.dp))
-            CardChart(card.history, trendColor, Modifier.fillMaxWidth().height(130.dp))
-            Spacer(Modifier.height(10.dp))
-            // 24 h min / average / max, all in the brand colour.
-            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-                Stat("MIN", card.stats?.min, card.sensor.unit, Modifier.weight(1f))
-                StatDivider()
-                Stat("ŚREDNIA", card.stats?.avg, card.sensor.unit, Modifier.weight(1f))
-                StatDivider()
-                Stat("MAX", card.stats?.max, card.sensor.unit, Modifier.weight(1f))
+            AnimatedVisibility(expanded) {
+                Column {
+                    Spacer(Modifier.height(8.dp))
+                    // A second tap, on the chart, opens it full screen.
+                    CardChart(card.history, trendColor, Modifier.fillMaxWidth().height(130.dp).clickable(onClick = onOpenChart))
+                    Spacer(Modifier.height(10.dp))
+                    // 24 h min / average / max, all in the brand colour.
+                    Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                        Stat("MIN", card.stats?.min, card.sensor.unit, Modifier.weight(1f))
+                        StatDivider()
+                        Stat("ŚREDNIA", card.stats?.avg, card.sensor.unit, Modifier.weight(1f))
+                        StatDivider()
+                        Stat("MAX", card.stats?.max, card.sensor.unit, Modifier.weight(1f))
+                    }
+                }
             }
         }
     }
@@ -206,7 +235,7 @@ private fun CardTitle(name: String, status: SensorStatus, color: Color, modifier
             if (status != SensorStatus.OK) append(" · ${status.name}")
         },
         color = color,
-        fontSize = 19.sp,
+        fontSize = 16.sp,
         fontWeight = FontWeight.Bold,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,

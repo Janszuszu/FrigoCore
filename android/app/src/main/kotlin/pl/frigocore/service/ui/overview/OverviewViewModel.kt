@@ -84,6 +84,11 @@ internal fun tempHeat(current: Double?, stats: TempStats?): Double? {
     return (d / half.coerceAtLeast(0.5)).coerceIn(-1.0, 1.0)
 }
 
+/** Cards in alarm first; otherwise the configured order is kept, so the
+ * layout doesn't reshuffle every time a sensor drops offline. */
+internal fun alarmsFirst(cards: List<SensorCard>): List<SensorCard> =
+    cards.sortedBy { it.status != SensorStatus.ALARM }
+
 internal fun sensorStatus(sensor: SensorResponse, openAlarms: List<AlarmResponse>, now: Instant = Instant.now()): SensorStatus =
     when {
         openAlarms.any { it.sensor_id == sensor.id && it.alarm_type != "offline" } -> SensorStatus.ALARM
@@ -152,12 +157,12 @@ class OverviewViewModel @Inject constructor(
                 objects = objects,
                 selectedObjectId = selectedId,
                 openAlarms = openAlarms,
-                cards = sensors.map { sensor ->
+                cards = alarmsFirst(sensors.map { sensor ->
                     val points = history[sensor.id].orEmpty().mapNotNull { m ->
                         Formatters.parseInstant(m.received_at)?.let { ChartPoint(it, m.temperature) }
                     }
                     SensorCard(sensor, sensorStatus(sensor, openAlarms, now), tempStats(points.map { it.value }), points)
-                },
+                }),
             )
         }
     }

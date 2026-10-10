@@ -40,6 +40,15 @@ class OverviewLogicTest {
     }
 
     @Test
+    fun `cards in alarm move to the top, the rest keep their order`() {
+        fun card(id: String, status: SensorStatus) = SensorCard(sensor().copy(id = id), status)
+        val sorted = alarmsFirst(
+            listOf(card("a", SensorStatus.OK), card("b", SensorStatus.OFFLINE), card("c", SensorStatus.ALARM), card("d", SensorStatus.OK)),
+        )
+        assertEquals(listOf("c", "a", "b", "d"), sorted.map { it.sensor.id })
+    }
+
+    @Test
     fun `a fresh sensor without open alarms is OK`() {
         assertEquals(SensorStatus.OK, sensorStatus(sensor(), emptyList(), now))
     }
