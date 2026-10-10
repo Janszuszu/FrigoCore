@@ -21,6 +21,8 @@ data class AlarmResponse(
     val object_name: String = "",
     val sensor_id: String? = null,
     val sensor_name: String = "",
+    val sensor_kind: String = "temperature",
+    val sensor_unit: String = "°C",
     val notification_sent_at: String? = null,
     val created_at: String,
     val updated_at: String,

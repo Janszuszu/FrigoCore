@@ -36,8 +36,24 @@ object Formatters {
     fun shortDate(instant: Instant, zone: ZoneId = ZoneId.systemDefault()): String =
         instant.atZone(zone).format(shortDateFormat)
 
-    fun temperature(value: Double?): String =
-        if (value == null) "—" else String.format(Locale.forLanguageTag("pl"), "%.1f°C", value)
+    private val decimals = mapOf("°C" to 1, "A" to 2, "V" to 1, "W" to 0, "kWh" to 2)
+
+    /** Value without the unit, rounded for it — e.g. "-18,9", "0,35", "241,3". */
+    fun readingValue(value: Double?, unit: String): String =
+        if (value == null) "—"
+        else String.format(Locale.forLanguageTag("pl"), "%.${decimals[unit] ?: 1}f", value)
+
+    /** Value with its unit — "-18,9°C" (degrees attach), "241,3 V". */
+    fun reading(value: Double?, unit: String): String {
+        val number = readingValue(value, unit)
+        return when {
+            value == null -> number
+            unit == "°C" -> "$number°C"
+            else -> "$number $unit"
+        }
+    }
+
+    fun temperature(value: Double?): String = reading(value, "°C")
 
     /** "przed chwilą", "5 min temu", "3 godz. temu", "2 dni temu". */
     fun ago(raw: String?, now: Instant = Instant.now()): String {
@@ -57,15 +73,21 @@ object Formatters {
         return Duration.between(last, now).seconds <= sensor.offline_timeout_seconds
     }
 
-    /** Value without the unit, e.g. "-18,9" — the card renders "°C" smaller. */
-    fun temperatureValue(value: Double?): String =
-        if (value == null) "—" else String.format(Locale.forLanguageTag("pl"), "%.1f", value)
-
-    fun alarmType(type: String): String = when (type.lowercase()) {
-        AlarmType.HIGH_TEMPERATURE -> "Wysoka temperatura"
-        AlarmType.LOW_TEMPERATURE -> "Niska temperatura"
-        AlarmType.OFFLINE -> "Brak komunikacji"
-        else -> type.ifBlank { "Alarm" }
+    /** Alarm cause worded for what the sensor measures (backend sensor_kinds.py). */
+    fun alarmType(type: String, kind: String = "temperature"): String {
+        val high = when (type.lowercase()) {
+            AlarmType.HIGH_TEMPERATURE -> true
+            AlarmType.LOW_TEMPERATURE -> false
+            AlarmType.OFFLINE -> return "Brak komunikacji"
+            else -> return type.ifBlank { "Alarm" }
+        }
+        return when (kind) {
+            "current" -> if (high) "Przeciążenie — wysoki prąd" else "Niski prąd"
+            "voltage" -> if (high) "Wysokie napięcie" else "Niskie napięcie"
+            "power" -> if (high) "Wysoka moc" else "Niska moc"
+            "energy" -> if (high) "Wysokie zużycie energii" else "Niskie zużycie energii"
+            else -> if (high) "Wysoka temperatura" else "Niska temperatura"
+        }
     }
 
     fun alarmStatus(status: String): String = when (status) {

@@ -25,6 +25,10 @@ data class SensorResponse(
     val icon: String = "thermometer",
     val display_order: Int = 0,
     val object_id: String,
+    /** temperature, current, voltage, power or energy (backend sensor_kinds.py). */
+    val kind: String = "temperature",
+    /** Unit of current_temperature and of the sensor's measurements, e.g. "°C", "A". */
+    val unit: String = "°C",
 )
 
 /** Mirrors backend/app/schemas.py:MeasurementResponse. */

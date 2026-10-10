@@ -41,7 +41,7 @@ internal fun axisBounds(min: Double, max: Double): Pair<Double, Double> {
 /** Line chart of temperature over time; touch or drag to read a value.
  * Fills whatever size [modifier] gives it. */
 @Composable
-fun TemperatureChart(points: List<ChartPoint>, showDates: Boolean, modifier: Modifier = Modifier) {
+fun TemperatureChart(points: List<ChartPoint>, showDates: Boolean, unit: String = "°C", modifier: Modifier = Modifier) {
     val lineColor = MaterialTheme.colorScheme.primary
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -80,7 +80,7 @@ fun TemperatureChart(points: List<ChartPoint>, showDates: Boolean, modifier: Mod
             val v = yMin + (yMax - yMin) * i / steps
             val yy = y(v)
             drawLine(gridColor, Offset(leftPad, yy), Offset(size.width, yy), 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
-            val label = textMeasurer.measure(String.format(java.util.Locale.ROOT, "%.0f°", v), labelStyle)
+            val label = textMeasurer.measure(String.format(java.util.Locale.ROOT, if (unit == "°C") "%.0f°" else "%.0f", v), labelStyle)
             drawText(label, topLeft = Offset(leftPad - label.size.width - 6.dp.toPx(), yy - label.size.height / 2))
         }
 
@@ -119,7 +119,7 @@ fun TemperatureChart(points: List<ChartPoint>, showDates: Boolean, modifier: Mod
             val py = y(nearest.value)
             drawLine(labelColor, Offset(px, topPad), Offset(px, topPad + chartH), 1f)
             drawCircle(lineColor, 5.dp.toPx(), Offset(px, py))
-            val text = "${Formatters.temperature(nearest.value)} · ${Formatters.shortDate(nearest.time)} ${Formatters.time(nearest.time)}"
+            val text = "${Formatters.reading(nearest.value, unit)} · ${Formatters.shortDate(nearest.time)} ${Formatters.time(nearest.time)}"
             val label = textMeasurer.measure(text, TextStyle(fontSize = 12.sp, color = tooltipText))
             val boxW = label.size.width + 16.dp.toPx()
             val boxH = label.size.height + 8.dp.toPx()

@@ -88,11 +88,12 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
                 modifier = Modifier.weight(1f, fill = false),
             )
             Spacer(Modifier.width(16.dp))
-            StatLabel("MIN", uiState.min, FrigoWarning)
+            val unit = uiState.sensor?.unit ?: "°C"
+            StatLabel("MIN", uiState.min, unit, FrigoWarning)
             Separator()
-            StatLabel("AVG", uiState.avg, FrigoOk)
+            StatLabel("AVG", uiState.avg, unit, FrigoOk)
             Separator()
-            StatLabel("MAX", uiState.max, FrigoCritical)
+            StatLabel("MAX", uiState.max, unit, FrigoCritical)
             Spacer(Modifier.weight(1f))
             RangePicker(uiState.range, viewModel::selectRange)
             Spacer(Modifier.width(10.dp))
@@ -114,6 +115,7 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
                 else -> TemperatureChart(
                     uiState.points,
                     showDates = uiState.range == HistoryRange.D7,
+                    unit = uiState.sensor?.unit ?: "°C",
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -122,10 +124,10 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
 }
 
 @Composable
-private fun StatLabel(label: String, value: Double?, color: Color) {
+private fun StatLabel(label: String, value: Double?, unit: String, color: Color) {
     Text(label, color = color, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     Spacer(Modifier.width(6.dp))
-    Text(Formatters.temperature(value), color = FrigoText, fontSize = 14.sp, style = TabularNumbers)
+    Text(Formatters.reading(value, unit), color = FrigoText, fontSize = 14.sp, style = TabularNumbers)
 }
 
 @Composable

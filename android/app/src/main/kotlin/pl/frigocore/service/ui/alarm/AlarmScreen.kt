@@ -75,9 +75,9 @@ fun AlarmScreen(
 
         InfoCard {
             InfoRow("Obiekt", (uiState.alarm?.object_name?.ifBlank { null } ?: uiState.siteName).ifBlank { "—" })
-            InfoRow("Typ alarmu", Formatters.alarmType(uiState.alarm?.alarm_type ?: uiState.payloadAlarmType))
+            InfoRow("Typ alarmu", Formatters.alarmType(uiState.alarm?.alarm_type ?: uiState.payloadAlarmType, uiState.alarm?.sensor_kind ?: "temperature"))
             uiState.alarm?.trigger_value?.takeIf { uiState.alarm.alarm_type != AlarmType.OFFLINE }?.let {
-                InfoRow("Odczyt", Formatters.temperature(it))
+                InfoRow("Odczyt", Formatters.reading(it, uiState.alarm.sensor_unit))
             }
             InfoRow("Sensor", (uiState.alarm?.sensor_name?.ifBlank { null } ?: uiState.payloadSensorName).ifBlank { "—" })
             InfoRow("Wykryto", Formatters.dateTime(uiState.alarm?.detected_at ?: uiState.payloadCreatedAt))

@@ -57,4 +57,21 @@ class FormattersTest {
         assertEquals("Serwis w drodze", Formatters.alarmStatus("en_route"))
     }
 
+    @Test
+    fun `readings use the sensor unit and its precision`() {
+        assertEquals("241,3 V", Formatters.reading(241.29, "V"))
+        assertEquals("0,35 A", Formatters.reading(0.354, "A"))
+        assertEquals("1037 W", Formatters.reading(1037.4, "W"))
+        assertEquals("1229,12 kWh", Formatters.reading(1229.123, "kWh"))
+        assertEquals("2,4°C", Formatters.reading(2.43, "°C"))
+        assertEquals("—", Formatters.reading(null, "A"))
+        assertEquals("7,91", Formatters.readingValue(7.912, "A"))
+    }
+
+    @Test
+    fun `alarm labels follow the sensor kind`() {
+        assertEquals("Przeciążenie — wysoki prąd", Formatters.alarmType("high_temperature", "current"))
+        assertEquals("Niskie napięcie", Formatters.alarmType("low_temperature", "voltage"))
+        assertEquals("Brak komunikacji", Formatters.alarmType("offline", "current"))
+    }
 }

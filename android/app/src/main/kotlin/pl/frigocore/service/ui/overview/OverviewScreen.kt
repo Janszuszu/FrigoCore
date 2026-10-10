@@ -124,7 +124,7 @@ private fun AlarmBanner(alarm: AlarmResponse, onClick: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    "${Formatters.alarmType(alarm.alarm_type)}${alarm.sensor_name.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""}",
+                    "${Formatters.alarmType(alarm.alarm_type, alarm.sensor_kind)}${alarm.sensor_name.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""}",
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
@@ -161,8 +161,9 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 Text(
                     buildAnnotatedString {
-                        append(Formatters.temperatureValue(card.sensor.current_temperature))
-                        withStyle(SpanStyle(fontSize = 24.sp)) { append("°C") }
+                        append(Formatters.readingValue(card.sensor.current_temperature, card.sensor.unit))
+                        val unit = card.sensor.unit
+                        withStyle(SpanStyle(fontSize = 24.sp)) { append(if (unit == "°C") unit else " $unit") }
                     },
                     color = trendColor,
                     fontWeight = FontWeight.Bold,
@@ -176,11 +177,11 @@ private fun SensorCardView(card: SensorCard, onClick: () -> Unit) {
             Spacer(Modifier.height(10.dp))
             // 24 h min / average / max, all in the brand colour.
             Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-                Stat("MIN", card.stats?.min, Modifier.weight(1f))
+                Stat("MIN", card.stats?.min, card.sensor.unit, Modifier.weight(1f))
                 StatDivider()
-                Stat("ŚREDNIA", card.stats?.avg, Modifier.weight(1f))
+                Stat("ŚREDNIA", card.stats?.avg, card.sensor.unit, Modifier.weight(1f))
                 StatDivider()
-                Stat("MAX", card.stats?.max, Modifier.weight(1f))
+                Stat("MAX", card.stats?.max, card.sensor.unit, Modifier.weight(1f))
             }
         }
     }
@@ -219,11 +220,11 @@ private fun StatDivider() {
 }
 
 @Composable
-private fun Stat(label: String, value: Double?, modifier: Modifier = Modifier) {
+private fun Stat(label: String, value: Double?, unit: String, modifier: Modifier = Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp, maxLines = 1)
         Text(
-            Formatters.temperature(value),
+            Formatters.reading(value, unit),
             color = FrigoAccent,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,

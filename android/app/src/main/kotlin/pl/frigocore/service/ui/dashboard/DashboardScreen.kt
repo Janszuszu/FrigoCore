@@ -204,14 +204,14 @@ private fun AlarmRow(alarm: AlarmResponse, accentColor: Color, onClick: () -> Un
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = Formatters.alarmType(alarm.alarm_type), fontWeight = FontWeight.Bold)
+                Text(text = Formatters.alarmType(alarm.alarm_type, alarm.sensor_kind), fontWeight = FontWeight.Bold)
                 Text(
                     text = listOf(alarm.object_name, alarm.sensor_name).filter { it.isNotBlank() }.joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
                     text = Formatters.dateTime(alarm.detected_at) +
-                        (alarm.trigger_value?.takeIf { alarm.alarm_type != AlarmType.OFFLINE }?.let { " · ${Formatters.temperature(it)}" } ?: ""),
+                        (alarm.trigger_value?.takeIf { alarm.alarm_type != AlarmType.OFFLINE }?.let { " · ${Formatters.reading(it, alarm.sensor_unit)}" } ?: ""),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
