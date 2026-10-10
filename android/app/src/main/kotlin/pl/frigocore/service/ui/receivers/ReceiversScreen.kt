@@ -128,8 +128,8 @@ internal fun stopwatch(seconds: Long?): String {
 }
 
 /** Top to bottom: the name, centred, with the state icon in its corner;
- * the 24 h min / average / max; the chart; chamber | evaporator
- * temperature; the cycle stopwatches. Readings and chart take the state colour (blue cooling,
+ * chamber | evaporator temperature; the chart; the cycle stopwatches; the
+ * 24 h min / average / max. Readings and chart take the state colour (blue cooling,
  * green idle, orange defrost, red alarm). Tapping the chart opens it full
  * screen. */
 @Composable
@@ -157,21 +157,7 @@ private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpen
                 )
                 Box(Modifier.align(Alignment.CenterEnd)) { StateIcon(look) }
             }
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-                Stat("MIN", card.stats?.min, "°C", Modifier.weight(1f))
-                StatDivider()
-                Stat("ŚREDNIA", card.stats?.avg, "°C", Modifier.weight(1f))
-                StatDivider()
-                Stat("MAX", card.stats?.max, "°C", Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(10.dp))
-            CardChart(
-                card.chamber,
-                look.color,
-                Modifier.fillMaxWidth().height(130.dp).clickable(onClick = onOpenChart),
-            )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(6.dp))
             Row(
                 Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                 verticalAlignment = Alignment.CenterVertically,
@@ -187,7 +173,21 @@ private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpen
                     Reading(receiver.evaporator_temperature, look.color, 24.sp)
                 }
             }
+            Spacer(Modifier.height(10.dp))
+            CardChart(
+                card.chamber,
+                look.color,
+                Modifier.fillMaxWidth().height(130.dp).clickable(onClick = onOpenChart),
+            )
             Stopwatches(receiver, elapsedSinceFetch)
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                Stat("MIN", card.stats?.min, "°C", Modifier.weight(1f))
+                StatDivider()
+                Stat("ŚREDNIA", card.stats?.avg, "°C", Modifier.weight(1f))
+                StatDivider()
+                Stat("MAX", card.stats?.max, "°C", Modifier.weight(1f))
+            }
         }
     }
 }
