@@ -174,6 +174,10 @@ class AlarmResponse(BaseModel):
     object_name: str
     sensor_id: UUID | None
     sensor_name: str
+    # Kind/unit of the triggering sensor, so clients word the alarm and its
+    # trigger_value correctly ("Przeciążenie", "14,2 A").
+    sensor_kind: str
+    sensor_unit: str
     notification_sent_at: datetime | None
     created_at: datetime
     updated_at: datetime

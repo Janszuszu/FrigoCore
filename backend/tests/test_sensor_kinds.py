@@ -90,6 +90,7 @@ async def test_overcurrent_alarm_is_worded_in_amps(db_session):
         voice = build_voice_message(alarm, obj_row.name)
 
     assert push["message"] == "Agregat prąd: Przeciążenie — wysoki prąd (14,2 A)"
+    assert alarm.sensor_kind == "current" and alarm.sensor_unit == "A"
     assert "Przeciążenie — wysoki prąd, aktualnie 14,2 ampera." in voice
     assert "stopni" not in voice
 
@@ -151,3 +152,21 @@ async def test_energy_daily_rejects_non_energy_sensor(client, db_session, make_u
     await db_session.commit()
     resp = await client.get(f"/api/v1/sensors/{sensor.id}/energy/daily", headers=auth_headers(user))
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_alarm_api_reports_sensor_unit(client, db_session, make_user):
+    admin = await make_user(UserRole.ADMIN)
+    obj = await make_object(db_session)
+    sensor = Sensor(name="Napięcie", mqtt_topic="frigo/t/v", object_id=obj.id, kind="voltage")
+    db_session.add(sensor)
+    await db_session.flush()
+    db_session.add(Alarm(
+        alarm_type=AlarmType.LOW_TEMPERATURE, status=AlarmStatus.TRIGGERED, trigger_value=198.0,
+        detected_at=datetime.now(timezone.utc), description="", object_id=obj.id, sensor_id=sensor.id,
+    ))
+    await db_session.commit()
+    resp = await client.get("/api/v1/alarms", headers=auth_headers(admin))
+    alarm = resp.json()[0]
+    assert alarm["sensor_kind"] == "voltage"
+    assert alarm["sensor_unit"] == "V"

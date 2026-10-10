@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.enums import AlarmStatus, AlarmType
 from app.models.base import Base, TimestampMixin, UUIDMixin
+from app.sensor_kinds import SensorKind, kind_info
 
 if TYPE_CHECKING:
     from app.models.alarm_assignment import AlarmAssignment
@@ -101,12 +102,17 @@ class Alarm(Base, UUIDMixin, TimestampMixin):
         return self.sensor.name if self.sensor is not None else ""
 
     @property
-    def sensor_kind(self) -> str | None:
-        """The triggering Sensor's kind (None when unknown) — same load-guard
+    def sensor_kind(self) -> str:
+        """The triggering Sensor's kind (temperature when unknown) — same load-guard
         as sensor_name, so building a notification never lazy-loads."""
         if "sensor" in inspect(self).unloaded or self.sensor is None:
-            return None
+            return SensorKind.TEMPERATURE.value
         return self.sensor.kind
+
+    @property
+    def sensor_unit(self) -> str:
+        """Unit of trigger_value — temperature when the sensor isn't loaded."""
+        return kind_info(self.sensor_kind).unit
 
     @property
     def notification_sent_at(self) -> Optional[datetime]:
