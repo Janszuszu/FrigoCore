@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 from app.enums import AlarmType, NotificationChannel
 from app.models.alarm import Alarm
 from app.models.notification_endpoint import NotificationEndpoint
+from app.sensor_kinds import kind_info
 from app.database import async_session_factory
 from app.services import firebase_client, voip_settings, voipstudio_client
 from app.services.firebase_client import FcmSendResult, FirebaseNotConfiguredError
@@ -388,21 +389,25 @@ CLIENT_ALARM_EVENT_EN_ROUTE = "en_route"
 CLIENT_ALARM_EVENT_RESOLVED = "resolved"
 
 
-def _alarm_reason(alarm: Alarm, value_suffix: str) -> str:
-    """Polish one-line cause, e.g. "Wysoka temperatura, aktualnie 8,2 stopni"."""
+def _alarm_reason(alarm: Alarm, spoken: bool) -> str:
+    """Polish one-line cause in the sensor's own unit, e.g.
+    "Wysoka temperatura (8,2 °C)" or, for the voice call,
+    "Przeciążenie — wysoki prąd, aktualnie 12,4 ampera"."""
     alarm_type = _enum_value(alarm.alarm_type)
+    info = kind_info(alarm.sensor_kind)
     value = alarm.trigger_value
     if alarm_type == AlarmType.HIGH_TEMPERATURE.value:
-        reason = "Wysoka temperatura"
+        reason = info.high_reason
     elif alarm_type == AlarmType.LOW_TEMPERATURE.value:
-        reason = "Niska temperatura"
+        reason = info.low_reason
     elif alarm_type == AlarmType.OFFLINE.value:
         reason = "Brak komunikacji z czujnikiem"
         value = None
     else:
         reason = "Alarm"
     if value is not None:
-        reason += value_suffix.format(value=value).replace(".", ",")
+        number = f"{value:.1f}".replace(".", ",")
+        reason += f", aktualnie {number} {info.spoken_unit}" if spoken else f" ({number} {info.unit})"
     return reason
 
 
@@ -417,7 +422,7 @@ def build_client_alarm_payload(alarm: Alarm, obj: "Object", event: str) -> dict[
         message = f"{sensor}sytuacja wróciła do normy."
     else:
         title = "Alarm"
-        message = sensor + _alarm_reason(alarm, " ({value:.1f}°C)")
+        message = sensor + _alarm_reason(alarm, spoken=False)
     return {
         "type": "CLIENT_ALARM",
         "version": CLIENT_ALARM_PAYLOAD_VERSION,
@@ -436,7 +441,7 @@ def build_client_alarm_payload(alarm: Alarm, obj: "Object", event: str) -> dict[
 def build_voice_message(alarm: Alarm, object_name: str) -> str:
     """Polish TTS text read to the callee — short, and repeated once so a
     listener who picks up mid-sentence still catches the site name."""
-    reason = _alarm_reason(alarm, ", aktualnie {value:.1f} stopni")
+    reason = _alarm_reason(alarm, spoken=True)
 
     parts = ["Uwaga, alarm FrigoCore."]
     if object_name:

@@ -101,6 +101,14 @@ class Alarm(Base, UUIDMixin, TimestampMixin):
         return self.sensor.name if self.sensor is not None else ""
 
     @property
+    def sensor_kind(self) -> str | None:
+        """The triggering Sensor's kind (None when unknown) — same load-guard
+        as sensor_name, so building a notification never lazy-loads."""
+        if "sensor" in inspect(self).unloaded or self.sensor is None:
+            return None
+        return self.sensor.kind
+
+    @property
     def notification_sent_at(self) -> Optional[datetime]:
         """When the technician was actually pushed (latest assignment's
         dispatched_at), as opposed to detected_at which is when the

@@ -34,6 +34,9 @@ firebase-admin==7.5.0
 # Utilities
 python-dotenv==1.0.1
 loguru==0.7.3
+# IANA time zones for zoneinfo (Europe/Warsaw day boundaries) — slim images
+# and Windows ship none.
+tzdata==2025.3
 
 # Testing
 pytest==8.4.1

@@ -31,6 +31,7 @@ from app.api.websocket import manager as ws_manager
 from app.models.notification_profile import NotificationProfile
 from app.models.sensor import Sensor
 from app.schemas import AlarmResponse
+from app.sensor_kinds import kind_info
 from app.services.dispatch_service import notify_object_owners, record_event
 from app.services.notification_engine import (
     CLIENT_ALARM_EVENT_RESOLVED,
@@ -160,7 +161,7 @@ class AlarmEngine:
                         detected_at=now,
                         object_id=sensor.object_id,
                         sensor_id=sensor.id,
-                        description=_build_description(config.alarm_type, trigger_value),
+                        description=_build_description(config.alarm_type, trigger_value, sensor.kind),
                     )
                     session.add(alarm)
                     await session.flush()  # populate id/created_at/updated_at before broadcasting
@@ -276,11 +277,12 @@ class AlarmEngine:
                     await notify_object_owners(session, alarm, CLIENT_ALARM_EVENT_RESOLVED)
 
 
-def _build_description(alarm_type: AlarmType, value: float | None) -> str:
+def _build_description(alarm_type: AlarmType, value: float | None, kind: str | None = None) -> str:
+    info = kind_info(kind)
     if alarm_type == AlarmType.HIGH_TEMPERATURE:
-        return f"High temperature alarm — current: {value}°C"
+        return f"{info.high_reason} — aktualnie {value} {info.unit}"
     if alarm_type == AlarmType.LOW_TEMPERATURE:
-        return f"Low temperature alarm — current: {value}°C"
+        return f"{info.low_reason} — aktualnie {value} {info.unit}"
     if alarm_type == AlarmType.OFFLINE:
         return f"Sensor offline — no message received for {value:.0f}s"
     return f"Alarm type: {alarm_type}"

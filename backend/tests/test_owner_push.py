@@ -132,4 +132,4 @@ async def test_client_alarm_payload_shape(db_session):
     assert payload["site_name"] == "Chłodnia A"
     assert payload["alarm_type"] == AlarmType.HIGH_TEMPERATURE.value.upper()
     assert "Wysoka temperatura" in payload["message"]
-    assert "12,0°C" in payload["message"]
+    assert "12,0 °C" in payload["message"]

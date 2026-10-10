@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.sensor_kinds import SENSOR_KIND_PATTERN
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +59,7 @@ class SensorCreate(BaseModel):
     offline_timeout_seconds: int = Field(120, ge=10, le=3600)
     icon: str = Field("thermometer", pattern=ICON_PATTERN)
     calibration_offset: float = Field(0.0, ge=-CALIBRATION_LIMIT, le=CALIBRATION_LIMIT)
+    kind: str = Field("temperature", pattern=SENSOR_KIND_PATTERN)
 
 
 class SensorUpdate(BaseModel):
@@ -67,6 +70,7 @@ class SensorUpdate(BaseModel):
     icon: str | None = Field(None, pattern=ICON_PATTERN)
     display_order: int | None = Field(None, ge=0, le=9999)
     calibration_offset: float | None = Field(None, ge=-CALIBRATION_LIMIT, le=CALIBRATION_LIMIT)
+    kind: str | None = Field(None, pattern=SENSOR_KIND_PATTERN)
 
 
 class SensorReorder(BaseModel):
@@ -92,6 +96,8 @@ class SensorResponse(BaseModel):
     icon: str
     display_order: int
     calibration_offset: float
+    kind: str
+    unit: str
     object_id: UUID
     created_at: datetime
     updated_at: datetime
@@ -130,6 +136,13 @@ class AlarmConfigResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Measurement
 # ---------------------------------------------------------------------------
+
+class EnergyDayResponse(BaseModel):
+    """Energy used on one local (Europe/Warsaw) calendar day."""
+
+    day: date
+    kwh: float
+
 
 class MeasurementResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

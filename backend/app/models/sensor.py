@@ -13,6 +13,7 @@ from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
+from app.sensor_kinds import kind_info
 
 if TYPE_CHECKING:
     from app.models.alarm_config import AlarmConfig
@@ -37,6 +38,12 @@ class Sensor(Base, UUIDMixin, TimestampMixin):
     icon: Mapped[str] = mapped_column(
         String(32), default="thermometer", nullable=False,
         comment="Sensor icon identifier, e.g. 'evaporator', 'condenser', 'fan'"
+    )
+    # What the sensor measures — decides its unit and alarm wording, see
+    # app/sensor_kinds.py.
+    kind: Mapped[str] = mapped_column(
+        String(16), default="temperature", nullable=False,
+        comment="Measured quantity: temperature, current, voltage, power, energy"
     )
     display_order: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False,
@@ -76,6 +83,10 @@ class Sensor(Base, UUIDMixin, TimestampMixin):
     alarm_configs: Mapped[List["AlarmConfig"]] = relationship(
         "AlarmConfig", back_populates="sensor", cascade="all, delete-orphan"
     )
+
+    @property
+    def unit(self) -> str:
+        return kind_info(self.kind).unit
 
     def __repr__(self) -> str:
         return f"<Sensor mqtt_topic={self.mqtt_topic!r} name={self.name!r}>"
