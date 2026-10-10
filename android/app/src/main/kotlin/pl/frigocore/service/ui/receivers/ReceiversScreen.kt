@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -126,10 +127,11 @@ internal fun stopwatch(seconds: Long?): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-/** One line of the card: name, chamber | evaporator temperature, state
- * icon; then the 24 h chart and stats, the readings and chart in the state
- * colour (blue cooling, green idle, orange defrost, red alarm); then the
- * details. Tapping the chart opens it full screen. */
+/** Top to bottom: the name, centred, with the state icon in its corner;
+ * the 24 h min / average / max; the chart; chamber | evaporator
+ * temperature; the cycle stopwatches. Readings and chart take the state colour (blue cooling,
+ * green idle, orange defrost, red alarm). Tapping the chart opens it full
+ * screen. */
 @Composable
 private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpenChart: () -> Unit) {
     val receiver = card.receiver
@@ -140,29 +142,28 @@ private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpen
         colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(start = 16.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
-            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            // Name centred on the card; the state icon keeps its corner.
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(
                     receiver.name.uppercase(),
                     color = FrigoText,
-                    fontSize = 17.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp),
                 )
-                Spacer(Modifier.width(8.dp))
-                Reading(receiver.chamber_temperature, look.color, 24.sp)
-                if (receiver.evaporator_sensor_id != null) {
-                    VerticalDivider(
-                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        thickness = 1.5.dp,
-                        color = look.color.copy(alpha = 0.6f),
-                    )
-                    Reading(receiver.evaporator_temperature, look.color, 20.sp)
-                }
-                Spacer(Modifier.width(10.dp))
-                StateIcon(look)
+                Box(Modifier.align(Alignment.CenterEnd)) { StateIcon(look) }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                Stat("MIN", card.stats?.min, "°C", Modifier.weight(1f))
+                StatDivider()
+                Stat("ŚREDNIA", card.stats?.avg, "°C", Modifier.weight(1f))
+                StatDivider()
+                Stat("MAX", card.stats?.max, "°C", Modifier.weight(1f))
             }
             Spacer(Modifier.height(10.dp))
             CardChart(
@@ -171,12 +172,20 @@ private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpen
                 Modifier.fillMaxWidth().height(130.dp).clickable(onClick = onOpenChart),
             )
             Spacer(Modifier.height(10.dp))
-            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-                Stat("MIN", card.stats?.min, "°C", Modifier.weight(1f))
-                StatDivider()
-                Stat("ŚREDNIA", card.stats?.avg, "°C", Modifier.weight(1f))
-                StatDivider()
-                Stat("MAX", card.stats?.max, "°C", Modifier.weight(1f))
+            Row(
+                Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Reading(receiver.chamber_temperature, look.color, 30.sp)
+                if (receiver.evaporator_sensor_id != null) {
+                    VerticalDivider(
+                        Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        thickness = 1.5.dp,
+                        color = look.color.copy(alpha = 0.6f),
+                    )
+                    Reading(receiver.evaporator_temperature, look.color, 24.sp)
+                }
             }
             Stopwatches(receiver, elapsedSinceFetch)
         }
