@@ -1,7 +1,8 @@
 package pl.frigocore.service.ui.receivers
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,10 +13,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,9 +32,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -71,10 +69,6 @@ fun ReceiversScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     PollWhileVisible { viewModel.refresh() }
-    // Same as the sensor dashboard: slim rows so a whole object fits on one
-    // screen; a tapped row unfolds into its chart and 24 h stats.
-    var expanded by rememberSaveable { mutableStateOf(emptyList<String>()) }
-
     when {
         uiState.isLoading && uiState.cards.isEmpty() -> LoadingState()
         // Nothing configured for this object yet — keep showing its sensors.
@@ -82,14 +76,11 @@ fun ReceiversScreen(
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
             contentPadding = PaddingValues(top = 10.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(uiState.cards, key = { it.receiver.id }) { card ->
-                val id = card.receiver.id
-                ReceiverRow(
+                ReceiverCardView(
                     card,
-                    expanded = id in expanded,
-                    onToggle = { expanded = if (id in expanded) expanded - id else expanded + id },
                     onOpenChart = {
                         card.receiver.chamber_sensor_id?.let { onOpenChart(card.receiver.object_id, it, card.receiver.name) }
                     },
@@ -126,75 +117,79 @@ private fun duration(d: Duration): String {
     return if (minutes < 60) "$minutes min" else "${minutes / 60} h ${minutes % 60} min"
 }
 
+/** A receiver as a full card: name, chamber temperature and state badge,
+ * what the state means right now, the 24 h chart and stats. Receivers are
+ * already a filtered view (Urządzenia → Odbiorniki), so every card stays
+ * open; tapping the chart opens it full screen. */
 @Composable
-private fun ReceiverRow(card: ReceiverCard, expanded: Boolean, onToggle: () -> Unit, onOpenChart: () -> Unit) {
+private fun ReceiverCardView(card: ReceiverCard, onOpenChart: () -> Unit) {
     val receiver = card.receiver
     val look = stateLook(receiver.state)
     Card(
-        onClick = onToggle,
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, FrigoAccent.copy(alpha = 0.35f)),
         colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-            Row(Modifier.heightIn(min = 34.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     receiver.name.uppercase(),
                     color = FrigoText,
-                    fontSize = 16.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f, fill = false),
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(12.dp))
                 Text(
                     Formatters.temperature(receiver.chamber_temperature),
                     color = FrigoAccent,
-                    fontSize = 22.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     style = TabularNumbers,
                 )
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.weight(1f).widthIn(min = 8.dp))
                 StateBadge(look)
             }
-            AnimatedVisibility(expanded) {
-                Column {
-                    Spacer(Modifier.height(4.dp))
-                    Text(receiverStatusLine(receiver), color = FrigoTextMuted, fontSize = 13.sp)
-                    Spacer(Modifier.height(8.dp))
-                    // A second tap, on the chart, opens the chamber's chart full screen.
-                    CardChart(
-                        card.chamber,
-                        FrigoAccent,
-                        Modifier.fillMaxWidth().height(130.dp).clickable(onClick = onOpenChart),
-                        secondary = card.evaporator,
-                        secondaryColor = EvaporatorColor,
-                        levels = listOfNotNull(
-                            receiver.cut_in?.let { it to FrigoMax.copy(alpha = 0.8f) },
-                            receiver.cut_out?.let { it to FrigoAccent.copy(alpha = 0.8f) },
-                        ),
-                    )
-                    Legend(hasEvaporator = card.evaporator.isNotEmpty(), receiver)
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-                        Stat("MIN", card.stats?.min, "°C", Modifier.weight(1f))
-                        StatDivider()
-                        Stat("ŚREDNIA", card.stats?.avg, "°C", Modifier.weight(1f))
-                        StatDivider()
-                        Stat("MAX", card.stats?.max, "°C", Modifier.weight(1f))
-                    }
-                }
+            Text(receiverStatusLine(receiver), color = FrigoTextMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+            Spacer(Modifier.height(8.dp))
+            CardChart(
+                card.chamber,
+                FrigoAccent,
+                Modifier.fillMaxWidth().height(130.dp).clickable(onClick = onOpenChart),
+                secondary = card.evaporator,
+                secondaryColor = EvaporatorColor,
+                levels = listOfNotNull(
+                    receiver.cut_in?.let { it to FrigoMax.copy(alpha = 0.8f) },
+                    receiver.cut_out?.let { it to FrigoAccent.copy(alpha = 0.8f) },
+                ),
+            )
+            Legend(hasEvaporator = card.evaporator.isNotEmpty(), receiver)
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                Stat("MIN", card.stats?.min, "°C", Modifier.weight(1f))
+                StatDivider()
+                Stat("ŚREDNIA", card.stats?.avg, "°C", Modifier.weight(1f))
+                StatDivider()
+                Stat("MAX", card.stats?.max, "°C", Modifier.weight(1f))
             }
         }
     }
 }
 
+/** Icon and label in a rounded outline, tinted by state. */
 @Composable
 private fun StateBadge(look: StateLook) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier
+            .border(1.dp, look.color.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            .background(look.color.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Icon(look.icon, contentDescription = null, tint = look.color, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(5.dp))
         Text(look.label.uppercase(), color = look.color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
