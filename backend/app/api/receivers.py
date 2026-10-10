@@ -57,7 +57,8 @@ def _response(receiver: Receiver, history: dict[UUID, list[Point]], now: datetim
         history.get(receiver.chamber_sensor_id, []) if chamber else [],
         history.get(receiver.evaporator_sensor_id) if evaporator else None,
         now,
-        receiver.cut_out,
+        target=receiver.cut_out,
+        cut_in=receiver.cut_in,
     )
     return ReceiverResponse(
         id=receiver.id,

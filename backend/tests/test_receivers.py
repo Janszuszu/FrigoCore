@@ -63,6 +63,61 @@ def test_missing_evaporator_data_falls_back_to_chamber_trend():
     assert classify(trace(6, -0.1), [], NOW) == COOLING
 
 
+def series(values, end: datetime = NOW):
+    """One reading a minute ending at `end` — real traces copied from the
+    Biskupiec controllers on 2026-10-10."""
+    return [(end - timedelta(minutes=len(values) - 1 - i), v) for i, v in enumerate(values)]
+
+
+def test_freezer_with_a_small_evaporator_gap_is_cooling():
+    # Running compressor, but the coil reads only ~1.5 °C below the air.
+    chamber = series([-20.2, -20.4, -20.7, -20.9, -21.1, -21.4, -21.5])
+    evaporator = series([-21.2, -21.7, -22.1, -22.4, -22.6, -22.7, -23.0])
+    assert classify(chamber, evaporator, NOW, cut_in=-19.9) == COOLING
+
+
+def test_freezer_coil_drifting_up_after_cooling_is_idle():
+    chamber = series([-22.1, -21.8, -21.6, -21.4, -21.2, -20.9, -20.7])
+    evaporator = series([-23.8, -23.9, -23.5, -23.0, -22.5, -21.9, -21.4])
+    assert classify(chamber, evaporator, NOW, cut_in=-19.9) == IDLE
+
+
+def test_freezer_right_after_defrost_is_cooling():
+    # The 22:13 case: the window still holds the defrost rise, but the coil
+    # is plunging and the chamber follows.
+    chamber = series([-2.1, 0.7, 0.5, 1.7, 0.8, -0.4, -2.1])
+    evaporator = series([-2.5, 1.3, -1.5, -1.4, -1.8, -3.0, -5.6])
+    assert classify(chamber, evaporator, NOW, cut_in=-19.9) == COOLING
+
+
+def test_freezer_warming_far_above_cut_in_is_defrost():
+    # No heater signature on the coil, but the air is 8 °C over the cut-in
+    # and nothing is cooling it.
+    chamber = series([-18.3, -14.1, -11.7, -7.6, -4.9, -3.3, -2.1])
+    evaporator = series([-17.5, -13.8, -10.3, -8.9, -5.4, -3.4, -2.5])
+    assert classify(chamber, evaporator, NOW, cut_in=-19.9) == DEFROST
+
+
+def test_cold_room_coil_reading_warm_at_rest_is_idle():
+    # A resting coil sensor ~1.2 °C above the air is not a defrost.
+    chamber = series([5.0, 5.0, 5.1, 5.1, 5.1, 5.1, 5.2])
+    evaporator = series([6.1, 6.1, 6.2, 6.2, 6.3, 6.3, 6.4])
+    assert classify(chamber, evaporator, NOW, cut_in=6.0) == IDLE
+
+
+def test_cold_room_heater_defrost():
+    chamber = series([3.9, 4.0, 4.1, 4.1, 4.2, 4.3, 4.3])
+    evaporator = series([-1.4, 2.6, 21.4, 32.4, 32.8, 30.8, 28.5])
+    assert classify(chamber, evaporator, NOW, cut_in=6.0) == DEFROST
+
+
+def test_cooling_ends_as_soon_as_the_coil_warms():
+    # Chamber trend still falling from the last cycle, coil already rising.
+    chamber = series([4.2, 4.0, 3.7, 3.5, 3.5, 3.5, 3.7])
+    evaporator = series([-8.0, -8.5, -8.8, -13.1, -8.4, -2.4, -1.6])
+    assert classify(chamber, evaporator, NOW, cut_in=6.0) == IDLE
+
+
 def test_time_to_target_follows_the_cooling_rate():
     # -15 °C falling 0.25 °C/min towards -20 °C → 20 min.
     result = analyze(trace(-10, -0.25), trace(-28, 0), NOW, target=-20)
