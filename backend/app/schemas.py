@@ -104,6 +104,59 @@ class SensorResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Receiver (odbiornik)
+# ---------------------------------------------------------------------------
+
+# Working temperatures of a refrigerated space, °C.
+RECEIVER_TEMPERATURE_LIMIT = 60.0
+RECEIVER_STATE_PATTERN = r"^(cooling|idle|defrost|unknown)$"
+
+
+class ReceiverCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=256)
+    chamber_sensor_id: UUID | None = None
+    evaporator_sensor_id: UUID | None = None
+    setpoint: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
+    cut_in: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
+    cut_out: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
+    is_active: bool = True
+
+
+class ReceiverUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=256)
+    chamber_sensor_id: UUID | None = None
+    evaporator_sensor_id: UUID | None = None
+    setpoint: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
+    cut_in: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
+    cut_out: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
+    display_order: int | None = Field(None, ge=0, le=9999)
+    is_active: bool | None = None
+
+
+class ReceiverResponse(BaseModel):
+    """Configuration plus the live picture: current temperatures and the
+    working state inferred from the last minutes of readings."""
+
+    id: UUID
+    name: str
+    object_id: UUID
+    chamber_sensor_id: UUID | None
+    evaporator_sensor_id: UUID | None
+    setpoint: float | None
+    cut_in: float | None
+    cut_out: float | None
+    display_order: int
+    is_active: bool
+    chamber_temperature: float | None
+    evaporator_temperature: float | None
+    last_message_at: datetime | None
+    state: str = Field(..., pattern=RECEIVER_STATE_PATTERN)
+    state_since: datetime | None
+    minutes_to_setpoint: float | None
+    chamber_rate: float | None = Field(None, description="Chamber trend, °C per minute")
+
+
+# ---------------------------------------------------------------------------
 # AlarmConfig (legacy, normalized)
 # ---------------------------------------------------------------------------
 
