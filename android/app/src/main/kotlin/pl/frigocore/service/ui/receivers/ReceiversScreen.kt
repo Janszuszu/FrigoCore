@@ -179,7 +179,6 @@ private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpen
                 Stat("MAX", card.stats?.max, "°C", Modifier.weight(1f))
             }
             Stopwatches(receiver, elapsedSinceFetch)
-            Thresholds(receiver)
         }
     }
 }
@@ -219,7 +218,9 @@ private fun StateIcon(look: StateLook) {
 
 /** Two stopwatches for the refrigeration cycle: blue times the cooling
  * (from cut-in to cut-out), green the idle that follows. The running one
- * counts on, the other keeps its last run, dimmed, until its turn. */
+ * counts on, the other keeps its last run, dimmed, until its turn. Each
+ * phase's end temperature sits on its outer side, unlabelled: the cut-out
+ * before the blue one, the cut-in after the green one. */
 @Composable
 private fun Stopwatches(receiver: ReceiverResponse, elapsedSinceFetch: Long) {
     val phase = receiver.cycle_phase
@@ -229,9 +230,11 @@ private fun Stopwatches(receiver: ReceiverResponse, elapsedSinceFetch: Long) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
+        receiver.cut_out?.let { Threshold(it, FrigoAccent) }
         Stopwatch(running(receiver.cooling_seconds, phase == "cooling"), FrigoAccent, active = phase == "cooling", label = "Chłodzenie")
-        VerticalDivider(Modifier.padding(horizontal = 18.dp, vertical = 2.dp), thickness = 1.5.dp, color = FrigoTextMuted.copy(alpha = 0.5f))
+        VerticalDivider(Modifier.padding(horizontal = 12.dp, vertical = 2.dp), thickness = 1.5.dp, color = FrigoTextMuted.copy(alpha = 0.5f))
         Stopwatch(running(receiver.idle_seconds, phase == "idle"), FrigoOk, active = phase == "idle", label = "Postój")
+        receiver.cut_in?.let { Threshold(it, FrigoOk, before = false) }
     }
 }
 
@@ -239,21 +242,21 @@ private fun Stopwatches(receiver: ReceiverResponse, elapsedSinceFetch: Long) {
 private fun Stopwatch(seconds: Long?, color: Color, active: Boolean, label: String) {
     val tint = if (active) color else color.copy(alpha = 0.45f)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Outlined.Timer, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(stopwatch(seconds), color = tint, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, style = TabularNumbers)
+        Icon(Icons.Outlined.Timer, contentDescription = label, tint = tint, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(5.dp))
+        Text(stopwatch(seconds), color = tint, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, style = TabularNumbers)
     }
 }
 
-/** The controller's working temperatures. */
+/** A cut-out / cut-in temperature beside its stopwatch, in its colour. */
 @Composable
-private fun Thresholds(receiver: ReceiverResponse) {
-    if (receiver.cut_in == null && receiver.cut_out == null) return
-    Row(
-        Modifier.fillMaxWidth().padding(top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
-    ) {
-        receiver.cut_in?.let { Text("Załącz. ${Formatters.temperature(it)}", color = FrigoTextMuted, fontSize = 12.sp) }
-        receiver.cut_out?.let { Text("Wyłącz. ${Formatters.temperature(it)}", color = FrigoTextMuted, fontSize = 12.sp) }
-    }
+private fun Threshold(value: Double, color: Color, before: Boolean = true) {
+    Text(
+        Formatters.temperature(value),
+        color = color.copy(alpha = 0.75f),
+        fontSize = 13.sp,
+        maxLines = 1,
+        style = TabularNumbers,
+        modifier = Modifier.padding(start = if (before) 0.dp else 8.dp, end = if (before) 8.dp else 0.dp),
+    )
 }
