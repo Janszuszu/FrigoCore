@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,15 +17,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.AcUnit
-import androidx.compose.material.icons.outlined.ModeFanOff
-import androidx.compose.material.icons.outlined.Whatshot
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -58,7 +58,7 @@ import pl.frigocore.service.ui.theme.TabularNumbers
 import java.time.Duration
 import java.time.Instant
 
-/** Evaporator trace on a receiver's chart. */
+/** Evaporator reading next to the chamber temperature. */
 private val EvaporatorColor = Color(0xFFA78BFA)
 
 @Composable
@@ -90,12 +90,13 @@ fun ReceiversScreen(
     }
 }
 
-private data class StateLook(val label: String, val icon: ImageVector, val color: Color)
+/** [drip] adds a water drop to the icon — a melting snowflake for defrost. */
+private data class StateLook(val label: String, val icon: ImageVector, val color: Color, val drip: Boolean = false)
 
 private fun stateLook(state: String): StateLook = when (state) {
     ReceiverState.COOLING -> StateLook("Chłodzenie", Icons.Outlined.AcUnit, FrigoAccent)
-    ReceiverState.IDLE -> StateLook("Postój", Icons.Outlined.ModeFanOff, FrigoText)
-    ReceiverState.DEFROST -> StateLook("Odszranianie", Icons.Outlined.Whatshot, FrigoMax)
+    ReceiverState.IDLE -> StateLook("Postój", Icons.Outlined.Timer, FrigoText)
+    ReceiverState.DEFROST -> StateLook("Odszranianie", Icons.Outlined.AcUnit, FrigoMax, drip = true)
     else -> StateLook("Nieznany", Icons.AutoMirrored.Outlined.HelpOutline, FrigoTextMuted)
 }
 
@@ -132,27 +133,45 @@ private fun ReceiverCardView(card: ReceiverCard, onOpenChart: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp)) {
+            // Name gets its own line next to the badge so long names fit;
+            // the readings sit underneath — chamber large, evaporator beside it.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     receiver.name.uppercase(),
                     color = FrigoText,
-                    fontSize = 18.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
+                    lineHeight = 20.sp,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(10.dp))
+                StateBadge(look)
+            }
+            Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.Bottom) {
                 Text(
                     Formatters.temperature(receiver.chamber_temperature),
                     color = FrigoAccent,
-                    fontSize = 28.sp,
+                    fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     style = TabularNumbers,
                 )
-                Spacer(Modifier.weight(1f).widthIn(min = 8.dp))
-                StateBadge(look)
+                if (receiver.evaporator_sensor_id != null) {
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.padding(bottom = 4.dp)) {
+                        Text("PAROWNIK", color = EvaporatorColor.copy(alpha = 0.8f), fontSize = 10.sp, letterSpacing = 0.5.sp)
+                        Text(
+                            Formatters.temperature(receiver.evaporator_temperature),
+                            color = EvaporatorColor,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            style = TabularNumbers,
+                        )
+                    }
+                }
             }
             Text(receiverStatusLine(receiver), color = FrigoTextMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
             Spacer(Modifier.height(8.dp))
@@ -160,14 +179,12 @@ private fun ReceiverCardView(card: ReceiverCard, onOpenChart: () -> Unit) {
                 card.chamber,
                 FrigoAccent,
                 Modifier.fillMaxWidth().height(130.dp).clickable(onClick = onOpenChart),
-                secondary = card.evaporator,
-                secondaryColor = EvaporatorColor,
                 levels = listOfNotNull(
                     receiver.cut_in?.let { it to FrigoMax.copy(alpha = 0.8f) },
                     receiver.cut_out?.let { it to FrigoAccent.copy(alpha = 0.8f) },
                 ),
             )
-            Legend(hasEvaporator = card.evaporator.isNotEmpty(), receiver)
+            Legend(receiver)
             Spacer(Modifier.height(10.dp))
             Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
                 Stat("MIN", card.stats?.min, "°C", Modifier.weight(1f))
@@ -185,22 +202,32 @@ private fun ReceiverCardView(card: ReceiverCard, onOpenChart: () -> Unit) {
 private fun StateBadge(look: StateLook) {
     Row(
         Modifier
-            .border(1.dp, look.color.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-            .background(look.color.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+            .border(1.dp, look.color.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+            .background(look.color.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
             .padding(horizontal = 8.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(look.icon, contentDescription = null, tint = look.color, modifier = Modifier.size(18.dp))
+        Box(Modifier.size(20.dp)) {
+            Icon(look.icon, contentDescription = null, tint = look.color, modifier = Modifier.size(if (look.drip) 16.dp else 20.dp))
+            if (look.drip) {
+                Icon(
+                    Icons.Filled.WaterDrop,
+                    contentDescription = null,
+                    tint = look.color,
+                    modifier = Modifier.size(9.dp).align(Alignment.BottomEnd),
+                )
+            }
+        }
         Spacer(Modifier.width(5.dp))
         Text(look.label.uppercase(), color = look.color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 
+/** What the dashed lines on the chart are. */
 @Composable
-private fun Legend(hasEvaporator: Boolean, receiver: ReceiverResponse) {
+private fun Legend(receiver: ReceiverResponse) {
+    if (receiver.cut_in == null && receiver.cut_out == null) return
     Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        LegendItem("Komora", FrigoAccent)
-        if (hasEvaporator) LegendItem("Parownik", EvaporatorColor)
         receiver.cut_in?.let { LegendItem("Załącz. ${Formatters.temperature(it)}", FrigoMax) }
         receiver.cut_out?.let { LegendItem("Wyłącz. ${Formatters.temperature(it)}", FrigoAccent) }
     }

@@ -26,8 +26,6 @@ data class ReceiverCard(
     val receiver: ReceiverResponse,
     /** Oldest-first 24 h chamber readings. */
     val chamber: List<ChartPoint> = emptyList(),
-    /** Oldest-first 24 h evaporator readings; empty without that sensor. */
-    val evaporator: List<ChartPoint> = emptyList(),
     val stats: TempStats? = null,
 )
 
@@ -67,7 +65,8 @@ class ReceiversViewModel @Inject constructor(
                 .filter { it.is_active }
                 .sortedWith(compareBy({ it.display_order }, { it.name }))
 
-            val sensorIds = receivers.flatMap { listOfNotNull(it.chamber_sensor_id, it.evaporator_sensor_id) }.toSet()
+            // Only the chamber is charted; the evaporator is shown as its current reading.
+            val sensorIds = receivers.mapNotNull { it.chamber_sensor_id }.toSet()
             val now = Instant.now()
             if (historyObjectId != objectId || !history.keys.containsAll(sensorIds) ||
                 Duration.between(historyFetchedAt, now).toMinutes() >= 5
@@ -90,7 +89,7 @@ class ReceiversViewModel @Inject constructor(
                 objectId = objectId,
                 cards = receivers.map { r ->
                     val chamber = points(r.chamber_sensor_id)
-                    ReceiverCard(r, chamber, points(r.evaporator_sensor_id), tempStats(chamber.map { it.value }))
+                    ReceiverCard(r, chamber, tempStats(chamber.map { it.value }))
                 },
             )
         }

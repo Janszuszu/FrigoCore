@@ -265,15 +265,12 @@ internal fun Stat(label: String, value: Double?, unit: String, modifier: Modifie
 
 /** Last 24 h as a step line in [color] over a three-level grid, with five
  * time labels from the window start to now, filled under the line. Tapping the card opens the full chart.
- * A receiver adds its evaporator as an unfilled [secondary] line and its
- * working temperatures as dashed [levels]; the scale stretches to fit them. */
+ * A receiver adds its cut-in / cut-out as dashed [levels]; the scale stretches to fit them. */
 @Composable
 internal fun CardChart(
     points: List<ChartPoint>,
     color: Color,
     modifier: Modifier = Modifier,
-    secondary: List<ChartPoint> = emptyList(),
-    secondaryColor: Color = color,
     levels: List<Pair<Double, Color>> = emptyList(),
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -283,7 +280,7 @@ internal fun CardChart(
         val now = Instant.now()
         val tStart = now.minus(24, ChronoUnit.HOURS).toEpochMilli()
         val tSpan = (now.toEpochMilli() - tStart).toFloat()
-        val values = points.map { it.value } + secondary.map { it.value } + levels.map { it.first }
+        val values = points.map { it.value } + levels.map { it.first }
         val (lo, step) = cardAxis(values.min(), values.max())
         val hi = lo + 2 * step
 
@@ -331,11 +328,6 @@ internal fun CardChart(
                     lineTo(x(p.time), y(p.value))
                 }
             }
-        }
-
-        val evaporator = secondary.filter { it.time.toEpochMilli() >= tStart }
-        if (evaporator.size >= 2) {
-            drawPath(stepLine(evaporator), secondaryColor, style = Stroke(width = 1.2.dp.toPx(), join = StrokeJoin.Miter))
         }
 
         val visible = points.filter { it.time.toEpochMilli() >= tStart }
