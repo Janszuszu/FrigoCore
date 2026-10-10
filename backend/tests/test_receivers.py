@@ -180,6 +180,24 @@ def test_stopwatches_while_idle_show_the_last_cooling():
     assert result.cooling_seconds == pytest.approx(12 * 60, abs=90)
 
 
+def test_reaching_the_cut_out_switches_to_idle_at_once():
+    # The first reading at -22.1: the controller has just stopped the
+    # compressor, even though the coil is still cold and the trend lags.
+    chamber, evaporator = freezer_cycles(12)
+    result = analyze(chamber, evaporator, NOW, target=-22.1, cut_in=-19.9)
+    assert result.cycle_phase == "idle"
+    assert result.idle_seconds is not None and result.idle_seconds < 90
+
+
+def test_compressor_start_delay_does_not_break_the_cooling_phase():
+    # At the cut-in the air stays flat for two minutes before it falls.
+    chamber = series([-20.6, -20.3, -20.1, -19.9, -19.9, -19.9, -20.0, -20.2, -20.4, -20.6])
+    evaporator = series([-21.0, -20.8, -20.6, -20.4, -20.4, -20.6, -21.2, -21.8, -22.2, -22.6])
+    result = analyze(chamber, evaporator, NOW, target=-22.1, cut_in=-19.9)
+    assert result.cycle_phase == "cooling"
+    assert result.cooling_seconds == pytest.approx(6 * 60, abs=60)
+
+
 def test_no_stopwatch_without_a_phase_change_in_view():
     flat = trace(4, 0.0, minutes=60)
     result = analyze(flat, trace(3.8, 0.0, minutes=60), NOW)

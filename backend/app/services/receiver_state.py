@@ -133,12 +133,19 @@ def classify(
     evaporator: list[Point] | None,
     at: datetime,
     cut_in: float | None = None,
+    cut_out: float | None = None,
 ) -> str:
     """The receiver's state at `at`, from readings up to that moment."""
-    return _classify(_Trace(chamber), _Trace(evaporator) if evaporator else None, at, cut_in)
+    return _classify(_Trace(chamber), _Trace(evaporator) if evaporator else None, at, cut_in, cut_out)
 
 
-def _classify(chamber: _Trace, evaporator: _Trace | None, at: datetime, cut_in: float | None) -> str:
+def _classify(
+    chamber: _Trace,
+    evaporator: _Trace | None,
+    at: datetime,
+    cut_in: float | None,
+    cut_out: float | None = None,
+) -> str:
     c_pts = chamber.window(at)
     if not _usable(c_pts):
         return UNKNOWN
@@ -147,12 +154,20 @@ def _classify(chamber: _Trace, evaporator: _Trace | None, at: datetime, cut_in: 
     chamber_falling = c_rate <= COOLING_CHAMBER_RATE
 
     e_pts = evaporator.window(at) if evaporator else []
-    if _usable(e_pts):
+    e_usable = _usable(e_pts)
+    if e_usable:
         e = e_pts[-1][1]
         e_rate = slope_per_minute(e_pts)
         heated = e > c + DEFROST_CLEAR_MARGIN or (e > c + DEFROST_MARGIN and e_rate >= DEFROST_EVAPORATOR_RISE)
         if heated or (c < -2 and e > 0):
             return DEFROST
+
+    # The chamber reading is the controller's own probe, so its cut-out is
+    # exact: there it has just stopped the compressor.
+    if cut_out is not None and c <= cut_out:
+        return IDLE
+
+    if e_usable:
         if (
             e <= c - COOLING_MIN_GAP
             and e_rate <= COOLING_MAX_EVAPORATOR_RISE
@@ -163,9 +178,53 @@ def _classify(chamber: _Trace, evaporator: _Trace | None, at: datetime, cut_in: 
         # No (recent) evaporator data — the chamber trend is all there is.
         return COOLING
 
+    # Warming fast, or well past the cut-in with nothing cooling: defrost.
     if c_rate >= DEFROST_CHAMBER_RISE or (cut_in is not None and c > cut_in + DEFROST_ABOVE_CUT_IN):
         return DEFROST
+    # At the cut-in the controller starts the compressor.
+    if cut_in is not None and c >= cut_in:
+        return COOLING
     return IDLE
+
+
+def _with_hysteresis(
+    raw: str,
+    previous: str | None,
+    chamber: _Trace,
+    evaporator: _Trace | None,
+    at: datetime,
+    cut_in: float | None,
+    cut_out: float | None,
+) -> str:
+    """Follow the controller's own hysteresis once both thresholds are known.
+
+    The chamber reading is the controller's probe, so it runs the
+    compressor from the cut-in down to the cut-out and rests from the
+    cut-out up to the cut-in. Between the two the phase carries on: just
+    after a stop the air keeps sinking a little, just after a start the
+    compressor's delay leaves it flat — trends misread both. Only clear
+    evidence ends a phase early: a warming evaporator while cooling (stopped
+    early), a plunging evaporator while resting (started early). Defrost
+    is recognised on its own and always wins."""
+    if previous is None or raw in (DEFROST, UNKNOWN) or cut_in is None or cut_out is None:
+        return raw
+    c_pts = chamber.window(at)
+    c = c_pts[-1][1]
+    if c <= cut_out:
+        return IDLE
+    if c >= cut_in:
+        return COOLING
+    e_pts = evaporator.window(at) if evaporator else []
+    e_usable = _usable(e_pts)
+    if previous == COOLING:
+        # A warming coil is the first sign the compressor stopped; the air
+        # lags behind (and its window may still hold the rise before the start).
+        if e_usable:
+            return IDLE if slope_per_minute(e_pts) >= COOLING_MAX_EVAPORATOR_RISE else COOLING
+        return IDLE if slope_per_minute(c_pts) >= -COOLING_CHAMBER_RATE else COOLING
+    if e_usable and e_pts[-1][1] <= c - COOLING_MIN_GAP and slope_per_minute(e_pts) <= COOLING_EVAPORATOR_RATE:
+        return COOLING
+    return previous
 
 
 Segment = tuple[str, datetime, datetime]  # value, start, end
@@ -235,6 +294,33 @@ def _cycle(phases: list[Segment], now: datetime) -> tuple[str | None, int | None
     return current, previous, running
 
 
+def _timeline(
+    chamber: _Trace,
+    evaporator: _Trace | None,
+    now: datetime,
+    cut_in: float | None,
+    cut_out: float | None,
+) -> list[tuple[datetime, str]]:
+    """The state minute by minute over TIMELINE_LOOKBACK, ending at `now`."""
+    # Replay the state minute by minute; a gap in the data (UNKNOWN) keeps
+    # the previous state rather than splitting a phase in two.
+    samples: list[tuple[datetime, str]] = []
+    t = now - TIMELINE_LOOKBACK
+    while True:
+        s = _classify(chamber, evaporator, t, cut_in, cut_out)
+        previous = samples[-1][1] if samples else None
+        if s == UNKNOWN:
+            s = previous
+        else:
+            s = _with_hysteresis(s, previous, chamber, evaporator, t, cut_in, cut_out)
+        if s is not None:
+            samples.append((t, s))
+        if t >= now:
+            break
+        t = min(t + TIMELINE_STEP, now)
+    return samples
+
+
 def analyze(
     chamber: list[Point],
     evaporator: list[Point] | None,
@@ -248,24 +334,14 @@ def analyze(
     `chamber` and `evaporator` must be sorted oldest-first and should cover
     TIMELINE_LOOKBACK + WINDOW for the history-based values.
     """
+    cut_out = target  # cooling runs down to the cut-out
     c_trace = _Trace(chamber)
     e_trace = _Trace(evaporator) if evaporator else None
-    state = _classify(c_trace, e_trace, now, cut_in)
-    if state == UNKNOWN:
+    if _classify(c_trace, e_trace, now, cut_in, cut_out) == UNKNOWN:
         return ReceiverAnalysis(state=UNKNOWN)
 
-    # Replay the state minute by minute; a gap in the data (UNKNOWN) keeps
-    # the previous state rather than splitting a phase in two.
-    samples: list[tuple[datetime, str]] = []
-    t = now - TIMELINE_LOOKBACK
-    while t < now:
-        s = _classify(c_trace, e_trace, t, cut_in)
-        if s == UNKNOWN:
-            s = samples[-1][1] if samples else None
-        if s is not None:
-            samples.append((t, s))
-        t += TIMELINE_STEP
-    samples.append((now, state))
+    samples = _timeline(c_trace, e_trace, now, cut_in, cut_out)
+    state = samples[-1][1]
 
     states = _segments(samples, now)
     since = states[-1][1] if len(states) > 1 else None
