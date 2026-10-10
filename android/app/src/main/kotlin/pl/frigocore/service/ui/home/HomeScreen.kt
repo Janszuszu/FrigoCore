@@ -17,9 +17,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.Apartment
+import androidx.compose.material.icons.outlined.ElectricMeter
+import androidx.compose.material.icons.outlined.Kitchen
+import androidx.compose.material.icons.outlined.Hvac
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.ViewInAr
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -67,6 +69,7 @@ import pl.frigocore.service.data.repository.AuthRepository
 import pl.frigocore.service.ui.dashboard.DashboardScreen
 import pl.frigocore.service.ui.objects.ObjectsScreen
 import pl.frigocore.service.ui.overview.OverviewScreen
+import pl.frigocore.service.ui.receivers.ReceiversScreen
 import pl.frigocore.service.ui.sensor.SensorScreen
 import pl.frigocore.service.ui.theme.FrigoAccent
 import pl.frigocore.service.ui.theme.FrigoBackground
@@ -100,7 +103,9 @@ class HomeViewModel @Inject constructor(
 }
 
 private object HomeRoutes {
-    const val OVERVIEW = "overview"
+    /** Urządzenia → Odbiorniki; falls back to the sensor overview for an
+     * object without receivers. Agregaty and Liczniki come later. */
+    const val RECEIVERS = "devices/receivers"
     const val OBJECTS = "objects"
     const val ALARMS = "alarms"
     const val SENSOR = "sensor/{objectId}/{sensorId}?name={name}"
@@ -122,6 +127,7 @@ fun HomeScreen(
     // The chart is full-screen: no header, no bottom bar.
     val chrome = route != HomeRoutes.SENSOR
     var menuOpen by remember { mutableStateOf(false) }
+    var devicesOpen by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = FrigoBackground,
@@ -148,11 +154,12 @@ fun HomeScreen(
                             label = { Text("Menu") },
                             colors = colors,
                         )
+                        // Devices are grouped by type; the button opens the picker.
                         NavigationBarItem(
-                            selected = route == HomeRoutes.OVERVIEW,
-                            onClick = { navController.switchTab(HomeRoutes.OVERVIEW) },
-                            icon = { Icon(Icons.Filled.Dashboard, contentDescription = null) },
-                            label = { Text("Dashboard") },
+                            selected = route == HomeRoutes.RECEIVERS,
+                            onClick = { devicesOpen = true },
+                            icon = { Icon(Icons.Outlined.Kitchen, contentDescription = null) },
+                            label = { Text("Urządzenia") },
                             colors = colors,
                         )
                         NavigationBarItem(
@@ -169,21 +176,28 @@ fun HomeScreen(
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = HomeRoutes.OVERVIEW,
+            startDestination = HomeRoutes.RECEIVERS,
             modifier = Modifier.padding(padding),
         ) {
-            composable(HomeRoutes.OVERVIEW) {
-                OverviewScreen(
-                    onSensorClick = { sensor ->
-                        navController.navigate(HomeRoutes.sensorRoute(sensor.object_id, sensor.id, sensor.name))
+            composable(HomeRoutes.RECEIVERS) {
+                ReceiversScreen(
+                    onOpenChart = { objectId, sensorId, name ->
+                        navController.navigate(HomeRoutes.sensorRoute(objectId, sensorId, name))
                     },
-                    onAlarmClick = onAlarmClick,
+                    fallback = {
+                        OverviewScreen(
+                            onSensorClick = { sensor ->
+                                navController.navigate(HomeRoutes.sensorRoute(sensor.object_id, sensor.id, sensor.name))
+                            },
+                            onAlarmClick = onAlarmClick,
+                        )
+                    },
                 )
             }
             composable(HomeRoutes.OBJECTS) {
                 ObjectsScreen(onObjectClick = {
                     viewModel.selectObject(it.id)
-                    navController.switchTab(HomeRoutes.OVERVIEW)
+                    navController.switchTab(HomeRoutes.RECEIVERS)
                 })
             }
             composable(HomeRoutes.ALARMS) {
@@ -199,6 +213,24 @@ fun HomeScreen(
             ) {
                 SensorScreen(onClose = { navController.popBackStack() })
             }
+        }
+    }
+
+    if (devicesOpen) {
+        ModalBottomSheet(onDismissRequest = { devicesOpen = false }, containerColor = FrigoSurface) {
+            Text(
+                "Urządzenia",
+                color = FrigoTextMuted,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+            MenuItem(Icons.Outlined.Kitchen, "Odbiorniki") {
+                devicesOpen = false
+                navController.switchTab(HomeRoutes.RECEIVERS)
+            }
+            MenuItem(Icons.Outlined.Hvac, "Agregaty", note = "wkrótce")
+            MenuItem(Icons.Outlined.ElectricMeter, "Liczniki", note = "wkrótce")
+            Spacer(Modifier.height(24.dp))
         }
     }
 
@@ -226,17 +258,19 @@ fun HomeScreen(
 }
 
 @Composable
-private fun MenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun MenuItem(icon: ImageVector, label: String, note: String? = null, onClick: (() -> Unit)? = null) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = FrigoAccent)
+        val enabled = onClick != null
+        Icon(icon, contentDescription = null, tint = if (enabled) FrigoAccent else FrigoTextMuted)
         Spacer(Modifier.width(16.dp))
-        Text(label, color = FrigoText, fontSize = 17.sp)
+        Text(label, color = if (enabled) FrigoText else FrigoTextMuted, fontSize = 17.sp, modifier = Modifier.weight(1f))
+        if (note != null) Text(note, color = FrigoTextMuted, fontSize = 13.sp)
     }
 }
 

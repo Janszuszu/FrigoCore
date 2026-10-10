@@ -3,6 +3,7 @@ package pl.frigocore.service.data.repository
 import pl.frigocore.service.data.api.FrigoCoreApi
 import pl.frigocore.service.data.model.MeasurementResponse
 import pl.frigocore.service.data.model.ObjectResponse
+import pl.frigocore.service.data.model.ReceiverResponse
 import pl.frigocore.service.data.model.SensorResponse
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -24,6 +25,9 @@ class ObjectRepository @Inject constructor(
 
     suspend fun listSensors(objectId: String): ApiResult<List<SensorResponse>> =
         safeApiCall { api.listSensors(objectId) }
+
+    suspend fun listReceivers(objectId: String): ApiResult<List<ReceiverResponse>> =
+        safeApiCall { api.listReceivers(objectId) }
 
     suspend fun getSensor(objectId: String, sensorId: String): ApiResult<SensorResponse> =
         safeApiCall { api.getSensor(objectId, sensorId) }

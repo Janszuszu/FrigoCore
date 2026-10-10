@@ -9,6 +9,7 @@ import pl.frigocore.service.data.model.LoginRequest
 import pl.frigocore.service.data.model.LoginResponse
 import pl.frigocore.service.data.model.MeasurementResponse
 import pl.frigocore.service.data.model.ObjectResponse
+import pl.frigocore.service.data.model.ReceiverResponse
 import pl.frigocore.service.data.model.SensorResponse
 import pl.frigocore.service.data.model.UserResponse
 import retrofit2.Response
@@ -40,6 +41,9 @@ interface FrigoCoreApi {
 
     @GET("objects/{objectId}/sensors")
     suspend fun listSensors(@Path("objectId") objectId: String): Response<List<SensorResponse>>
+
+    @GET("objects/{objectId}/receivers")
+    suspend fun listReceivers(@Path("objectId") objectId: String): Response<List<ReceiverResponse>>
 
     @GET("objects/{objectId}/sensors/{sensorId}")
     suspend fun getSensor(

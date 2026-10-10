@@ -244,12 +244,12 @@ private fun CardTitle(name: String, status: SensorStatus, color: Color, modifier
 }
 
 @Composable
-private fun StatDivider() {
+internal fun StatDivider() {
     VerticalDivider(Modifier.fillMaxHeight().padding(vertical = 4.dp), thickness = 1.dp, color = FrigoAccent.copy(alpha = 0.35f))
 }
 
 @Composable
-private fun Stat(label: String, value: Double?, unit: String, modifier: Modifier = Modifier) {
+internal fun Stat(label: String, value: Double?, unit: String, modifier: Modifier = Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp, maxLines = 1)
         Text(
@@ -264,9 +264,18 @@ private fun Stat(label: String, value: Double?, unit: String, modifier: Modifier
 }
 
 /** Last 24 h as a step line in [color] over a three-level grid, with five
- * time labels from the window start to now, filled under the line. Tapping the card opens the full chart. */
+ * time labels from the window start to now, filled under the line. Tapping the card opens the full chart.
+ * A receiver adds its evaporator as an unfilled [secondary] line and its
+ * working temperatures as dashed [levels]; the scale stretches to fit them. */
 @Composable
-private fun CardChart(points: List<ChartPoint>, color: Color, modifier: Modifier = Modifier) {
+internal fun CardChart(
+    points: List<ChartPoint>,
+    color: Color,
+    modifier: Modifier = Modifier,
+    secondary: List<ChartPoint> = emptyList(),
+    secondaryColor: Color = color,
+    levels: List<Pair<Double, Color>> = emptyList(),
+) {
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = TextStyle(fontSize = 12.sp, color = FrigoText.copy(alpha = 0.75f))
     Canvas(modifier) {
@@ -274,7 +283,8 @@ private fun CardChart(points: List<ChartPoint>, color: Color, modifier: Modifier
         val now = Instant.now()
         val tStart = now.minus(24, ChronoUnit.HOURS).toEpochMilli()
         val tSpan = (now.toEpochMilli() - tStart).toFloat()
-        val (lo, step) = cardAxis(points.minOf { it.value }, points.maxOf { it.value })
+        val values = points.map { it.value } + secondary.map { it.value } + levels.map { it.first }
+        val (lo, step) = cardAxis(values.min(), values.max())
         val hi = lo + 2 * step
 
         val leftPad = 0f
@@ -307,17 +317,30 @@ private fun CardChart(points: List<ChartPoint>, color: Color, modifier: Modifier
             drawText(label, topLeft = Offset(lx, size.height - label.size.height))
         }
 
-        val visible = points.filter { it.time.toEpochMilli() >= tStart }
-        if (visible.size < 2) return@Canvas
-        val line = Path()
+        for ((level, levelColor) in levels) {
+            val yy = y(level)
+            drawLine(levelColor, Offset(leftPad, yy), Offset(size.width, yy), 1.dp.toPx(), pathEffect = dash)
+        }
+
         // Step line: hold each reading level until the next one, then jump.
-        visible.forEachIndexed { i, p ->
-            if (i == 0) line.moveTo(x(p.time), y(p.value))
-            else {
-                line.lineTo(x(p.time), y(visible[i - 1].value))
-                line.lineTo(x(p.time), y(p.value))
+        fun stepLine(series: List<ChartPoint>) = Path().apply {
+            series.forEachIndexed { i, p ->
+                if (i == 0) moveTo(x(p.time), y(p.value))
+                else {
+                    lineTo(x(p.time), y(series[i - 1].value))
+                    lineTo(x(p.time), y(p.value))
+                }
             }
         }
+
+        val evaporator = secondary.filter { it.time.toEpochMilli() >= tStart }
+        if (evaporator.size >= 2) {
+            drawPath(stepLine(evaporator), secondaryColor, style = Stroke(width = 1.2.dp.toPx(), join = StrokeJoin.Miter))
+        }
+
+        val visible = points.filter { it.time.toEpochMilli() >= tStart }
+        if (visible.size < 2) return@Canvas
+        val line = stepLine(visible)
         val fill = Path().apply {
             addPath(line)
             lineTo(x(visible.last().time), topPad + chartH)
