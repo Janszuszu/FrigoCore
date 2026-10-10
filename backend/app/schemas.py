@@ -151,6 +151,9 @@ class ReceiverResponse(BaseModel):
     state_since: datetime | None
     minutes_to_cut_out: float | None = Field(None, description="While cooling: minutes until cut-out")
     chamber_rate: float | None = Field(None, description="Chamber trend, °C per minute")
+    cycle_phase: str | None = Field(None, pattern=r"^(cooling|idle)$", description="Cycle phase now running")
+    cooling_seconds: int | None = Field(None, description="Cooling phase: running time, or the last complete one")
+    idle_seconds: int | None = Field(None, description="Idle phase: running time, or the last complete one")
 
 
 # ---------------------------------------------------------------------------

@@ -146,6 +146,47 @@ def test_state_since_finds_when_cooling_started():
     assert NOW - result.state_since == pytest.approx(timedelta(minutes=18), abs=timedelta(minutes=3))
 
 
+def freezer_cycles(minutes: int, end: datetime = NOW):
+    """A freezer cycling every 25 min like the Biskupiec one: 12 min cooling
+    from -19.9 to -22.1, then 13 min idle drifting back up. Ends `minutes`
+    into a cycle. One reading a minute, chamber and evaporator."""
+    chamber, evaporator = [], []
+    total = 6 * 60 + 25 + minutes
+    for i in range(total + 1):
+        t = end - timedelta(minutes=total - i)
+        k = (i - (total - minutes)) % 25
+        if k < 12:  # cooling
+            chamber.append((t, -19.9 - 2.2 * k / 12))
+            evaporator.append((t, -21.5 - 2.4 * k / 12))
+        else:  # idle
+            chamber.append((t, -22.1 + 2.2 * (k - 12) / 13))
+            evaporator.append((t, -23.9 + 4.0 * (k - 12) / 13))
+    return chamber, evaporator
+
+
+def test_stopwatches_while_cooling_show_the_last_idle():
+    chamber, evaporator = freezer_cycles(8)
+    result = analyze(chamber, evaporator, NOW, target=-22.1, cut_in=-19.9)
+    assert result.cycle_phase == "cooling"
+    assert result.cooling_seconds == pytest.approx(8 * 60, abs=90)
+    assert result.idle_seconds == pytest.approx(13 * 60, abs=90)
+
+
+def test_stopwatches_while_idle_show_the_last_cooling():
+    chamber, evaporator = freezer_cycles(18)
+    result = analyze(chamber, evaporator, NOW, target=-22.1, cut_in=-19.9)
+    assert result.cycle_phase == "idle"
+    assert result.idle_seconds == pytest.approx(6 * 60, abs=90)
+    assert result.cooling_seconds == pytest.approx(12 * 60, abs=90)
+
+
+def test_no_stopwatch_without_a_phase_change_in_view():
+    flat = trace(4, 0.0, minutes=60)
+    result = analyze(flat, trace(3.8, 0.0, minutes=60), NOW)
+    assert result.cycle_phase == "idle"
+    assert result.cooling_seconds is None and result.idle_seconds is None
+
+
 # --- API ---------------------------------------------------------------------
 
 async def _sensor(db, obj, name: str, kind: str = "temperature", temperature: float | None = None) -> Sensor:

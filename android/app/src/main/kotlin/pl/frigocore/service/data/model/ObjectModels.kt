@@ -62,6 +62,12 @@ data class ReceiverResponse(
     /** While cooling: estimated minutes until the cut-out. */
     val minutes_to_cut_out: Double? = null,
     val chamber_rate: Double? = null,
+    /** cooling or idle — which cycle stopwatch is running (defrost counts as idle). */
+    val cycle_phase: String? = null,
+    /** Cooling phase: running time, or the last complete one, as of the response. */
+    val cooling_seconds: Long? = null,
+    /** Idle phase: running time, or the last complete one, as of the response. */
+    val idle_seconds: Long? = null,
 )
 
 object ReceiverState {

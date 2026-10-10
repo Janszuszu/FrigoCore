@@ -30,6 +30,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -58,6 +62,7 @@ import pl.frigocore.service.ui.theme.FrigoSurface
 import pl.frigocore.service.ui.theme.FrigoText
 import pl.frigocore.service.ui.theme.FrigoTextMuted
 import pl.frigocore.service.ui.theme.TabularNumbers
+import kotlinx.coroutines.delay
 import java.time.Duration
 import java.time.Instant
 
@@ -69,6 +74,14 @@ fun ReceiversScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     PollWhileVisible { viewModel.refresh() }
+    // Ticks the running stopwatch between 30 s polls.
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = Instant.now()
+            delay(1_000)
+        }
+    }
 
     when {
         uiState.isLoading && uiState.cards.isEmpty() -> LoadingState()
@@ -82,6 +95,7 @@ fun ReceiversScreen(
             items(uiState.cards, key = { it.receiver.id }) { card ->
                 ReceiverCardView(
                     card,
+                    elapsedSinceFetch = Duration.between(uiState.fetchedAt, now).seconds.coerceAtLeast(0),
                     onOpenChart = {
                         card.receiver.chamber_sensor_id?.let { onOpenChart(card.receiver.object_id, it, card.receiver.name) }
                     },
@@ -103,22 +117,13 @@ private fun stateLook(state: String): StateLook = when (state) {
 
 private val AlarmLook = StateLook("Alarm", Icons.Outlined.WarningAmber, FrigoCritical)
 
-/** "Chłodzenie od 18 min · pozostało ok. 12 min do -20,0°C". */
-internal fun receiverStatusLine(receiver: ReceiverResponse, now: Instant = Instant.now()): String {
-    val parts = mutableListOf(stateLook(receiver.state).label)
-    Formatters.parseInstant(receiver.state_since)?.let { since ->
-        parts[0] += " od ${duration(Duration.between(since, now))}"
-    }
-    val minutes = receiver.minutes_to_cut_out
-    if (minutes != null && receiver.cut_out != null) {
-        parts += "pozostało ok. ${duration(Duration.ofSeconds((minutes * 60).toLong()))} do ${Formatters.temperature(receiver.cut_out)}"
-    }
-    return parts.joinToString(" · ")
-}
-
-private fun duration(d: Duration): String {
-    val minutes = d.toMinutes().coerceAtLeast(1)
-    return if (minutes < 60) "$minutes min" else "${minutes / 60} h ${minutes % 60} min"
+/** Stopwatch reading: "4:12", or "1:07:40" past an hour; "--:--" when unknown. */
+internal fun stopwatch(seconds: Long?): String {
+    if (seconds == null) return "--:--"
+    val h = seconds / 3600
+    val m = (seconds % 3600) / 60
+    val s = seconds % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
 /** One line of the card: name, chamber | evaporator temperature, state
@@ -126,7 +131,7 @@ private fun duration(d: Duration): String {
  * colour (blue cooling, green idle, orange defrost, red alarm); then the
  * details. Tapping the chart opens it full screen. */
 @Composable
-private fun ReceiverCardView(card: ReceiverCard, onOpenChart: () -> Unit) {
+private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpenChart: () -> Unit) {
     val receiver = card.receiver
     val look = if (card.alarm) AlarmLook else stateLook(receiver.state)
     Card(
@@ -173,7 +178,8 @@ private fun ReceiverCardView(card: ReceiverCard, onOpenChart: () -> Unit) {
                 StatDivider()
                 Stat("MAX", card.stats?.max, "°C", Modifier.weight(1f))
             }
-            Details(receiver, card.alarm)
+            Stopwatches(receiver, elapsedSinceFetch)
+            Thresholds(receiver)
         }
     }
 }
@@ -211,20 +217,43 @@ private fun StateIcon(look: StateLook) {
     }
 }
 
-/** State, how long, time left, and the controller's working temperatures. */
+/** Two stopwatches for the refrigeration cycle: blue times the cooling
+ * (from cut-in to cut-out), green the idle that follows. The running one
+ * counts on, the other keeps its last run, dimmed, until its turn. */
 @Composable
-private fun Details(receiver: ReceiverResponse, alarm: Boolean) {
-    Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
-        Text(
-            (if (alarm) "Alarm · " else "") + receiverStatusLine(receiver),
-            color = FrigoTextMuted,
-            fontSize = 13.sp,
-        )
-        if (receiver.cut_in != null || receiver.cut_out != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 2.dp)) {
-                receiver.cut_in?.let { Text("Załącz. ${Formatters.temperature(it)}", color = FrigoTextMuted, fontSize = 12.sp) }
-                receiver.cut_out?.let { Text("Wyłącz. ${Formatters.temperature(it)}", color = FrigoTextMuted, fontSize = 12.sp) }
-            }
-        }
+private fun Stopwatches(receiver: ReceiverResponse, elapsedSinceFetch: Long) {
+    val phase = receiver.cycle_phase
+    fun running(seconds: Long?, isRunning: Boolean) = if (isRunning && seconds != null) seconds + elapsedSinceFetch else seconds
+    Row(
+        Modifier.fillMaxWidth().padding(top = 12.dp).height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Stopwatch(running(receiver.cooling_seconds, phase == "cooling"), FrigoAccent, active = phase == "cooling", label = "Chłodzenie")
+        VerticalDivider(Modifier.padding(horizontal = 18.dp, vertical = 2.dp), thickness = 1.5.dp, color = FrigoTextMuted.copy(alpha = 0.5f))
+        Stopwatch(running(receiver.idle_seconds, phase == "idle"), FrigoOk, active = phase == "idle", label = "Postój")
+    }
+}
+
+@Composable
+private fun Stopwatch(seconds: Long?, color: Color, active: Boolean, label: String) {
+    val tint = if (active) color else color.copy(alpha = 0.45f)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.Timer, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(stopwatch(seconds), color = tint, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, style = TabularNumbers)
+    }
+}
+
+/** The controller's working temperatures. */
+@Composable
+private fun Thresholds(receiver: ReceiverResponse) {
+    if (receiver.cut_in == null && receiver.cut_out == null) return
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+    ) {
+        receiver.cut_in?.let { Text("Załącz. ${Formatters.temperature(it)}", color = FrigoTextMuted, fontSize = 12.sp) }
+        receiver.cut_out?.let { Text("Wyłącz. ${Formatters.temperature(it)}", color = FrigoTextMuted, fontSize = 12.sp) }
     }
 }

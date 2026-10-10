@@ -23,7 +23,7 @@ from app.models.receiver import Receiver
 from app.models.sensor import Sensor
 from app.models.user import User
 from app.schemas import ReceiverCreate, ReceiverResponse, ReceiverUpdate
-from app.services.receiver_state import SINCE_LOOKBACK, WINDOW, Point, analyze
+from app.services.receiver_state import TIMELINE_LOOKBACK, WINDOW, Point, analyze
 
 receivers_router = APIRouter()
 
@@ -41,7 +41,7 @@ async def _history(db: AsyncSession, sensor_ids: set[UUID], now: datetime) -> di
         select(Measurement.sensor_id, Measurement.received_at, Measurement.temperature)
         .where(
             Measurement.sensor_id.in_(sensor_ids),
-            Measurement.received_at >= now - SINCE_LOOKBACK - WINDOW,
+            Measurement.received_at >= now - TIMELINE_LOOKBACK - WINDOW,
         )
         .order_by(Measurement.received_at.asc())
     )
@@ -77,6 +77,9 @@ def _response(receiver: Receiver, history: dict[UUID, list[Point]], now: datetim
         state_since=analysis.state_since,
         minutes_to_cut_out=analysis.minutes_to_target,
         chamber_rate=analysis.chamber_rate,
+        cycle_phase=analysis.cycle_phase,
+        cooling_seconds=analysis.cooling_seconds,
+        idle_seconds=analysis.idle_seconds,
     )
 
 

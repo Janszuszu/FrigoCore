@@ -37,6 +37,8 @@ data class ReceiversUiState(
     val isLoading: Boolean = true,
     val cards: List<ReceiverCard> = emptyList(),
     val objectId: String? = null,
+    /** When the receivers were fetched — the running stopwatch counts on from here. */
+    val fetchedAt: Instant = Instant.EPOCH,
 )
 
 /** Receivers of the object picked on the Objects screen. An object with
@@ -99,6 +101,7 @@ class ReceiversViewModel @Inject constructor(
             _uiState.value = ReceiversUiState(
                 isLoading = false,
                 objectId = objectId,
+                fetchedAt = Instant.now(),
                 cards = receivers.map { r ->
                     val chamber = points(r.chamber_sensor_id)
                     ReceiverCard(

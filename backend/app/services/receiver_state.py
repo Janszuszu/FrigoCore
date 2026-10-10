@@ -66,9 +66,12 @@ COOLING_EVAPORATOR_RATE = -0.3
 # compressor has stopped even if the chamber trend still lags behind.
 COOLING_MAX_EVAPORATOR_RISE = 0.3
 
-# How far back to look for the moment the current state began.
-SINCE_LOOKBACK = timedelta(hours=3)
-SINCE_STEP = timedelta(minutes=2)
+# The state is replayed minute by minute over this much history to find
+# when it began and to time the cooling / idle phases of the cycle.
+TIMELINE_LOOKBACK = timedelta(hours=6)
+TIMELINE_STEP = timedelta(minutes=1)
+# A phase shorter than this is a wobble at a transition, not a real phase.
+MIN_PHASE = timedelta(minutes=2)
 
 # Estimates beyond a day mean the room is barely cooling; don't show one.
 MAX_MINUTES_TO_TARGET = 24 * 60
@@ -77,21 +80,35 @@ MAX_MINUTES_TO_TARGET = 24 * 60
 @dataclass(frozen=True)
 class ReceiverAnalysis:
     state: str
-    # When the current state began; None if unknown or longer ago than
-    # SINCE_LOOKBACK.
+    # When the current state began; None if unknown or before the lookback.
     state_since: datetime | None = None
     # While cooling towards a target (the cut-out): estimated minutes until reaching it.
     minutes_to_target: float | None = None
     # Chamber temperature trend over the window, °C per minute.
     chamber_rate: float | None = None
+    # The refrigeration cycle as two stopwatches: the phase now running
+    # ("cooling" or "idle" — defrost counts as idle, nothing is cooling),
+    # and each phase's duration — the running one so far, the other its
+    # last complete run. None where the history doesn't cover it.
+    cycle_phase: str | None = None
+    cooling_seconds: int | None = None
+    idle_seconds: int | None = None
 
 
-def _window(points: list[Point], at: datetime) -> list[Point]:
-    """Readings in (at - WINDOW, at]; `points` must be sorted by time."""
-    times = [p[0] for p in points]
-    lo = bisect.bisect_right(times, at - WINDOW)
-    hi = bisect.bisect_right(times, at)
-    return points[lo:hi]
+class _Trace:
+    """Sorted readings with their timestamps, so a window is a bisect."""
+
+    __slots__ = ("points", "times")
+
+    def __init__(self, points: list[Point]):
+        self.points = points
+        self.times = [p[0] for p in points]
+
+    def window(self, at: datetime) -> list[Point]:
+        """Readings in (at - WINDOW, at]."""
+        lo = bisect.bisect_right(self.times, at - WINDOW)
+        hi = bisect.bisect_right(self.times, at)
+        return self.points[lo:hi]
 
 
 def _usable(points: list[Point]) -> bool:
@@ -118,14 +135,18 @@ def classify(
     cut_in: float | None = None,
 ) -> str:
     """The receiver's state at `at`, from readings up to that moment."""
-    c_pts = _window(chamber, at)
+    return _classify(_Trace(chamber), _Trace(evaporator) if evaporator else None, at, cut_in)
+
+
+def _classify(chamber: _Trace, evaporator: _Trace | None, at: datetime, cut_in: float | None) -> str:
+    c_pts = chamber.window(at)
     if not _usable(c_pts):
         return UNKNOWN
     c = c_pts[-1][1]
     c_rate = slope_per_minute(c_pts)
     chamber_falling = c_rate <= COOLING_CHAMBER_RATE
 
-    e_pts = _window(evaporator, at) if evaporator else []
+    e_pts = evaporator.window(at) if evaporator else []
     if _usable(e_pts):
         e = e_pts[-1][1]
         e_rate = slope_per_minute(e_pts)
@@ -147,6 +168,73 @@ def classify(
     return IDLE
 
 
+Segment = tuple[str, datetime, datetime]  # value, start, end
+
+
+def _segments(samples: list[tuple[datetime, str]], end: datetime) -> list[Segment]:
+    """Runs of equal values; each run lasts until the next one starts."""
+    runs: list[list] = []
+    for t, value in samples:
+        if runs and runs[-1][0] == value:
+            continue
+        if runs:
+            runs[-1][2] = t
+        runs.append([value, t, end])
+    return [tuple(r) for r in runs]
+
+
+def _merge_short(segments: list[Segment]) -> list[Segment]:
+    """Fold phases shorter than MIN_PHASE into the one before them (the
+    current, still-running phase is kept however short)."""
+    merged: list[list] = []
+    for i, (value, start, end) in enumerate(segments):
+        is_last = i == len(segments) - 1
+        if merged and (value == merged[-1][0] or (not is_last and end - start < MIN_PHASE)):
+            merged[-1][2] = end
+        else:
+            merged.append([value, start, end])
+    return [tuple(m) for m in merged]
+
+
+def _snap_to_turns(phases: list[Segment], chamber: _Trace) -> list[Segment]:
+    """Move each phase change back to the moment the controller switched.
+
+    The readings come straight from the controller's own probe, so the
+    switch is exactly where the chamber turns: cooling starts at its peak
+    and stops at its trough. Detection trails that by a minute or two
+    (a trend needs a few readings), so look back one window from where the
+    change was noticed for the latest peak or trough."""
+    snapped = [list(ph) for ph in phases]
+    for i in range(1, len(snapped)):
+        value, start, _ = snapped[i]
+        candidates = chamber.window(start)
+        if not candidates:
+            continue
+        pick = max if value == "cooling" else min
+        turn = pick(candidates, key=lambda p: (p[1], p[0]) if value == "cooling" else (p[1], -p[0].timestamp()))[0]
+        if snapped[i - 1][1] < turn <= start:
+            snapped[i][1] = turn
+            snapped[i - 1][2] = turn
+    return [tuple(ph) for ph in snapped]
+
+
+def _cycle(phases: list[Segment], now: datetime) -> tuple[str | None, int | None, int | None]:
+    """(running phase, cooling seconds, idle seconds). A phase that began
+    before the lookback has an unknown length, so only phases with a phase
+    before them are timed."""
+    if not phases:
+        return None, None, None
+    current, start, _ = phases[-1]
+    running = int((now - start).total_seconds()) if len(phases) > 1 else None
+    previous = None
+    if len(phases) > 2:
+        _, p_start, p_end = phases[-2]
+        previous = int((p_end - p_start).total_seconds())
+    if current == "cooling":
+        return current, running, previous
+    return current, previous, running
+
+
 def analyze(
     chamber: list[Point],
     evaporator: list[Point] | None,
@@ -154,26 +242,38 @@ def analyze(
     target: float | None = None,
     cut_in: float | None = None,
 ) -> ReceiverAnalysis:
-    """State, how long it has lasted and, while cooling, time to `target`.
+    """State, how long it has lasted, the cycle stopwatches and, while
+    cooling, time to `target`.
 
-    `chamber` and `evaporator` must be sorted oldest-first and should
-    cover at least SINCE_LOOKBACK + WINDOW for `state_since` to be found.
+    `chamber` and `evaporator` must be sorted oldest-first and should cover
+    TIMELINE_LOOKBACK + WINDOW for the history-based values.
     """
-    state = classify(chamber, evaporator, now, cut_in)
+    c_trace = _Trace(chamber)
+    e_trace = _Trace(evaporator) if evaporator else None
+    state = _classify(c_trace, e_trace, now, cut_in)
     if state == UNKNOWN:
         return ReceiverAnalysis(state=UNKNOWN)
 
-    # Step back until the state differs; the last matching step is when
-    # the current state began (to within SINCE_STEP).
-    since = None
-    t = now - SINCE_STEP
-    while t >= now - SINCE_LOOKBACK:
-        if classify(chamber, evaporator, t, cut_in) != state:
-            since = t + SINCE_STEP
-            break
-        t -= SINCE_STEP
+    # Replay the state minute by minute; a gap in the data (UNKNOWN) keeps
+    # the previous state rather than splitting a phase in two.
+    samples: list[tuple[datetime, str]] = []
+    t = now - TIMELINE_LOOKBACK
+    while t < now:
+        s = _classify(c_trace, e_trace, t, cut_in)
+        if s == UNKNOWN:
+            s = samples[-1][1] if samples else None
+        if s is not None:
+            samples.append((t, s))
+        t += TIMELINE_STEP
+    samples.append((now, state))
 
-    c_pts = _window(chamber, now)
+    states = _segments(samples, now)
+    since = states[-1][1] if len(states) > 1 else None
+    phases = _merge_short(_segments([(t, "cooling" if s == COOLING else "idle") for t, s in samples], now))
+    phases = _snap_to_turns(phases, c_trace)
+    cycle_phase, cooling_seconds, idle_seconds = _cycle(phases, now)
+
+    c_pts = c_trace.window(now)
     rate = slope_per_minute(c_pts)
     current = c_pts[-1][1]
     minutes = None
@@ -187,4 +287,7 @@ def analyze(
         state_since=since,
         minutes_to_target=minutes,
         chamber_rate=round(rate, 3),
+        cycle_phase=cycle_phase,
+        cooling_seconds=cooling_seconds,
+        idle_seconds=idle_seconds,
     )
