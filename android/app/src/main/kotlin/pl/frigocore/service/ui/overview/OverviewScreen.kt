@@ -264,14 +264,12 @@ internal fun Stat(label: String, value: Double?, unit: String, modifier: Modifie
 }
 
 /** Last 24 h as a step line in [color] over a three-level grid, with five
- * time labels from the window start to now, filled under the line. Tapping the card opens the full chart.
- * A receiver adds its cut-in / cut-out as dashed [levels]; the scale stretches to fit them. */
+ * time labels from the window start to now, filled under the line. Tapping the card opens the full chart. */
 @Composable
 internal fun CardChart(
     points: List<ChartPoint>,
     color: Color,
     modifier: Modifier = Modifier,
-    levels: List<Pair<Double, Color>> = emptyList(),
 ) {
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = TextStyle(fontSize = 12.sp, color = FrigoText.copy(alpha = 0.75f))
@@ -280,8 +278,7 @@ internal fun CardChart(
         val now = Instant.now()
         val tStart = now.minus(24, ChronoUnit.HOURS).toEpochMilli()
         val tSpan = (now.toEpochMilli() - tStart).toFloat()
-        val values = points.map { it.value } + levels.map { it.first }
-        val (lo, step) = cardAxis(values.min(), values.max())
+        val (lo, step) = cardAxis(points.minOf { it.value }, points.maxOf { it.value })
         val hi = lo + 2 * step
 
         val leftPad = 0f
@@ -312,11 +309,6 @@ internal fun CardChart(
             // First label hangs right of its tick, last one left of it, the rest centred.
             val lx = (xx - label.size.width * f).coerceIn(0f, size.width - label.size.width)
             drawText(label, topLeft = Offset(lx, size.height - label.size.height))
-        }
-
-        for ((level, levelColor) in levels) {
-            val yy = y(level)
-            drawLine(levelColor, Offset(leftPad, yy), Offset(size.width, yy), 1.dp.toPx(), pathEffect = dash)
         }
 
         // Step line: hold each reading level until the next one, then jump.

@@ -12,10 +12,12 @@ import kotlinx.coroutines.launch
 import pl.frigocore.service.data.local.SelectedObjectStore
 import pl.frigocore.service.data.model.MeasurementResponse
 import pl.frigocore.service.data.model.ReceiverResponse
+import pl.frigocore.service.data.repository.AlarmRepository
 import pl.frigocore.service.data.repository.ApiResult
 import pl.frigocore.service.data.repository.ObjectRepository
 import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.overview.TempStats
+import pl.frigocore.service.ui.overview.isOpen
 import pl.frigocore.service.ui.overview.tempStats
 import pl.frigocore.service.ui.sensor.ChartPoint
 import java.time.Duration
@@ -27,6 +29,8 @@ data class ReceiverCard(
     /** Oldest-first 24 h chamber readings. */
     val chamber: List<ChartPoint> = emptyList(),
     val stats: TempStats? = null,
+    /** An open alarm on one of the receiver's sensors — overrides the state colour. */
+    val alarm: Boolean = false,
 )
 
 data class ReceiversUiState(
@@ -41,6 +45,7 @@ data class ReceiversUiState(
 @HiltViewModel
 class ReceiversViewModel @Inject constructor(
     private val objectRepository: ObjectRepository,
+    private val alarmRepository: AlarmRepository,
     private val selectedObjectStore: SelectedObjectStore,
 ) : ViewModel() {
 
@@ -61,6 +66,7 @@ class ReceiversViewModel @Inject constructor(
                 _uiState.value = ReceiversUiState(isLoading = false)
                 return@launch
             }
+            val alarmsJob = async { alarmRepository.listAlarms(objectId = objectId) }
             val receivers = (objectRepository.listReceivers(objectId) as? ApiResult.Success)?.data.orEmpty()
                 .filter { it.is_active }
                 .sortedWith(compareBy({ it.display_order }, { it.name }))
@@ -78,6 +84,12 @@ class ReceiversViewModel @Inject constructor(
                 historyFetchedAt = now
             }
 
+            // Same rule as the sensor dashboard: an offline sensor isn't an alarm on the room.
+            val alarmedSensors = (alarmsJob.await() as? ApiResult.Success)?.data.orEmpty()
+                .filter { isOpen(it) && it.alarm_type != "offline" }
+                .mapNotNull { it.sensor_id }
+                .toSet()
+
             // A different object picked while this poll was in flight makes it stale.
             if (selectedObjectStore.selectedId.value != stored) return@launch
 
@@ -89,7 +101,12 @@ class ReceiversViewModel @Inject constructor(
                 objectId = objectId,
                 cards = receivers.map { r ->
                     val chamber = points(r.chamber_sensor_id)
-                    ReceiverCard(r, chamber, tempStats(chamber.map { it.value }))
+                    ReceiverCard(
+                        r,
+                        chamber,
+                        tempStats(chamber.map { it.value }),
+                        alarm = r.chamber_sensor_id in alarmedSensors || r.evaporator_sensor_id in alarmedSensors,
+                    )
                 },
             )
         }
