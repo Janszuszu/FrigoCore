@@ -9,6 +9,7 @@ import TemperatureChart from "@/components/TemperatureChart.vue";
 import { countCycles } from "@/utils/cycles";
 import SensorIcon from "@/components/SensorIcon.vue";
 import { suggestIconFromName } from "@/utils/sensorIcons";
+import { alarmShortLabel, formatNumber, formatReading, unitOf } from "@/utils/units";
 
 defineProps<{ time: string; date: string }>();
 
@@ -75,11 +76,13 @@ const sensorAlarms=computed(()=>alarmsFor(sensor.value?.id));
 const activeAlarm=computed(()=>sensorAlarms.value.find(a=>a.status==='triggered'||a.status==='pending')||null);
 const activeAlarmLabel=computed(()=>{
   if(!activeAlarm.value) return null;
+  if(sensor.value?.kind&&sensor.value.kind!=='temperature') return alarmShortLabel(activeAlarm.value.alarm_type,sensor.value.kind);
   return ({high_temperature:"HIGH TEMPERATURE",low_temperature:"LOW TEMPERATURE",offline:"DEVICE OFFLINE"} as Record<string,string>)[activeAlarm.value.alarm_type]||activeAlarm.value.alarm_type;
 });
+// Compressor on/off cycles only make sense for a temperature trace.
+const isTemperatureSensor=computed(()=>!sensor.value?.kind||sensor.value.kind==='temperature');
 
-function temperature(value:number|null|undefined){return value==null?"—":`${value.toFixed(1)} °C`}
-function temperatureValue(value:number|null|undefined){return value==null?"—":value.toFixed(1)}
+function reading(value:number|null|undefined,item:SensorItem|null=sensor.value){return formatReading(value,unitOf(item))}
 // The API's timestamps are UTC but sometimes serialize without an
 // offset/"Z" suffix — plain `new Date(iso)` would then parse them as local
 // time and throw every online/offline comparison off by the local UTC
@@ -87,8 +90,8 @@ function temperatureValue(value:number|null|undefined){return value==null?"—":
 function parseUtc(iso:string){return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso)?iso:`${iso}Z`).getTime()}
 function isOnline(item:SensorItem|null){const last=item?.last_message_at;if(!last||!item)return false;return Date.now()-parseUtc(last)<item.offline_timeout_seconds*1000}
 function online(){return isOnline(sensor.value)}
-function displayTemperatureValue(item:SensorItem){return isOnline(item)?temperatureValue(item.current_temperature):"—"}
-function hasLiveTemperature(item:SensorItem){return isOnline(item)&&item.current_temperature!=null}
+function displayValue(item:SensorItem){return isOnline(item)?formatNumber(item.current_temperature,unitOf(item)):"—"}
+function hasLiveValue(item:SensorItem){return isOnline(item)&&item.current_temperature!=null}
 
 // ---------- Sensor card display helpers ----------
 // The icon is whatever the administrator chose in Objects → sensor settings
@@ -97,10 +100,9 @@ function hasLiveTemperature(item:SensorItem){return isOnline(item)&&item.current
 // name. The status dot is derived from the online/alarm data already loaded
 // for the whole object.
 function sensorIcon(item:SensorItem){return item.icon||suggestIconFromName(item.name)}
-const ALARM_SHORT_LABEL:Record<string,string>={high_temperature:"HIGH TEMP",low_temperature:"LOW TEMP",offline:"OFFLINE"};
 function cardStatus(item:SensorItem){
   const active=alarmsFor(item.id).find(a=>a.status==='triggered');
-  if(active) return {text:ALARM_SHORT_LABEL[active.alarm_type]||"ALARM",cls:'alarm'};
+  if(active) return {text:alarmShortLabel(active.alarm_type,item.kind),cls:'alarm'};
   if(!isOnline(item)) return {text:'OFFLINE',cls:'offline'};
   const pending=alarmsFor(item.id).find(a=>a.status==='pending'||a.status==='acknowledged');
   if(pending) return {text:'PENDING',cls:'pending'};
@@ -175,7 +177,7 @@ watch(selectedObjectId,pickObject);
 
   <div v-if="selectedObjectId && sensorsStore.sensors.length" class="sensor-grid">
    <article v-for="item in sensorsStore.sensors" :key="item.id" class="temperature-panel">
-    <button class="sensor-row" type="button" :aria-label="`Otwórz wykres — ${item.name}, ${isOnline(item)?temperature(item.current_temperature):'offline'}`" @click="openChartFor(item)">
+    <button class="sensor-row" type="button" :aria-label="`Otwórz wykres — ${item.name}, ${isOnline(item)?reading(item.current_temperature,item):'offline'}`" @click="openChartFor(item)">
      <span class="card-icon">
       <SensorIcon :icon="sensorIcon(item)" />
      </span>
@@ -183,7 +185,7 @@ watch(selectedObjectId,pickObject);
       <span class="card-name">{{item.name}}</span>
       <span :class="['card-status', cardStatus(item).cls]"><i></i>{{cardStatus(item).text}}</span>
      </span>
-     <span :class="['card-value', { offline: !isOnline(item) }]"><b>{{displayTemperatureValue(item)}}</b><small v-if="hasLiveTemperature(item)">°C</small></span>
+     <span :class="['card-value', { offline: !isOnline(item) }]"><b>{{displayValue(item)}}</b><small v-if="hasLiveValue(item)">{{unitOf(item)}}</small></span>
     </button>
    </article>
   </div>
@@ -196,12 +198,12 @@ watch(selectedObjectId,pickObject);
      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
     </button>
     <div class="chart-stats">
-      <span class="chart-stat min"><b>MIN</b> {{temperature(stats.min)}}</span>
+      <span class="chart-stat min"><b>MIN</b> {{reading(stats.min)}}</span>
      <span class="chart-stat-sep" aria-hidden="true">|</span>
-      <span class="chart-stat avg"><b>AVG</b> {{temperature(stats.avg)}}</span>
+      <span class="chart-stat avg"><b>AVG</b> {{reading(stats.avg)}}</span>
      <span class="chart-stat-sep" aria-hidden="true">|</span>
-      <span class="chart-stat max"><b>MAX</b> {{temperature(stats.max)}}</span>
-     <template v-if="range==='1H'">
+      <span class="chart-stat max"><b>MAX</b> {{reading(stats.max)}}</span>
+     <template v-if="range==='1H'&&isTemperatureSensor">
       <span class="chart-stat-sep" aria-hidden="true">|</span>
       <span class="chart-stat cyc"><b>CYKLE</b> {{cycles.count}}{{cycleAvgLabel}}</span>
      </template>

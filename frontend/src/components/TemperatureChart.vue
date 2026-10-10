@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AlarmItem, ChartRange, MeasurementItem, SensorItem } from '@/types'
 import { targetColumnsForWidth } from '@/utils/chartColumns'
+import { formatReading, unitOf } from '@/utils/units'
 
 const props = defineProps<{
   sensor: SensorItem
@@ -991,7 +992,7 @@ const hoveredX = computed(() =>
 )
 
 function fmtTemp(v: number | null | undefined): string {
-  return v == null ? '—' : `${v.toFixed(1)} °C`
+  return formatReading(v, unitOf(props.sensor))
 }
 function fmtDate(v: string | null | undefined): string {
   return v ? new Date(v).toLocaleDateString('pl-PL') : '—'

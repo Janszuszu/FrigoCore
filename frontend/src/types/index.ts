@@ -20,6 +20,10 @@ export interface SensorItem {
   icon: string;
   display_order: number;
   calibration_offset: number;
+  /** What the sensor measures: temperature, current, voltage, power, energy. */
+  kind?: string;
+  /** Unit of current_temperature and of its measurements, e.g. "°C", "A". */
+  unit?: string;
   object_id: string;
   created_at: string;
   updated_at: string;
