@@ -105,9 +105,9 @@ internal fun receiverStatusLine(receiver: ReceiverResponse, now: Instant = Insta
     Formatters.parseInstant(receiver.state_since)?.let { since ->
         parts[0] += " od ${duration(Duration.between(since, now))}"
     }
-    val minutes = receiver.minutes_to_setpoint
-    if (minutes != null && receiver.setpoint != null) {
-        parts += "pozostało ok. ${duration(Duration.ofSeconds((minutes * 60).toLong()))} do ${Formatters.temperature(receiver.setpoint)}"
+    val minutes = receiver.minutes_to_cut_out
+    if (minutes != null && receiver.cut_out != null) {
+        parts += "pozostało ok. ${duration(Duration.ofSeconds((minutes * 60).toLong()))} do ${Formatters.temperature(receiver.cut_out)}"
     }
     return parts.joinToString(" · ")
 }

@@ -40,7 +40,6 @@ export interface ReceiverItem {
   object_id: string;
   chamber_sensor_id: string | null;
   evaporator_sensor_id: string | null;
-  setpoint: number | null;
   cut_in: number | null;
   cut_out: number | null;
   display_order: number;
@@ -50,7 +49,8 @@ export interface ReceiverItem {
   last_message_at: string | null;
   state: ReceiverState;
   state_since: string | null;
-  minutes_to_setpoint: number | null;
+  /** While cooling: estimated minutes until the cut-out. */
+  minutes_to_cut_out: number | null;
   chamber_rate: number | null;
 }
 
@@ -58,7 +58,6 @@ export interface ReceiverInput {
   name: string;
   chamber_sensor_id: string | null;
   evaporator_sensor_id: string | null;
-  setpoint: number | null;
   cut_in: number | null;
   cut_out: number | null;
   is_active: boolean;

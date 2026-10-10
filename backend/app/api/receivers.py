@@ -57,7 +57,7 @@ def _response(receiver: Receiver, history: dict[UUID, list[Point]], now: datetim
         history.get(receiver.chamber_sensor_id, []) if chamber else [],
         history.get(receiver.evaporator_sensor_id) if evaporator else None,
         now,
-        receiver.setpoint,
+        receiver.cut_out,
     )
     return ReceiverResponse(
         id=receiver.id,
@@ -65,7 +65,6 @@ def _response(receiver: Receiver, history: dict[UUID, list[Point]], now: datetim
         object_id=receiver.object_id,
         chamber_sensor_id=receiver.chamber_sensor_id,
         evaporator_sensor_id=receiver.evaporator_sensor_id,
-        setpoint=receiver.setpoint,
         cut_in=receiver.cut_in,
         cut_out=receiver.cut_out,
         display_order=receiver.display_order,
@@ -75,7 +74,7 @@ def _response(receiver: Receiver, history: dict[UUID, list[Point]], now: datetim
         last_message_at=chamber.last_message_at if chamber else None,
         state=analysis.state,
         state_since=analysis.state_since,
-        minutes_to_setpoint=analysis.minutes_to_setpoint,
+        minutes_to_cut_out=analysis.minutes_to_target,
         chamber_rate=analysis.chamber_rate,
     )
 

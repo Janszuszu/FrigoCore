@@ -116,7 +116,6 @@ class ReceiverCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
     chamber_sensor_id: UUID | None = None
     evaporator_sensor_id: UUID | None = None
-    setpoint: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
     cut_in: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
     cut_out: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
     is_active: bool = True
@@ -126,7 +125,6 @@ class ReceiverUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=256)
     chamber_sensor_id: UUID | None = None
     evaporator_sensor_id: UUID | None = None
-    setpoint: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
     cut_in: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
     cut_out: float | None = Field(None, ge=-RECEIVER_TEMPERATURE_LIMIT, le=RECEIVER_TEMPERATURE_LIMIT)
     display_order: int | None = Field(None, ge=0, le=9999)
@@ -142,7 +140,6 @@ class ReceiverResponse(BaseModel):
     object_id: UUID
     chamber_sensor_id: UUID | None
     evaporator_sensor_id: UUID | None
-    setpoint: float | None
     cut_in: float | None
     cut_out: float | None
     display_order: int
@@ -152,7 +149,7 @@ class ReceiverResponse(BaseModel):
     last_message_at: datetime | None
     state: str = Field(..., pattern=RECEIVER_STATE_PATTERN)
     state_since: datetime | None
-    minutes_to_setpoint: float | None
+    minutes_to_cut_out: float | None = Field(None, description="While cooling: minutes until cut-out")
     chamber_rate: float | None = Field(None, description="Chamber trend, °C per minute")
 
 

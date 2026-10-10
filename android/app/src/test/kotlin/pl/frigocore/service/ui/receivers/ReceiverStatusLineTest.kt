@@ -14,19 +14,19 @@ class ReceiverStatusLineTest {
         state: String,
         since: String? = null,
         minutes: Double? = null,
-        setpoint: Double? = null,
+        cutOut: Double? = null,
     ) = ReceiverResponse(
         id = "r1",
         name = "Mroźnia",
         object_id = "o1",
         state = state,
         state_since = since,
-        minutes_to_setpoint = minutes,
-        setpoint = setpoint,
+        minutes_to_cut_out = minutes,
+        cut_out = cutOut,
     )
 
     @Test
-    fun `cooling shows how long and the time left to setpoint`() {
+    fun `cooling shows how long and the time left to cut-out`() {
         val line = receiverStatusLine(receiver(ReceiverState.COOLING, "2026-10-10T17:42:00Z", 12.4, -20.0), now)
         assertEquals("Chłodzenie od 18 min · pozostało ok. 12 min do -20,0°C", line)
     }

@@ -229,8 +229,7 @@ function sensorName(objectId: string, sensorId: string | null) {
   return sensorsOf(objectId).find((s) => s.id === sensorId)?.name ?? "—";
 }
 
-type ReceiverDraft = Omit<ReceiverInput, "setpoint" | "cut_in" | "cut_out"> & {
-  setpoint: string;
+type ReceiverDraft = Omit<ReceiverInput, "cut_in" | "cut_out"> & {
   cut_in: string;
   cut_out: string;
 };
@@ -248,7 +247,6 @@ function openReceiver(objectId: string, receiver: ReceiverItem | null) {
       name: receiver?.name ?? "",
       chamber_sensor_id: receiver?.chamber_sensor_id ?? null,
       evaporator_sensor_id: receiver?.evaporator_sensor_id ?? null,
-      setpoint: asText(receiver?.setpoint),
       cut_in: asText(receiver?.cut_in),
       cut_out: asText(receiver?.cut_out),
       is_active: receiver?.is_active ?? true,
@@ -269,12 +267,11 @@ async function saveReceiver() {
     name: d.name.trim(),
     chamber_sensor_id: d.chamber_sensor_id || null,
     evaporator_sensor_id: d.evaporator_sensor_id || null,
-    setpoint: parseDegrees(d.setpoint),
     cut_in: parseDegrees(d.cut_in),
     cut_out: parseDegrees(d.cut_out),
     is_active: d.is_active,
   };
-  if ([data.setpoint, data.cut_in, data.cut_out].some((v) => v != null && Number.isNaN(v))) {
+  if ([data.cut_in, data.cut_out].some((v) => v != null && Number.isNaN(v))) {
     receiverError.value = "Temperatury wpisz jako liczby, np. -18 albo 2,5";
     return;
   }
@@ -465,7 +462,6 @@ onMounted(async () => {
                 <th class="col-name">Odbiornik</th>
                 <th>Czujnik komory</th>
                 <th>Czujnik parownika</th>
-                <th>Docelowa</th>
                 <th>Załącz. / wyłącz.</th>
                 <th>Stan</th>
                 <th class="col-settings"></th>
@@ -476,7 +472,6 @@ onMounted(async () => {
                 <td class="col-name"><span>{{ receiver.name }}</span></td>
                 <td>{{ sensorName(object.id, receiver.chamber_sensor_id) }}</td>
                 <td>{{ sensorName(object.id, receiver.evaporator_sensor_id) }}</td>
-                <td>{{ temperature(receiver.setpoint) }}</td>
                 <td>{{ temperature(receiver.cut_in) }} / {{ temperature(receiver.cut_out) }}</td>
                 <td><span :class="['state', receiver.state]">{{ STATE_LABELS[receiver.state] }}</span></td>
                 <td class="col-settings">
@@ -559,18 +554,14 @@ onMounted(async () => {
             </select>
           </label>
         </div>
-        <div class="triple">
-          <label>
-            Docelowa °C
-            <input v-model="receiverEdit.draft.setpoint" inputmode="decimal" placeholder="-20" />
-          </label>
+        <div class="pair">
           <label>
             Załączenie °C
             <input v-model="receiverEdit.draft.cut_in" inputmode="decimal" placeholder="-18" />
           </label>
           <label>
             Wyłączenie °C
-            <input v-model="receiverEdit.draft.cut_out" inputmode="decimal" placeholder="-22" />
+            <input v-model="receiverEdit.draft.cut_out" inputmode="decimal" placeholder="-20" />
           </label>
         </div>
         <p class="hint">Bez czujnika parownika odszranianie nie będzie rozpoznawane — tylko chłodzenie i postój.</p>
@@ -1064,14 +1055,11 @@ onMounted(async () => {
   font-size: 14px;
 }
 
-.pair,
-.triple {
+.pair {
   display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-
-.pair { grid-template-columns: 1fr 1fr; }
-.triple { grid-template-columns: repeat(3, 1fr); }
 
 .modal .hint {
   margin: -4px 0 12px;

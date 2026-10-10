@@ -3,7 +3,7 @@
 A receiver is one refrigerated space — a cold room, freezer or display
 case — as the owner thinks of it. It doesn't measure anything itself: it
 points at the object's chamber sensor and, optionally, the evaporator
-sensor, and carries the working temperatures the controller is set to.
+sensor, and carries the controller's cut-in and cut-out temperatures.
 From those two traces the backend infers whether the receiver is cooling,
 idle or defrosting (app/services/receiver_state.py).
 
@@ -44,9 +44,6 @@ class Receiver(Base, UUIDMixin, TimestampMixin):
         comment="Evaporator coil temperature; without it defrost can't be told apart",
     )
 
-    setpoint: Mapped[Optional[float]] = mapped_column(
-        Float, nullable=True, comment="Temperature the chamber should hold, °C"
-    )
     cut_in: Mapped[Optional[float]] = mapped_column(
         Float, nullable=True, comment="Chamber temperature at which cooling starts, °C"
     )

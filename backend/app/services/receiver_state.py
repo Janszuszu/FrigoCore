@@ -55,7 +55,7 @@ SINCE_LOOKBACK = timedelta(hours=3)
 SINCE_STEP = timedelta(minutes=2)
 
 # Estimates beyond a day mean the room is barely cooling; don't show one.
-MAX_MINUTES_TO_SETPOINT = 24 * 60
+MAX_MINUTES_TO_TARGET = 24 * 60
 
 
 @dataclass(frozen=True)
@@ -64,8 +64,8 @@ class ReceiverAnalysis:
     # When the current state began; None if unknown or longer ago than
     # SINCE_LOOKBACK.
     state_since: datetime | None = None
-    # While cooling towards a setpoint: estimated minutes until reaching it.
-    minutes_to_setpoint: float | None = None
+    # While cooling towards a target (the cut-out): estimated minutes until reaching it.
+    minutes_to_target: float | None = None
     # Chamber temperature trend over the window, °C per minute.
     chamber_rate: float | None = None
 
@@ -119,9 +119,9 @@ def analyze(
     chamber: list[Point],
     evaporator: list[Point] | None,
     now: datetime,
-    setpoint: float | None = None,
+    target: float | None = None,
 ) -> ReceiverAnalysis:
-    """State, how long it has lasted and, while cooling, time to setpoint.
+    """State, how long it has lasted and, while cooling, time to `target`.
 
     `chamber` and `evaporator` must be sorted oldest-first and should
     cover at least SINCE_LOOKBACK + WINDOW for `state_since` to be found.
@@ -144,14 +144,14 @@ def analyze(
     rate = slope_per_minute(c_pts)
     current = c_pts[-1][1]
     minutes = None
-    if state == COOLING and setpoint is not None and current > setpoint and rate < -0.01:
-        estimate = (current - setpoint) / -rate
-        if estimate <= MAX_MINUTES_TO_SETPOINT:
+    if state == COOLING and target is not None and current > target and rate < -0.01:
+        estimate = (current - target) / -rate
+        if estimate <= MAX_MINUTES_TO_TARGET:
             minutes = round(estimate, 1)
 
     return ReceiverAnalysis(
         state=state,
         state_since=since,
-        minutes_to_setpoint=minutes,
+        minutes_to_target=minutes,
         chamber_rate=round(rate, 3),
     )

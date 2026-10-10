@@ -49,7 +49,6 @@ data class ReceiverResponse(
     val object_id: String,
     val chamber_sensor_id: String? = null,
     val evaporator_sensor_id: String? = null,
-    val setpoint: Double? = null,
     val cut_in: Double? = null,
     val cut_out: Double? = null,
     val display_order: Int = 0,
@@ -60,7 +59,8 @@ data class ReceiverResponse(
     /** cooling, idle, defrost or unknown (backend receiver_state.py). */
     val state: String = ReceiverState.UNKNOWN,
     val state_since: String? = null,
-    val minutes_to_setpoint: Double? = null,
+    /** While cooling: estimated minutes until the cut-out. */
+    val minutes_to_cut_out: Double? = null,
     val chamber_rate: Double? = null,
 )
 

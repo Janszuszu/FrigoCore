@@ -63,18 +63,18 @@ def test_missing_evaporator_data_falls_back_to_chamber_trend():
     assert classify(trace(6, -0.1), [], NOW) == COOLING
 
 
-def test_time_to_setpoint_follows_the_cooling_rate():
+def test_time_to_target_follows_the_cooling_rate():
     # -15 °C falling 0.25 °C/min towards -20 °C → 20 min.
-    result = analyze(trace(-10, -0.25), trace(-28, 0), NOW, setpoint=-20)
+    result = analyze(trace(-10, -0.25), trace(-28, 0), NOW, target=-20)
     assert result.state == COOLING
-    assert result.minutes_to_setpoint == pytest.approx(20, abs=0.5)
+    assert result.minutes_to_target == pytest.approx(20, abs=0.5)
     assert result.chamber_rate == pytest.approx(-0.25, abs=0.01)
 
 
 def test_no_estimate_when_idle_or_already_there():
-    assert analyze(trace(4, 0.02), trace(3, 0.02), NOW, setpoint=2).minutes_to_setpoint is None
-    assert analyze(trace(-19, -0.1), trace(-28, 0), NOW, setpoint=-25).minutes_to_setpoint is not None
-    assert analyze(trace(-21, -0.1), trace(-28, 0), NOW, setpoint=-20).minutes_to_setpoint is None
+    assert analyze(trace(4, 0.02), trace(3, 0.02), NOW, target=2).minutes_to_target is None
+    assert analyze(trace(-19, -0.1), trace(-28, 0), NOW, target=-25).minutes_to_target is not None
+    assert analyze(trace(-21, -0.1), trace(-28, 0), NOW, target=-20).minutes_to_target is None
 
 
 def test_state_since_finds_when_cooling_started():
@@ -129,7 +129,7 @@ async def test_admin_creates_receiver_and_owner_sees_its_live_state(client, db_s
     resp = await client.post(
         f"/api/v1/objects/{obj.id}/receivers",
         json={"name": "Mroźnia", "chamber_sensor_id": str(chamber.id), "evaporator_sensor_id": str(evaporator.id),
-              "setpoint": -20, "cut_in": -18, "cut_out": -22},
+              "cut_in": -18, "cut_out": -20},
         headers=auth_headers(admin),
     )
     assert resp.status_code == 201, resp.text
@@ -141,7 +141,8 @@ async def test_admin_creates_receiver_and_owner_sees_its_live_state(client, db_s
     assert receiver["state"] == "cooling"
     assert receiver["chamber_temperature"] == -15.0
     assert receiver["evaporator_temperature"] == -28.0
-    assert receiver["minutes_to_setpoint"] == pytest.approx(20, abs=1)
+    # Time left is counted to the cut-out, where cooling stops.
+    assert receiver["minutes_to_cut_out"] == pytest.approx(20, abs=1)
 
 
 @pytest.mark.asyncio
@@ -179,7 +180,7 @@ async def test_receiver_validation(client, db_session, make_user):
     # A patch is checked against the merged result, not just the fields sent.
     resp = await client.patch(f"{url}/{rid}", json={"cut_out": -10}, headers=headers)
     assert resp.status_code == 400
-    resp = await client.patch(f"{url}/{rid}", json={"name": "B", "setpoint": -20}, headers=headers)
+    resp = await client.patch(f"{url}/{rid}", json={"name": "B", "cut_in": -15}, headers=headers)
     assert resp.status_code == 200
     assert resp.json()["name"] == "B"
     assert resp.json()["state"] == "unknown"
