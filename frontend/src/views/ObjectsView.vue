@@ -9,8 +9,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useSensorsStore } from "@/stores/sensors";
-import { apiSensors } from "@/api";
-import type { ObjectItem, SensorItem } from "@/types";
+import { apiReceivers, apiSensors } from "@/api";
+import type { ObjectItem, ReceiverInput, ReceiverItem, ReceiverState, SensorItem } from "@/types";
 import SensorIcon from "@/components/SensorIcon.vue";
 import SensorSettingsModal from "@/components/SensorSettingsModal.vue";
 import ObjectSettingsModal from "@/components/ObjectSettingsModal.vue";
@@ -29,6 +29,7 @@ async function loadSensors(objectId: string) {
     ...objectSensors.value,
     [objectId]: [...sensorsStore.sensors],
   };
+  await loadReceivers(objectId);
 }
 
 async function toggle(object: ObjectItem) {
@@ -199,6 +200,113 @@ async function onDrop(objectId: string, target: SensorItem) {
   }
 }
 
+// ─── Receivers (odbiorniki) ───────────────────────────────────────
+// A receiver ties a chamber sensor (and optionally its evaporator) to the
+// controller's working temperatures; the clients show its inferred state.
+const objectReceivers = ref<Record<string, ReceiverItem[]>>({});
+const receiversOf = (id: string) => objectReceivers.value[id] ?? [];
+
+const STATE_LABELS: Record<ReceiverState, string> = {
+  cooling: "Chłodzenie",
+  idle: "Postój",
+  defrost: "Odszranianie",
+  unknown: "Nieznany",
+};
+
+async function loadReceivers(objectId: string) {
+  try {
+    objectReceivers.value = { ...objectReceivers.value, [objectId]: await apiReceivers.list(objectId) };
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Nie udało się wczytać odbiorników";
+  }
+}
+
+const temperatureSensorsOf = (objectId: string) =>
+  sensorsOf(objectId).filter((s) => !s.kind || s.kind === "temperature");
+
+function sensorName(objectId: string, sensorId: string | null) {
+  if (!sensorId) return "—";
+  return sensorsOf(objectId).find((s) => s.id === sensorId)?.name ?? "—";
+}
+
+type ReceiverDraft = Omit<ReceiverInput, "setpoint" | "cut_in" | "cut_out"> & {
+  setpoint: string;
+  cut_in: string;
+  cut_out: string;
+};
+const receiverEdit = ref<{ objectId: string; id: string | null; draft: ReceiverDraft } | null>(null);
+const receiverError = ref("");
+const receiverSaving = ref(false);
+
+function openReceiver(objectId: string, receiver: ReceiverItem | null) {
+  const asText = (v: number | null | undefined) => (v == null ? "" : String(v));
+  receiverError.value = "";
+  receiverEdit.value = {
+    objectId,
+    id: receiver?.id ?? null,
+    draft: {
+      name: receiver?.name ?? "",
+      chamber_sensor_id: receiver?.chamber_sensor_id ?? null,
+      evaporator_sensor_id: receiver?.evaporator_sensor_id ?? null,
+      setpoint: asText(receiver?.setpoint),
+      cut_in: asText(receiver?.cut_in),
+      cut_out: asText(receiver?.cut_out),
+      is_active: receiver?.is_active ?? true,
+    },
+  };
+}
+
+function parseDegrees(text: string): number | null {
+  const trimmed = text.trim().replace(",", ".");
+  return trimmed === "" ? null : Number(trimmed);
+}
+
+async function saveReceiver() {
+  const edit = receiverEdit.value;
+  if (!edit) return;
+  const d = edit.draft;
+  const data: ReceiverInput = {
+    name: d.name.trim(),
+    chamber_sensor_id: d.chamber_sensor_id || null,
+    evaporator_sensor_id: d.evaporator_sensor_id || null,
+    setpoint: parseDegrees(d.setpoint),
+    cut_in: parseDegrees(d.cut_in),
+    cut_out: parseDegrees(d.cut_out),
+    is_active: d.is_active,
+  };
+  if ([data.setpoint, data.cut_in, data.cut_out].some((v) => v != null && Number.isNaN(v))) {
+    receiverError.value = "Temperatury wpisz jako liczby, np. -18 albo 2,5";
+    return;
+  }
+  if (data.cut_in != null && data.cut_out != null && data.cut_out >= data.cut_in) {
+    receiverError.value = "Wyłączenie chłodzenia musi być niżej niż jego załączenie";
+    return;
+  }
+  receiverSaving.value = true;
+  try {
+    if (edit.id) await apiReceivers.update(edit.objectId, edit.id, data);
+    else await apiReceivers.create(edit.objectId, data);
+    receiverEdit.value = null;
+    await loadReceivers(edit.objectId);
+  } catch (e) {
+    receiverError.value = e instanceof Error ? e.message : "Nie udało się zapisać odbiornika";
+  } finally {
+    receiverSaving.value = false;
+  }
+}
+
+async function deleteReceiver() {
+  const edit = receiverEdit.value;
+  if (!edit?.id || !window.confirm(`Usunąć odbiornik „${edit.draft.name}”? Czujniki zostaną.`)) return;
+  try {
+    await apiReceivers.delete(edit.objectId, edit.id);
+    receiverEdit.value = null;
+    await loadReceivers(edit.objectId);
+  } catch (e) {
+    receiverError.value = e instanceof Error ? e.message : "Nie udało się usunąć odbiornika";
+  }
+}
+
 const totalSensors = computed(() =>
   objectsStore.objects.reduce((sum, o) => sum + (o.sensor_count || 0), 0),
 );
@@ -349,6 +457,46 @@ onMounted(async () => {
               Przeciągnij wiersz, aby zmienić kolejność na pulpicie klienta.
             </span>
           </div>
+
+          <h3 class="sub-head">Odbiorniki</h3>
+          <table class="sensor-table">
+            <thead>
+              <tr>
+                <th class="col-name">Odbiornik</th>
+                <th>Czujnik komory</th>
+                <th>Czujnik parownika</th>
+                <th>Docelowa</th>
+                <th>Załącz. / wyłącz.</th>
+                <th>Stan</th>
+                <th class="col-settings"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="receiver in receiversOf(object.id)" :key="receiver.id" :class="{ inactive: !receiver.is_active }">
+                <td class="col-name"><span>{{ receiver.name }}</span></td>
+                <td>{{ sensorName(object.id, receiver.chamber_sensor_id) }}</td>
+                <td>{{ sensorName(object.id, receiver.evaporator_sensor_id) }}</td>
+                <td>{{ temperature(receiver.setpoint) }}</td>
+                <td>{{ temperature(receiver.cut_in) }} / {{ temperature(receiver.cut_out) }}</td>
+                <td><span :class="['state', receiver.state]">{{ STATE_LABELS[receiver.state] }}</span></td>
+                <td class="col-settings">
+                  <button class="icon-btn" title="Ustawienia odbiornika" aria-label="Ustawienia odbiornika" @click="openReceiver(object.id, receiver)">
+                    <svg viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56v.1h-3v-.1a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 15a1.7 1.7 0 0 0-1.56-1.03h-.1v-3h.1A1.7 1.7 0 0 0 7.06 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56v-.1h3v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.1v3h-.1A1.7 1.7 0 0 0 19.4 15Z" />
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="!receiversOf(object.id).length">
+                <td colspan="7" class="no-sensors">Brak odbiorników — dodaj komorę i przypisz jej czujniki</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="panel-foot">
+            <button class="secondary" @click="openReceiver(object.id, null)">＋ Dodaj odbiornik</button>
+            <span class="muted">Nastawy służą do prezentacji i wykrywania stanu pracy — alarmy zostają przy czujnikach.</span>
+          </div>
         </div>
       </article>
 
@@ -383,6 +531,58 @@ onMounted(async () => {
             Anuluj
           </button>
           <button class="primary">Zapisz</button>
+        </footer>
+      </form>
+    </div>
+
+    <!-- Receiver settings -->
+    <div v-if="receiverEdit" class="modal" @click.self="receiverEdit = null">
+      <form class="receiver-form" @submit.prevent="saveReceiver">
+        <h2>{{ receiverEdit.id ? "Ustawienia odbiornika" : "Dodaj odbiornik" }}</h2>
+        <label>
+          Nazwa
+          <input v-model="receiverEdit.draft.name" placeholder="Mroźnia" required />
+        </label>
+        <div class="pair">
+          <label>
+            Czujnik komory
+            <select v-model="receiverEdit.draft.chamber_sensor_id">
+              <option :value="null">— brak —</option>
+              <option v-for="s in temperatureSensorsOf(receiverEdit.objectId)" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </label>
+          <label>
+            Czujnik parownika
+            <select v-model="receiverEdit.draft.evaporator_sensor_id">
+              <option :value="null">— brak —</option>
+              <option v-for="s in temperatureSensorsOf(receiverEdit.objectId)" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </label>
+        </div>
+        <div class="triple">
+          <label>
+            Docelowa °C
+            <input v-model="receiverEdit.draft.setpoint" inputmode="decimal" placeholder="-20" />
+          </label>
+          <label>
+            Załączenie °C
+            <input v-model="receiverEdit.draft.cut_in" inputmode="decimal" placeholder="-18" />
+          </label>
+          <label>
+            Wyłączenie °C
+            <input v-model="receiverEdit.draft.cut_out" inputmode="decimal" placeholder="-22" />
+          </label>
+        </div>
+        <p class="hint">Bez czujnika parownika odszranianie nie będzie rozpoznawane — tylko chłodzenie i postój.</p>
+        <label class="check">
+          <input v-model="receiverEdit.draft.is_active" type="checkbox" />
+          Pokazuj klientom
+        </label>
+        <p v-if="receiverError" class="error">{{ receiverError }}</p>
+        <footer>
+          <button v-if="receiverEdit.id" type="button" class="danger-link" @click="deleteReceiver">Usuń</button>
+          <button type="button" @click="receiverEdit = null">Anuluj</button>
+          <button class="primary" :disabled="receiverSaving">Zapisz</button>
         </footer>
       </form>
     </div>
@@ -818,6 +1018,77 @@ onMounted(async () => {
   font: inherit;
   font-size: 14px;
   cursor: pointer;
+}
+
+/* ---------- Receivers ---------- */
+.sub-head {
+  margin: 0;
+  padding: 14px 14px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #00d9ed;
+  border-top: 1px solid #12293e;
+}
+
+.sensor-table tr.inactive td {
+  opacity: 0.5;
+}
+
+.state {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 10px;
+  font-size: 12px;
+  border: 1px solid #234662;
+  color: #a9bdd8;
+}
+
+.state.cooling { color: #2ee6f0; border-color: #0e6f7a; }
+.state.idle { color: #c3d2e6; }
+.state.defrost { color: #ffb347; border-color: #8a5a1c; }
+.state.unknown { color: #6f87a4; }
+
+.modal form.receiver-form {
+  width: min(560px, 100%);
+}
+
+.modal select {
+  background: #050f1a;
+  border: 1px solid #234662;
+  border-radius: 6px;
+  color: #f1f6ff;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+}
+
+.pair,
+.triple {
+  display: grid;
+  gap: 12px;
+}
+
+.pair { grid-template-columns: 1fr 1fr; }
+.triple { grid-template-columns: repeat(3, 1fr); }
+
+.modal .hint {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: #6f87a4;
+}
+
+.modal label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal footer .danger-link {
+  margin-right: auto;
+  border-color: #5d2c35;
+  color: #ff8497;
 }
 
 /* Narrow screens: this is a desktop administration panel, so it degrades

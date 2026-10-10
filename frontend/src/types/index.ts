@@ -29,6 +29,41 @@ export interface SensorItem {
   updated_at: string;
 }
 
+/** Working state of a receiver, inferred by the backend from its sensors. */
+export type ReceiverState = "cooling" | "idle" | "defrost" | "unknown";
+
+/** A refrigerated space (odbiornik): its chamber + evaporator sensor and
+ * working temperatures, with the live state the backend infers. */
+export interface ReceiverItem {
+  id: string;
+  name: string;
+  object_id: string;
+  chamber_sensor_id: string | null;
+  evaporator_sensor_id: string | null;
+  setpoint: number | null;
+  cut_in: number | null;
+  cut_out: number | null;
+  display_order: number;
+  is_active: boolean;
+  chamber_temperature: number | null;
+  evaporator_temperature: number | null;
+  last_message_at: string | null;
+  state: ReceiverState;
+  state_since: string | null;
+  minutes_to_setpoint: number | null;
+  chamber_rate: number | null;
+}
+
+export interface ReceiverInput {
+  name: string;
+  chamber_sensor_id: string | null;
+  evaporator_sensor_id: string | null;
+  setpoint: number | null;
+  cut_in: number | null;
+  cut_out: number | null;
+  is_active: boolean;
+}
+
 export type UserRole = "admin" | "serwisant" | "user";
 
 export interface UserItem {

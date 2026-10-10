@@ -1,4 +1,6 @@
 import type {
+  ReceiverInput,
+  ReceiverItem,
   AlarmConfigCreate,
   AlarmConfigItem,
   AlarmConfigUpdate,
@@ -115,6 +117,27 @@ export const apiSensors = {
     request<SensorItem[]>(`/objects/${objectId}/sensors/reorder`, {
       method: "POST",
       body: JSON.stringify({ sensor_ids: sensorIds }),
+    }),
+};
+
+// ─── Receivers (odbiorniki) ────────────────────────────────────────
+
+export const apiReceivers = {
+  list: (objectId: string) =>
+    request<ReceiverItem[]>(`/objects/${objectId}/receivers`),
+  create: (objectId: string, data: ReceiverInput) =>
+    request<ReceiverItem>(`/objects/${objectId}/receivers`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (objectId: string, receiverId: string, data: Partial<ReceiverInput>) =>
+    request<ReceiverItem>(`/objects/${objectId}/receivers/${receiverId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  delete: (objectId: string, receiverId: string) =>
+    request<void>(`/objects/${objectId}/receivers/${receiverId}`, {
+      method: "DELETE",
     }),
 };
 
