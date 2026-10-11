@@ -204,4 +204,15 @@ app.include_router(devices_router, prefix="/api/v1/devices", tags=["Devices"])
 app.include_router(escalation_policies_router, prefix="/api/v1/escalation-policies", tags=["Escalation Policies"])
 app.include_router(voip_router, prefix="/api/v1/settings/voip", tags=["Settings — VoIPstudio"])
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
-app.include_router(sim_router, prefix="/api/v1/sim", tags=["Simulation"])
+
+
+def include_dev_routes(target: FastAPI, environment: str) -> None:
+    """The simulation endpoint writes readings without any login — handy for
+    native development, but in production anyone who guessed an MQTT topic
+    could inject readings and set off alarms and phone calls. Never served
+    in production."""
+    if environment != "production":
+        target.include_router(sim_router, prefix="/api/v1/sim", tags=["Simulation"])
+
+
+include_dev_routes(app, settings.ENVIRONMENT)
