@@ -8,7 +8,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.key
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.Dp
 import pl.frigocore.service.ui.overview.TempStats
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -28,9 +27,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
-import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.outlined.AcUnit
 import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -49,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -141,13 +141,12 @@ private fun PageDots(count: Int, current: Int) {
     }
 }
 
-/** [drip] adds a water drop to the icon — a melting snowflake for defrost. */
-private data class StateLook(val label: String, val icon: ImageVector, val color: Color, val drip: Boolean = false)
+private data class StateLook(val label: String, val icon: ImageVector, val color: Color)
 
 private fun stateLook(state: String): StateLook = when (state) {
     ReceiverState.COOLING -> StateLook("Chłodzenie", Icons.Outlined.AcUnit, FrigoAccent)
     ReceiverState.IDLE -> StateLook("Postój", Icons.Outlined.Timer, FrigoOk)
-    ReceiverState.DEFROST -> StateLook("Odszranianie", Icons.Outlined.AcUnit, FrigoMax, drip = true)
+    ReceiverState.DEFROST -> StateLook("Odszranianie", Icons.Outlined.WbSunny, FrigoMax)
     else -> StateLook("Nieznany", Icons.AutoMirrored.Outlined.HelpOutline, FrigoTextMuted)
 }
 
@@ -162,10 +161,10 @@ internal fun stopwatch(seconds: Long?): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-/** The chamber on top — name and state icon on the left, temperature on
- * the right, the 24 h chart with its degree scale, the cycle stopwatches and
- * the 24 h min / average / max — then the evaporator the same way, minus the
- * stopwatches (one cycle, no need to show it twice). Everything takes the
+/** The chamber on top — name on the left, state icon in the middle,
+ * temperature on the right, the 24 h chart and the 24 h min / average / max;
+ * the cycle stopwatches in the middle of the page; then the evaporator the
+ * same way, without stopwatches (one cycle, no need to show it twice). Everything takes the
  * state colour (blue cooling, green idle, orange defrost, red alarm). Tapping
  * a chart opens it full screen. */
 @Composable
@@ -184,7 +183,7 @@ private fun ReceiverPage(
         modifier = modifier,
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)) {
-            SectionHead(receiver.name, receiver.chamber_temperature, look.color) { StateIcon(look, 22.dp) }
+            SectionHead(receiver.name, receiver.chamber_temperature, look.color) { StateIcon(look) }
             Spacer(Modifier.height(6.dp))
             CardChart(
                 card.chamber,
@@ -192,11 +191,11 @@ private fun ReceiverPage(
                 Modifier.fillMaxWidth().weight(1f).clickable {
                     receiver.chamber_sensor_id?.let { onOpenChart(it, receiver.name) }
                 },
-                degreeAxis = true,
             )
-            Stopwatches(receiver, elapsedSinceFetch)
             Spacer(Modifier.height(10.dp))
             StatsRow(card.stats)
+            // Between the chamber and the evaporator: the middle of the page.
+            Stopwatches(receiver, elapsedSinceFetch)
             if (receiver.evaporator_sensor_id != null) {
                 HorizontalDivider(Modifier.padding(vertical = 12.dp), color = look.color.copy(alpha = 0.35f))
                 SectionHead("Parownik", receiver.evaporator_temperature, look.color)
@@ -207,7 +206,6 @@ private fun ReceiverPage(
                     Modifier.fillMaxWidth().weight(1f).clickable {
                         receiver.evaporator_sensor_id?.let { onOpenChart(it, "${receiver.name} — parownik") }
                     },
-                    degreeAxis = true,
                 )
                 Spacer(Modifier.height(10.dp))
                 StatsRow(card.evaporatorStats)
@@ -216,7 +214,8 @@ private fun ReceiverPage(
     }
 }
 
-/** Name on the left (optionally followed by [badge]), current temperature on the right. */
+/** Name on the left, current temperature on the right and, when given,
+ * [badge] exactly in the middle — both sides take equal width. */
 @Composable
 private fun SectionHead(name: String, temperature: Double?, color: Color, badge: (@Composable () -> Unit)? = null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -227,13 +226,11 @@ private fun SectionHead(name: String, temperature: Double?, color: Color, badge:
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
+            modifier = Modifier.weight(1f),
         )
         if (badge != null) {
-            Spacer(Modifier.width(8.dp))
-            badge()
+            Box(Modifier.padding(horizontal = 8.dp)) { badge() }
         }
-        Spacer(Modifier.weight(1f).width(8.dp))
         Text(
             Formatters.temperature(temperature),
             color = color,
@@ -241,6 +238,8 @@ private fun SectionHead(name: String, temperature: Double?, color: Color, badge:
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             style = TabularNumbers,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
         )
     }
 }
@@ -258,23 +257,8 @@ private fun StatsRow(stats: TempStats?) {
 
 /** The state as a bare icon in its colour — no frame, no label. */
 @Composable
-private fun StateIcon(look: StateLook, size: Dp = 30.dp) {
-    Box(Modifier.size(size)) {
-        Icon(
-            look.icon,
-            contentDescription = look.label,
-            tint = look.color,
-            modifier = Modifier.size(if (look.drip) size * 0.8f else size).align(Alignment.TopCenter),
-        )
-        if (look.drip) {
-            Icon(
-                Icons.Filled.WaterDrop,
-                contentDescription = null,
-                tint = look.color,
-                modifier = Modifier.size(size * 0.37f).align(Alignment.BottomCenter),
-            )
-        }
-    }
+private fun StateIcon(look: StateLook) {
+    Icon(look.icon, contentDescription = look.label, tint = look.color, modifier = Modifier.size(26.dp))
 }
 
 /** Two stopwatches for the refrigeration cycle: blue times the cooling
