@@ -63,6 +63,32 @@ export interface ReceiverInput {
   is_active: boolean;
 }
 
+/** A condensing unit (agregat): nameplate data plus the object's sensors
+ * shown with it, in the technician's order. */
+export interface AggregateItem {
+  id: string;
+  name: string;
+  object_id: string;
+  compressor_model: string | null;
+  refrigerant: string | null;
+  refrigerant_charge_kg: number | null;
+  /** ISO date, YYYY-MM-DD. */
+  installed_on: string | null;
+  sensor_ids: string[];
+  display_order: number;
+  is_active: boolean;
+}
+
+export interface AggregateInput {
+  name: string;
+  compressor_model: string | null;
+  refrigerant: string | null;
+  refrigerant_charge_kg: number | null;
+  installed_on: string | null;
+  sensor_ids: string[];
+  is_active: boolean;
+}
+
 export type UserRole = "admin" | "serwisant" | "user";
 
 export interface UserItem {

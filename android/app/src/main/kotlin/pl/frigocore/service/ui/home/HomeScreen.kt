@@ -66,6 +66,7 @@ import kotlinx.coroutines.launch
 import pl.frigocore.service.data.local.SelectedObjectStore
 import pl.frigocore.service.data.model.UserRole
 import pl.frigocore.service.data.repository.AuthRepository
+import pl.frigocore.service.ui.aggregates.AggregatesScreen
 import pl.frigocore.service.ui.dashboard.DashboardScreen
 import pl.frigocore.service.ui.objects.ObjectsScreen
 import pl.frigocore.service.ui.overview.OverviewScreen
@@ -104,8 +105,9 @@ class HomeViewModel @Inject constructor(
 
 private object HomeRoutes {
     /** Urządzenia → Odbiorniki; falls back to the sensor overview for an
-     * object without receivers. Agregaty and Liczniki come later. */
+     * object without receivers. Liczniki come later. */
     const val RECEIVERS = "devices/receivers"
+    const val AGGREGATES = "devices/aggregates"
     const val OBJECTS = "objects"
     const val ALARMS = "alarms"
     const val SENSOR = "sensor/{objectId}/{sensorId}?name={name}"
@@ -156,7 +158,7 @@ fun HomeScreen(
                         )
                         // Devices are grouped by type; the button opens the picker.
                         NavigationBarItem(
-                            selected = route == HomeRoutes.RECEIVERS,
+                            selected = route == HomeRoutes.RECEIVERS || route == HomeRoutes.AGGREGATES,
                             onClick = { devicesOpen = true },
                             icon = { Icon(Icons.Outlined.Kitchen, contentDescription = null) },
                             label = { Text("Urządzenia") },
@@ -194,6 +196,11 @@ fun HomeScreen(
                     },
                 )
             }
+            composable(HomeRoutes.AGGREGATES) {
+                AggregatesScreen(onSensorClick = { sensor ->
+                    navController.navigate(HomeRoutes.sensorRoute(sensor.object_id, sensor.id, sensor.name))
+                })
+            }
             composable(HomeRoutes.OBJECTS) {
                 ObjectsScreen(onObjectClick = {
                     viewModel.selectObject(it.id)
@@ -228,7 +235,10 @@ fun HomeScreen(
                 devicesOpen = false
                 navController.switchTab(HomeRoutes.RECEIVERS)
             }
-            MenuItem(Icons.Outlined.Hvac, "Agregaty", note = "wkrótce")
+            MenuItem(Icons.Outlined.Hvac, "Agregaty") {
+                devicesOpen = false
+                navController.switchTab(HomeRoutes.AGGREGATES)
+            }
             MenuItem(Icons.Outlined.ElectricMeter, "Liczniki", note = "wkrótce")
             Spacer(Modifier.height(24.dp))
         }

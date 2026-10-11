@@ -169,6 +169,7 @@ from app.api.routes import (
     sensors_router,
     users_router,
 )
+from app.api.aggregates import aggregates_router
 from app.api.receivers import receivers_router
 from app.api.voip_settings import voip_router
 from app.api.websocket import ws_router
@@ -192,6 +193,7 @@ app.include_router(objects_router, prefix="/api/v1/objects", tags=["Objects"])
 app.include_router(users_router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(sensors_router, prefix="/api/v1/objects", tags=["Sensors"])
 app.include_router(receivers_router, prefix="/api/v1/objects", tags=["Receivers"])
+app.include_router(aggregates_router, prefix="/api/v1/objects", tags=["Aggregates"])
 app.include_router(alarm_configs_router, prefix="/api/v1/sensors", tags=["Alarm Configs"])
 app.include_router(alarms_router, prefix="/api/v1/alarms", tags=["Alarms"])
 app.include_router(measurements_router, prefix="/api/v1/sensors", tags=["Measurements"])

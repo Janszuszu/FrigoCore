@@ -1,5 +1,6 @@
 """FrigoCore — All domain models."""
 
+from app.models.aggregate import Aggregate, AggregateSensor
 from app.models.alarm import Alarm
 from app.models.alarm_assignment import AlarmAssignment
 from app.models.alarm_config import AlarmConfig
@@ -17,6 +18,8 @@ from app.models.sensor import Sensor
 from app.models.user import User
 
 __all__ = [
+    "Aggregate",
+    "AggregateSensor",
     "Alarm",
     "AlarmAssignment",
     "AlarmConfig",

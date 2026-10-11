@@ -76,3 +76,20 @@ object ReceiverState {
     const val DEFROST = "defrost"
     const val UNKNOWN = "unknown"
 }
+
+/** Mirrors backend/app/schemas.py:AggregateResponse — a condensing unit's
+ * nameplate data and the object's sensors shown with it, in order. */
+@Serializable
+data class AggregateResponse(
+    val id: String,
+    val name: String,
+    val object_id: String,
+    val compressor_model: String? = null,
+    val refrigerant: String? = null,
+    val refrigerant_charge_kg: Double? = null,
+    /** ISO date, YYYY-MM-DD. */
+    val installed_on: String? = null,
+    val sensor_ids: List<String> = emptyList(),
+    val display_order: Int = 0,
+    val is_active: Boolean = true,
+)

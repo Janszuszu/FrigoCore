@@ -157,6 +157,51 @@ class ReceiverResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Aggregate (agregat)
+# ---------------------------------------------------------------------------
+
+AGGREGATE_MAX_SENSORS = 50
+
+
+class AggregateCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=256)
+    compressor_model: str | None = Field(None, max_length=256)
+    refrigerant: str | None = Field(None, max_length=64)
+    refrigerant_charge_kg: float | None = Field(None, ge=0, le=10000)
+    installed_on: date | None = None
+    sensor_ids: list[UUID] = Field(default_factory=list, max_length=AGGREGATE_MAX_SENSORS)
+    is_active: bool = True
+
+
+class AggregateUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=256)
+    compressor_model: str | None = Field(None, max_length=256)
+    refrigerant: str | None = Field(None, max_length=64)
+    refrigerant_charge_kg: float | None = Field(None, ge=0, le=10000)
+    installed_on: date | None = None
+    sensor_ids: list[UUID] | None = Field(None, max_length=AGGREGATE_MAX_SENSORS)
+    display_order: int | None = Field(None, ge=0, le=9999)
+    is_active: bool | None = None
+
+
+class AggregateResponse(BaseModel):
+    """Nameplate data plus the sensors to show, in display order."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    object_id: UUID
+    compressor_model: str | None
+    refrigerant: str | None
+    refrigerant_charge_kg: float | None
+    installed_on: date | None
+    sensor_ids: list[UUID]
+    display_order: int
+    is_active: bool
+
+
+# ---------------------------------------------------------------------------
 # AlarmConfig (legacy, normalized)
 # ---------------------------------------------------------------------------
 

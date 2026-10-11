@@ -152,8 +152,10 @@ private fun AlarmBanner(alarm: AlarmResponse, onClick: () -> Unit) {
     }
 }
 
+/** A slim row — name and current reading — that a tap unfolds into the
+ * 24 h chart and MIN / ŚREDNIA / MAX. Also used on the aggregate screen. */
 @Composable
-private fun SensorCardView(card: SensorCard, expanded: Boolean, onToggle: () -> Unit, onOpenChart: () -> Unit) {
+internal fun SensorCardView(card: SensorCard, expanded: Boolean, onToggle: () -> Unit, onOpenChart: () -> Unit) {
     // The name, the current reading and the chart share one colour: the 24 h
     // trend, or the alarm / offline state when that applies.
     val trendColor = when (card.status) {

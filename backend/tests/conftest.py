@@ -28,6 +28,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from app.api import routes as r
+from app.api.aggregates import aggregates_router
 from app.api.receivers import receivers_router
 from app.api.voip_settings import voip_router
 from app.core.security import create_access_token, hash_password
@@ -46,6 +47,7 @@ def build_test_app() -> FastAPI:
     app.include_router(r.users_router, prefix="/api/v1/users")
     app.include_router(r.sensors_router, prefix="/api/v1/objects")
     app.include_router(receivers_router, prefix="/api/v1/objects")
+    app.include_router(aggregates_router, prefix="/api/v1/objects")
     app.include_router(r.alarm_configs_router, prefix="/api/v1/sensors")
     app.include_router(r.alarms_router, prefix="/api/v1/alarms")
     app.include_router(r.measurements_router, prefix="/api/v1/sensors")

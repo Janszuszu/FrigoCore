@@ -9,8 +9,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useSensorsStore } from "@/stores/sensors";
-import { apiReceivers, apiSensors } from "@/api";
-import type { ObjectItem, ReceiverInput, ReceiverItem, ReceiverState, SensorItem } from "@/types";
+import { apiAggregates, apiReceivers, apiSensors } from "@/api";
+import type { AggregateInput, AggregateItem, ObjectItem, ReceiverInput, ReceiverItem, ReceiverState, SensorItem } from "@/types";
 import SensorIcon from "@/components/SensorIcon.vue";
 import SensorSettingsModal from "@/components/SensorSettingsModal.vue";
 import ObjectSettingsModal from "@/components/ObjectSettingsModal.vue";
@@ -29,7 +29,7 @@ async function loadSensors(objectId: string) {
     ...objectSensors.value,
     [objectId]: [...sensorsStore.sensors],
   };
-  await loadReceivers(objectId);
+  await Promise.all([loadReceivers(objectId), loadAggregates(objectId)]);
 }
 
 async function toggle(object: ObjectItem) {
@@ -304,6 +304,123 @@ async function deleteReceiver() {
   }
 }
 
+// ─── Aggregates (agregaty) ────────────────────────────────────────
+// Nameplate data of a condensing unit plus the sensors the clients show
+// with it (outdoor temperature, discharge line…), in the order set here.
+const objectAggregates = ref<Record<string, AggregateItem[]>>({});
+const aggregatesOf = (id: string) => objectAggregates.value[id] ?? [];
+
+const REFRIGERANTS = ["R404A", "R448A", "R449A", "R452A", "R134a", "R407C", "R410A", "R32", "R290", "R744", "R507A", "R22"];
+
+async function loadAggregates(objectId: string) {
+  try {
+    objectAggregates.value = { ...objectAggregates.value, [objectId]: await apiAggregates.list(objectId) };
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Nie udało się wczytać agregatów";
+  }
+}
+
+// Form fields stay text until saved, like the receiver form.
+type AggregateDraft = Pick<AggregateInput, "name" | "sensor_ids" | "is_active"> & {
+  compressor_model: string;
+  refrigerant: string;
+  refrigerant_charge_kg: string;
+  installed_on: string;
+};
+const aggregateEdit = ref<{ objectId: string; id: string | null; draft: AggregateDraft } | null>(null);
+const aggregateError = ref("");
+const aggregateSaving = ref(false);
+const aggregateSensorToAdd = ref<string | null>(null);
+
+function openAggregate(objectId: string, aggregate: AggregateItem | null) {
+  aggregateError.value = "";
+  aggregateSensorToAdd.value = null;
+  aggregateEdit.value = {
+    objectId,
+    id: aggregate?.id ?? null,
+    draft: {
+      name: aggregate?.name ?? "",
+      compressor_model: aggregate?.compressor_model ?? "",
+      refrigerant: aggregate?.refrigerant ?? "",
+      refrigerant_charge_kg: aggregate?.refrigerant_charge_kg == null ? "" : String(aggregate.refrigerant_charge_kg),
+      installed_on: aggregate?.installed_on ?? "",
+      sensor_ids: [...(aggregate?.sensor_ids ?? [])],
+      is_active: aggregate?.is_active ?? true,
+    },
+  };
+}
+
+const aggregateSensorChoices = computed(() => {
+  const edit = aggregateEdit.value;
+  if (!edit) return [];
+  return sensorsOf(edit.objectId).filter((s) => !edit.draft.sensor_ids.includes(s.id));
+});
+
+function addAggregateSensor() {
+  const id = aggregateSensorToAdd.value;
+  if (id && aggregateEdit.value) aggregateEdit.value.draft.sensor_ids.push(id);
+  aggregateSensorToAdd.value = null;
+}
+
+function moveAggregateSensor(index: number, step: -1 | 1) {
+  const ids = aggregateEdit.value?.draft.sensor_ids;
+  if (!ids || index + step < 0 || index + step >= ids.length) return;
+  [ids[index], ids[index + step]] = [ids[index + step], ids[index]];
+}
+
+function removeAggregateSensor(index: number) {
+  aggregateEdit.value?.draft.sensor_ids.splice(index, 1);
+}
+
+async function saveAggregate() {
+  const edit = aggregateEdit.value;
+  if (!edit) return;
+  const d = edit.draft;
+  const charge = parseDegrees(d.refrigerant_charge_kg);
+  if (charge != null && (Number.isNaN(charge) || charge < 0)) {
+    aggregateError.value = "Ilość czynnika wpisz jako liczbę kilogramów, np. 6,5";
+    return;
+  }
+  const data: AggregateInput = {
+    name: d.name.trim(),
+    compressor_model: d.compressor_model.trim() || null,
+    refrigerant: d.refrigerant.trim() || null,
+    refrigerant_charge_kg: charge,
+    installed_on: d.installed_on || null,
+    sensor_ids: d.sensor_ids,
+    is_active: d.is_active,
+  };
+  aggregateSaving.value = true;
+  try {
+    if (edit.id) await apiAggregates.update(edit.objectId, edit.id, data);
+    else await apiAggregates.create(edit.objectId, data);
+    aggregateEdit.value = null;
+    await loadAggregates(edit.objectId);
+  } catch (e) {
+    aggregateError.value = e instanceof Error ? e.message : "Nie udało się zapisać agregatu";
+  } finally {
+    aggregateSaving.value = false;
+  }
+}
+
+async function deleteAggregate() {
+  const edit = aggregateEdit.value;
+  if (!edit?.id || !window.confirm(`Usunąć agregat „${edit.draft.name}”? Czujniki zostaną.`)) return;
+  try {
+    await apiAggregates.delete(edit.objectId, edit.id);
+    aggregateEdit.value = null;
+    await loadAggregates(edit.objectId);
+  } catch (e) {
+    aggregateError.value = e instanceof Error ? e.message : "Nie udało się usunąć agregatu";
+  }
+}
+
+function formatDate(iso: string | null) {
+  if (!iso) return "—";
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
 const totalSensors = computed(() =>
   objectsStore.objects.reduce((sum, o) => sum + (o.sensor_count || 0), 0),
 );
@@ -492,6 +609,46 @@ onMounted(async () => {
             <button class="secondary" @click="openReceiver(object.id, null)">＋ Dodaj odbiornik</button>
             <span class="muted">Nastawy służą do prezentacji i wykrywania stanu pracy — alarmy zostają przy czujnikach.</span>
           </div>
+
+          <h3 class="sub-head">Agregaty</h3>
+          <table class="sensor-table">
+            <thead>
+              <tr>
+                <th class="col-name">Agregat</th>
+                <th>Sprężarka</th>
+                <th>Czynnik</th>
+                <th>Instalacja</th>
+                <th>Czujniki</th>
+                <th class="col-settings"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="aggregate in aggregatesOf(object.id)" :key="aggregate.id" :class="{ inactive: !aggregate.is_active }">
+                <td class="col-name"><span>{{ aggregate.name }}</span></td>
+                <td>{{ aggregate.compressor_model || "—" }}</td>
+                <td>
+                  {{ aggregate.refrigerant || "—" }}<template v-if="aggregate.refrigerant_charge_kg != null">, {{ aggregate.refrigerant_charge_kg.toLocaleString("pl-PL") }} kg</template>
+                </td>
+                <td>{{ formatDate(aggregate.installed_on) }}</td>
+                <td>{{ aggregate.sensor_ids.map((id) => sensorName(object.id, id)).join(", ") || "—" }}</td>
+                <td class="col-settings">
+                  <button class="icon-btn" title="Ustawienia agregatu" aria-label="Ustawienia agregatu" @click="openAggregate(object.id, aggregate)">
+                    <svg viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56v.1h-3v-.1a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 15a1.7 1.7 0 0 0-1.56-1.03h-.1v-3h.1A1.7 1.7 0 0 0 7.06 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56v-.1h3v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.1v3h-.1A1.7 1.7 0 0 0 19.4 15Z" />
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="!aggregatesOf(object.id).length">
+                <td colspan="6" class="no-sensors">Brak agregatów — dodaj agregat i wybierz jego czujniki</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="panel-foot">
+            <button class="secondary" @click="openAggregate(object.id, null)">＋ Dodaj agregat</button>
+            <span class="muted">Jeden czujnik (np. temperatura zewnętrzna) może należeć do kilku agregatów.</span>
+          </div>
         </div>
       </article>
 
@@ -574,6 +731,63 @@ onMounted(async () => {
           <button v-if="receiverEdit.id" type="button" class="danger-link" @click="deleteReceiver">Usuń</button>
           <button type="button" @click="receiverEdit = null">Anuluj</button>
           <button class="primary" :disabled="receiverSaving">Zapisz</button>
+        </footer>
+      </form>
+    </div>
+
+    <!-- Aggregate settings -->
+    <div v-if="aggregateEdit" class="modal" @click.self="aggregateEdit = null">
+      <form class="receiver-form" @submit.prevent="saveAggregate">
+        <h2>{{ aggregateEdit.id ? "Ustawienia agregatu" : "Dodaj agregat" }}</h2>
+        <label>
+          Nazwa
+          <input v-model="aggregateEdit.draft.name" placeholder="Agregat mroźni" required />
+        </label>
+        <label>
+          Model sprężarki
+          <input v-model="aggregateEdit.draft.compressor_model" placeholder="Bitzer 4FES-5Y" />
+        </label>
+        <div class="pair">
+          <label>
+            Czynnik
+            <input v-model="aggregateEdit.draft.refrigerant" list="refrigerants" placeholder="R404A" />
+            <datalist id="refrigerants">
+              <option v-for="r in REFRIGERANTS" :key="r" :value="r" />
+            </datalist>
+          </label>
+          <label>
+            Ilość czynnika, kg
+            <input v-model="aggregateEdit.draft.refrigerant_charge_kg" inputmode="decimal" placeholder="6,5" />
+          </label>
+        </div>
+        <label>
+          Data instalacji
+          <input v-model="aggregateEdit.draft.installed_on" type="date" />
+        </label>
+        <div class="aggregate-sensors">
+          <span>Czujniki (w kolejności wyświetlania)</span>
+          <ol>
+            <li v-for="(id, i) in aggregateEdit.draft.sensor_ids" :key="id">
+              <span>{{ sensorName(aggregateEdit.objectId, id) }}</span>
+              <button type="button" title="W górę" :disabled="i === 0" @click="moveAggregateSensor(i, -1)">↑</button>
+              <button type="button" title="W dół" :disabled="i === aggregateEdit.draft.sensor_ids.length - 1" @click="moveAggregateSensor(i, 1)">↓</button>
+              <button type="button" title="Usuń z agregatu" @click="removeAggregateSensor(i)">✕</button>
+            </li>
+          </ol>
+          <select v-model="aggregateSensorToAdd" @change="addAggregateSensor">
+            <option :value="null">＋ dodaj czujnik…</option>
+            <option v-for="s in aggregateSensorChoices" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </div>
+        <label class="check">
+          <input v-model="aggregateEdit.draft.is_active" type="checkbox" />
+          Pokazuj klientom
+        </label>
+        <p v-if="aggregateError" class="error">{{ aggregateError }}</p>
+        <footer>
+          <button v-if="aggregateEdit.id" type="button" class="danger-link" @click="deleteAggregate">Usuń</button>
+          <button type="button" @click="aggregateEdit = null">Anuluj</button>
+          <button class="primary" :disabled="aggregateSaving">Zapisz</button>
         </footer>
       </form>
     </div>
@@ -1071,6 +1285,47 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.aggregate-sensors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #9fb4cc;
+  font-size: 13px;
+}
+.aggregate-sensors ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.aggregate-sensors li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid #234662;
+  border-radius: 6px;
+  color: #f1f6ff;
+  font-size: 14px;
+}
+.aggregate-sensors li span {
+  flex: 1;
+}
+.aggregate-sensors li button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #234662;
+  border-radius: 4px;
+  background: #0b1e2d;
+  color: #e9f2ff;
+  cursor: pointer;
+}
+.aggregate-sensors li button:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .modal footer .danger-link {

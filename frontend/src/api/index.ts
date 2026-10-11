@@ -1,4 +1,6 @@
 import type {
+  AggregateInput,
+  AggregateItem,
   ReceiverInput,
   ReceiverItem,
   AlarmConfigCreate,
@@ -137,6 +139,27 @@ export const apiReceivers = {
     }),
   delete: (objectId: string, receiverId: string) =>
     request<void>(`/objects/${objectId}/receivers/${receiverId}`, {
+      method: "DELETE",
+    }),
+};
+
+// ─── Aggregates (agregaty) ─────────────────────────────────────────
+
+export const apiAggregates = {
+  list: (objectId: string) =>
+    request<AggregateItem[]>(`/objects/${objectId}/aggregates`),
+  create: (objectId: string, data: AggregateInput) =>
+    request<AggregateItem>(`/objects/${objectId}/aggregates`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (objectId: string, aggregateId: string, data: Partial<AggregateInput>) =>
+    request<AggregateItem>(`/objects/${objectId}/aggregates/${aggregateId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  delete: (objectId: string, aggregateId: string) =>
+    request<void>(`/objects/${objectId}/aggregates/${aggregateId}`, {
       method: "DELETE",
     }),
 };

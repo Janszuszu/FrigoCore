@@ -1,6 +1,7 @@
 package pl.frigocore.service.data.repository
 
 import pl.frigocore.service.data.api.FrigoCoreApi
+import pl.frigocore.service.data.model.AggregateResponse
 import pl.frigocore.service.data.model.MeasurementResponse
 import pl.frigocore.service.data.model.ObjectResponse
 import pl.frigocore.service.data.model.ReceiverResponse
@@ -28,6 +29,9 @@ class ObjectRepository @Inject constructor(
 
     suspend fun listReceivers(objectId: String): ApiResult<List<ReceiverResponse>> =
         safeApiCall { api.listReceivers(objectId) }
+
+    suspend fun listAggregates(objectId: String): ApiResult<List<AggregateResponse>> =
+        safeApiCall { api.listAggregates(objectId) }
 
     suspend fun getSensor(objectId: String, sensorId: String): ApiResult<SensorResponse> =
         safeApiCall { api.getSensor(objectId, sensorId) }
