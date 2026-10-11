@@ -23,6 +23,7 @@ from app.models.object import Object
 from app.services.alarm_engine import AlarmEngine
 from app.services.escalation_engine import EscalationEngine
 from app.services.notification_engine import drain_voice_calls
+from app.services.demo_feed import DemoFeed
 from app.services.voip_settings import VoipKeepalive
 from app.api.websocket import manager as ws_manager
 
@@ -37,6 +38,7 @@ alarm_engine = AlarmEngine(async_session_factory)
 escalation_engine = EscalationEngine(async_session_factory)
 mqtt_engine = MQTTEngine(settings, async_session_factory)
 voip_keepalive = VoipKeepalive(async_session_factory)
+demo_feed = DemoFeed(async_session_factory)
 
 
 # ---------------------------------------------------------------------------
@@ -126,9 +128,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await alarm_engine.start()
     await escalation_engine.start()
     await voip_keepalive.start()
+    await demo_feed.start()
     logger.info("FrigoCore backend is ready")
     yield
     # Shutdown
+    await demo_feed.stop()
     await voip_keepalive.stop()
     await drain_voice_calls(timeout=15)
     await escalation_engine.stop()
