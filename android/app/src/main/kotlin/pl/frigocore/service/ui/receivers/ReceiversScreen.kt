@@ -208,6 +208,8 @@ private fun ReceiverPage(
                 Spacer(Modifier.height(10.dp))
                 StatsRow(card.evaporatorStats)
             }
+            // A faint line sets the stopwatches apart from the readings above.
+            HorizontalDivider(Modifier.padding(top = 12.dp), thickness = 0.5.dp, color = FrigoTextMuted.copy(alpha = 0.3f))
             Stopwatches(receiver, elapsedSinceFetch)
         }
     }
