@@ -1,5 +1,15 @@
 package pl.frigocore.service.ui.receivers
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.runtime.key
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Dp
+import pl.frigocore.service.ui.overview.TempStats
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,8 +25,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
@@ -65,6 +73,10 @@ import kotlinx.coroutines.delay
 import java.time.Duration
 import java.time.Instant
 
+/** Urządzenia → Odbiorniki: one receiver per page, the next one a swipe
+ * away, with dots for where you are. Each page is the chamber on top and
+ * its evaporator below. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ReceiversScreen(
     onOpenChart: (objectId: String, sensorId: String, name: String) -> Unit,
@@ -86,20 +98,45 @@ fun ReceiversScreen(
         uiState.isLoading && uiState.cards.isEmpty() -> LoadingState()
         // Nothing configured for this object yet — keep showing its sensors.
         uiState.cards.isEmpty() -> fallback()
-        else -> LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-            contentPadding = PaddingValues(top = 10.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(uiState.cards, key = { it.receiver.id }) { card ->
-                ReceiverCardView(
-                    card,
-                    elapsedSinceFetch = Duration.between(uiState.fetchedAt, now).seconds.coerceAtLeast(0),
-                    onOpenChart = {
-                        card.receiver.chamber_sensor_id?.let { onOpenChart(card.receiver.object_id, it, card.receiver.name) }
-                    },
-                )
+        // Another object starts again on its first receiver.
+        else -> key(uiState.objectId) {
+            val pagerState = rememberPagerState { uiState.cards.size }
+            Column(Modifier.fillMaxSize()) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    pageSpacing = 12.dp,
+                    key = { uiState.cards.getOrNull(it)?.receiver?.id ?: it },
+                ) { page ->
+                    val card = uiState.cards.getOrNull(page) ?: return@HorizontalPager
+                    ReceiverPage(
+                        card,
+                        elapsedSinceFetch = Duration.between(uiState.fetchedAt, now).seconds.coerceAtLeast(0),
+                        onOpenChart = { sensorId, name -> onOpenChart(card.receiver.object_id, sensorId, name) },
+                        modifier = Modifier.fillMaxSize().padding(vertical = 10.dp),
+                    )
+                }
+                if (uiState.cards.size > 1) PageDots(uiState.cards.size, pagerState.currentPage)
             }
+        }
+    }
+}
+
+@Composable
+private fun PageDots(count: Int, current: Int) {
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        repeat(count) { i ->
+            Box(
+                Modifier
+                    .padding(horizontal = 4.dp)
+                    .size(if (i == current) 8.dp else 6.dp)
+                    .clip(CircleShape)
+                    .background(if (i == current) FrigoAccent else FrigoTextMuted.copy(alpha = 0.5f)),
+            )
         }
     }
 }
@@ -125,103 +162,116 @@ internal fun stopwatch(seconds: Long?): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-/** Top to bottom: the name on the left, with the state icon in the right
- * corner; the leading (chamber) | evaporator temperature, same size, each
- * labelled in small grey; the chart; the cycle stopwatches; the
- * 24 h min / average / max. Readings and chart take the state colour (blue cooling,
- * green idle, orange defrost, red alarm). Tapping the chart opens it full
- * screen. */
+/** The chamber on top — name and state icon on the left, temperature on
+ * the right, the 24 h chart with its degree scale, the cycle stopwatches and
+ * the 24 h min / average / max — then the evaporator the same way, minus the
+ * stopwatches (one cycle, no need to show it twice). Everything takes the
+ * state colour (blue cooling, green idle, orange defrost, red alarm). Tapping
+ * a chart opens it full screen. */
 @Composable
-private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpenChart: () -> Unit) {
+private fun ReceiverPage(
+    card: ReceiverCard,
+    elapsedSinceFetch: Long,
+    onOpenChart: (sensorId: String, name: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val receiver = card.receiver
     val look = if (card.alarm) AlarmLook else stateLook(receiver.state)
     Card(
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, (if (card.alarm) FrigoCritical else FrigoAccent).copy(alpha = 0.35f)),
         colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            // Name on the left; the state icon keeps its corner.
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                Text(
-                    receiver.name.uppercase(),
-                    color = FrigoText,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth().padding(end = 40.dp),
-                )
-                Box(Modifier.align(Alignment.CenterEnd)) { StateIcon(look) }
-            }
+        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)) {
+            SectionHead(receiver.name, receiver.chamber_temperature, look.color) { StateIcon(look, 22.dp) }
             Spacer(Modifier.height(6.dp))
-            Row(
-                Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                Reading(receiver.chamber_temperature, look.color, "WIODĄCA")
-                if (receiver.evaporator_sensor_id != null) {
-                    VerticalDivider(
-                        Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                        thickness = 1.5.dp,
-                        color = look.color.copy(alpha = 0.6f),
-                    )
-                    Reading(receiver.evaporator_temperature, look.color, "PAROWNIK")
-                }
-            }
-            Spacer(Modifier.height(10.dp))
             CardChart(
                 card.chamber,
                 look.color,
-                Modifier.fillMaxWidth().height(130.dp).clickable(onClick = onOpenChart),
+                Modifier.fillMaxWidth().weight(1f).clickable {
+                    receiver.chamber_sensor_id?.let { onOpenChart(it, receiver.name) }
+                },
+                degreeAxis = true,
             )
             Stopwatches(receiver, elapsedSinceFetch)
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-                Stat("MIN", card.stats?.min, "°C", Modifier.weight(1f))
-                StatDivider()
-                Stat("ŚREDNIA", card.stats?.avg, "°C", Modifier.weight(1f))
-                StatDivider()
-                Stat("MAX", card.stats?.max, "°C", Modifier.weight(1f))
+            Spacer(Modifier.height(10.dp))
+            StatsRow(card.stats)
+            if (receiver.evaporator_sensor_id != null) {
+                HorizontalDivider(Modifier.padding(vertical = 12.dp), color = look.color.copy(alpha = 0.35f))
+                SectionHead("Parownik", receiver.evaporator_temperature, look.color)
+                Spacer(Modifier.height(6.dp))
+                CardChart(
+                    card.evaporator,
+                    look.color,
+                    Modifier.fillMaxWidth().weight(1f).clickable {
+                        receiver.evaporator_sensor_id?.let { onOpenChart(it, "${receiver.name} — parownik") }
+                    },
+                    degreeAxis = true,
+                )
+                Spacer(Modifier.height(10.dp))
+                StatsRow(card.evaporatorStats)
             }
         }
     }
 }
 
-/** A temperature with what it measures underneath in small grey. */
+/** Name on the left (optionally followed by [badge]), current temperature on the right. */
 @Composable
-private fun Reading(value: Double?, color: Color, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun SectionHead(name: String, temperature: Double?, color: Color, badge: (@Composable () -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            Formatters.temperature(value),
+            name.uppercase(),
             color = color,
-            fontSize = 30.sp,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (badge != null) {
+            Spacer(Modifier.width(8.dp))
+            badge()
+        }
+        Spacer(Modifier.weight(1f).width(8.dp))
+        Text(
+            Formatters.temperature(temperature),
+            color = color,
+            fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             style = TabularNumbers,
         )
-        Text(label, color = FrigoTextMuted, fontSize = 11.sp, letterSpacing = 0.5.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun StatsRow(stats: TempStats?) {
+    Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+        Stat("MIN", stats?.min, "°C", Modifier.weight(1f))
+        StatDivider()
+        Stat("ŚREDNIA", stats?.avg, "°C", Modifier.weight(1f))
+        StatDivider()
+        Stat("MAX", stats?.max, "°C", Modifier.weight(1f))
     }
 }
 
 /** The state as a bare icon in its colour — no frame, no label. */
 @Composable
-private fun StateIcon(look: StateLook) {
-    Box(Modifier.size(30.dp)) {
+private fun StateIcon(look: StateLook, size: Dp = 30.dp) {
+    Box(Modifier.size(size)) {
         Icon(
             look.icon,
             contentDescription = look.label,
             tint = look.color,
-            modifier = Modifier.size(if (look.drip) 24.dp else 30.dp).align(Alignment.TopCenter),
+            modifier = Modifier.size(if (look.drip) size * 0.8f else size).align(Alignment.TopCenter),
         )
         if (look.drip) {
             Icon(
                 Icons.Filled.WaterDrop,
                 contentDescription = null,
                 tint = look.color,
-                modifier = Modifier.size(11.dp).align(Alignment.BottomCenter),
+                modifier = Modifier.size(size * 0.37f).align(Alignment.BottomCenter),
             )
         }
     }

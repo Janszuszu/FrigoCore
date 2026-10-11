@@ -17,6 +17,13 @@ class StopwatchFormatTest {
     }
 
     @Test
+    fun `screen file initialises`() {
+        // Top-level values are built when the screen first opens; a broken one
+        // would close the app on Urządzenia → Odbiorniki.
+        Class.forName("pl.frigocore.service.ui.receivers.ReceiversScreenKt")
+    }
+
+    @Test
     fun `unknown duration`() {
         assertEquals("--:--", stopwatch(null))
     }

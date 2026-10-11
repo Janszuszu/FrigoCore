@@ -266,12 +266,15 @@ internal fun Stat(label: String, value: Double?, unit: String, modifier: Modifie
 }
 
 /** Last 24 h as a step line in [color] over a three-level grid, with five
- * time labels from the window start to now, filled under the line. Tapping the card opens the full chart. */
+ * time labels from the window start to now, filled under the line. With
+ * [degreeAxis] the three levels are labelled on the left (receiver screen).
+ * Tapping the card opens the full chart. */
 @Composable
 internal fun CardChart(
     points: List<ChartPoint>,
     color: Color,
     modifier: Modifier = Modifier,
+    degreeAxis: Boolean = false,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = TextStyle(fontSize = 12.sp, color = FrigoText.copy(alpha = 0.75f))
@@ -283,20 +286,26 @@ internal fun CardChart(
         val (lo, step) = cardAxis(points.minOf { it.value }, points.maxOf { it.value })
         val hi = lo + 2 * step
 
-        val leftPad = 0f
+        val levelLabels = if (degreeAxis) (0..2).map { textMeasurer.measure("${lo + it * step}", labelStyle) } else emptyList()
+        val leftPad = levelLabels.maxOfOrNull { it.size.width + 6.dp.toPx() } ?: 0f
         val bottomPad = 24.dp.toPx()
-        val topPad = 6.dp.toPx()
+        // Room for half a level label above the top line.
+        val topPad = (if (degreeAxis) 9 else 6).dp.toPx()
         val chartW = size.width - leftPad
         val chartH = size.height - bottomPad - topPad
         fun x(t: Instant) = leftPad + ((t.toEpochMilli() - tStart) / tSpan).coerceIn(0f, 1f) * chartW
         fun y(v: Double) = topPad + ((hi - v) / (hi - lo)).toFloat() * chartH
 
-        // Horizontal grid on the three whole-degree levels; no degree labels,
-        // so the plot runs the full width of the section.
+        // Horizontal grid on the three whole-degree levels; unlabelled unless
+        // [degreeAxis], so the plot can run the full width of the section.
         for (i in 0..2) {
             val yy = y((lo + i * step).toDouble())
             drawLine(if (i == 0) FrigoTextMuted else FrigoOutline, Offset(leftPad, yy), Offset(size.width, yy), 1f)
+            levelLabels.getOrNull(i)?.let { label ->
+                drawText(label, topLeft = Offset(leftPad - 6.dp.toPx() - label.size.width, yy - label.size.height / 2))
+            }
         }
+        if (degreeAxis) drawLine(FrigoTextMuted, Offset(leftPad, topPad), Offset(leftPad, topPad + chartH), 1f)
 
         // Time axis: five evenly spaced labels across the window (start, every
         // 6 h, now), each with a dashed grid line and a tick below the axis.
