@@ -163,8 +163,8 @@ internal fun stopwatch(seconds: Long?): String {
 
 /** The chamber on top — name on the left, state icon in the middle,
  * temperature on the right, the 24 h chart and the 24 h min / average / max;
- * the cycle stopwatches in the middle of the page; then the evaporator the
- * same way, without stopwatches (one cycle, no need to show it twice). Everything takes the
+ * then the evaporator the same way; the cycle stopwatches at the very bottom,
+ * once for the whole receiver. Everything takes the
  * state colour (blue cooling, green idle, orange defrost, red alarm). Tapping
  * a chart opens it full screen. */
 @Composable
@@ -194,8 +194,6 @@ private fun ReceiverPage(
             )
             Spacer(Modifier.height(10.dp))
             StatsRow(card.stats)
-            // Between the chamber and the evaporator: the middle of the page.
-            Stopwatches(receiver, elapsedSinceFetch)
             if (receiver.evaporator_sensor_id != null) {
                 HorizontalDivider(Modifier.padding(vertical = 12.dp), color = look.color.copy(alpha = 0.35f))
                 SectionHead("Parownik", receiver.evaporator_temperature, look.color)
@@ -210,6 +208,7 @@ private fun ReceiverPage(
                 Spacer(Modifier.height(10.dp))
                 StatsRow(card.evaporatorStats)
             }
+            Stopwatches(receiver, elapsedSinceFetch)
         }
     }
 }
