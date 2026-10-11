@@ -8,6 +8,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import pl.frigocore.service.data.local.SelectedObjectStore
 import pl.frigocore.service.data.model.AggregateResponse
@@ -58,6 +59,14 @@ class AggregatesViewModel @Inject constructor(
     private var historyObjectId: String? = null
     private var historyFetchedAt: Instant = Instant.EPOCH
 
+    init {
+        // Another object picked: drop this one's aggregates at once instead of
+        // showing them until the new object's data arrives.
+        viewModelScope.launch {
+            selectedObjectStore.selectedId.drop(1).collect { _uiState.value = AggregatesUiState() }
+        }
+    }
+
     fun refresh() {
         viewModelScope.launch {
             val objectsResult = objectRepository.listObjects()
@@ -86,37 +95,46 @@ class AggregatesViewModel @Inject constructor(
                 .filter { it.is_active }
                 .associateBy { it.id }
 
-            val sensorIds = aggregates.flatMap { it.sensor_ids }.filter { it in sensors }.toSet()
-            val now = Instant.now()
-            if (historyObjectId != objectId || !history.keys.containsAll(sensorIds) ||
-                Duration.between(historyFetchedAt, now).toMinutes() >= 5
-            ) {
-                history = sensorIds.map { id ->
-                    async { id to ((objectRepository.history(id, 24, targetPoints = 144) as? ApiResult.Success)?.data) }
-                }.awaitAll().mapNotNull { (id, data) -> data?.let { id to it } }.toMap()
-                historyObjectId = objectId
-                historyFetchedAt = now
-            }
             val openAlarms = (alarmsJob.await() as? ApiResult.Success)?.data.orEmpty().filter(::isOpen)
 
             // A different object picked while this poll was in flight makes it stale.
             if (selectedObjectStore.selectedId.value != stored) return@launch
 
-            _uiState.value = AggregatesUiState(
-                isLoading = false,
-                objectId = objectId,
-                aggregates = aggregates.map { aggregate ->
-                    AggregateCard(
-                        aggregate,
-                        aggregate.sensor_ids.mapNotNull { sensors[it] }.map { sensor ->
-                            val points = history[sensor.id].orEmpty().mapNotNull { m ->
-                                Formatters.parseInstant(m.received_at)?.let { ChartPoint(it, m.temperature) }
-                            }
-                            SensorCard(sensor, sensorStatus(sensor, openAlarms, now), tempStats(points.map { it.value }), points)
-                        },
-                    )
-                },
-            )
+            val now = Instant.now()
+            fun publish() {
+                _uiState.value = AggregatesUiState(
+                    isLoading = false,
+                    objectId = objectId,
+                    aggregates = aggregates.map { aggregate ->
+                        AggregateCard(
+                            aggregate,
+                            aggregate.sensor_ids.mapNotNull { sensors[it] }.map { sensor ->
+                                val points = history[sensor.id].orEmpty().mapNotNull { m ->
+                                    Formatters.parseInstant(m.received_at)?.let { ChartPoint(it, m.temperature) }
+                                }
+                                SensorCard(sensor, sensorStatus(sensor, openAlarms, now), tempStats(points.map { it.value }), points)
+                            },
+                        )
+                    },
+                )
+            }
+
+            val sensorIds = aggregates.flatMap { it.sensor_ids }.filter { it in sensors }.toSet()
+            if (historyObjectId != objectId || !history.keys.containsAll(sensorIds) ||
+                Duration.between(historyFetchedAt, now).toMinutes() >= 5
+            ) {
+                // Show the nameplate and current readings straight away; the charts follow.
+                if (historyObjectId != objectId) history = emptyMap()
+                publish()
+                val fetched = sensorIds.map { id ->
+                    async { id to ((objectRepository.history(id, 24, targetPoints = 144) as? ApiResult.Success)?.data) }
+                }.awaitAll().mapNotNull { (id, data) -> data?.let { id to it } }.toMap()
+                if (selectedObjectStore.selectedId.value != stored) return@launch
+                history = fetched
+                historyObjectId = objectId
+                historyFetchedAt = now
+            }
+            publish()
         }
     }
 }

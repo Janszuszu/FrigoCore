@@ -8,6 +8,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import pl.frigocore.service.data.local.SelectedObjectStore
 import pl.frigocore.service.data.model.MeasurementResponse
@@ -59,6 +60,14 @@ class ReceiversViewModel @Inject constructor(
     private var historyObjectId: String? = null
     private var historyFetchedAt: Instant = Instant.EPOCH
 
+    init {
+        // Another object picked: drop this one's rooms at once instead of
+        // showing them until the new object's data arrives.
+        viewModelScope.launch {
+            selectedObjectStore.selectedId.drop(1).collect { _uiState.value = ReceiversUiState() }
+        }
+    }
+
     fun refresh() {
         viewModelScope.launch {
             val objects = (objectRepository.listObjects() as? ApiResult.Success)?.data.orEmpty()
@@ -73,19 +82,6 @@ class ReceiversViewModel @Inject constructor(
                 .filter { it.is_active }
                 .sortedWith(compareBy({ it.display_order }, { it.name }))
 
-            // Only the chamber is charted; the evaporator is shown as its current reading.
-            val sensorIds = receivers.mapNotNull { it.chamber_sensor_id }.toSet()
-            val now = Instant.now()
-            if (historyObjectId != objectId || !history.keys.containsAll(sensorIds) ||
-                Duration.between(historyFetchedAt, now).toMinutes() >= 5
-            ) {
-                history = sensorIds.map { id ->
-                    async { id to ((objectRepository.history(id, 24, targetPoints = 144) as? ApiResult.Success)?.data) }
-                }.awaitAll().mapNotNull { (id, data) -> data?.let { id to it } }.toMap()
-                historyObjectId = objectId
-                historyFetchedAt = now
-            }
-
             // Same rule as the sensor dashboard: an offline sensor isn't an alarm on the room.
             val alarmedSensors = (alarmsJob.await() as? ApiResult.Success)?.data.orEmpty()
                 .filter { isOpen(it) && it.alarm_type != "offline" }
@@ -95,23 +91,44 @@ class ReceiversViewModel @Inject constructor(
             // A different object picked while this poll was in flight makes it stale.
             if (selectedObjectStore.selectedId.value != stored) return@launch
 
-            fun points(sensorId: String?) = history[sensorId].orEmpty().mapNotNull { m ->
-                Formatters.parseInstant(m.received_at)?.let { ChartPoint(it, m.temperature) }
+            fun publish() {
+                fun points(sensorId: String?) = history[sensorId].orEmpty().mapNotNull { m ->
+                    Formatters.parseInstant(m.received_at)?.let { ChartPoint(it, m.temperature) }
+                }
+                _uiState.value = ReceiversUiState(
+                    isLoading = false,
+                    objectId = objectId,
+                    fetchedAt = Instant.now(),
+                    cards = receivers.map { r ->
+                        val chamber = points(r.chamber_sensor_id)
+                        ReceiverCard(
+                            r,
+                            chamber,
+                            tempStats(chamber.map { it.value }),
+                            alarm = r.chamber_sensor_id in alarmedSensors || r.evaporator_sensor_id in alarmedSensors,
+                        )
+                    },
+                )
             }
-            _uiState.value = ReceiversUiState(
-                isLoading = false,
-                objectId = objectId,
-                fetchedAt = Instant.now(),
-                cards = receivers.map { r ->
-                    val chamber = points(r.chamber_sensor_id)
-                    ReceiverCard(
-                        r,
-                        chamber,
-                        tempStats(chamber.map { it.value }),
-                        alarm = r.chamber_sensor_id in alarmedSensors || r.evaporator_sensor_id in alarmedSensors,
-                    )
-                },
-            )
+
+            // Only the chamber is charted; the evaporator is shown as its current reading.
+            val sensorIds = receivers.mapNotNull { it.chamber_sensor_id }.toSet()
+            val now = Instant.now()
+            if (historyObjectId != objectId || !history.keys.containsAll(sensorIds) ||
+                Duration.between(historyFetchedAt, now).toMinutes() >= 5
+            ) {
+                // Show the rooms and their readings straight away; the charts follow.
+                if (historyObjectId != objectId) history = emptyMap()
+                publish()
+                val fetched = sensorIds.map { id ->
+                    async { id to ((objectRepository.history(id, 24, targetPoints = 144) as? ApiResult.Success)?.data) }
+                }.awaitAll().mapNotNull { (id, data) -> data?.let { id to it } }.toMap()
+                if (selectedObjectStore.selectedId.value != stored) return@launch
+                history = fetched
+                historyObjectId = objectId
+                historyFetchedAt = now
+            }
+            publish()
         }
     }
 }

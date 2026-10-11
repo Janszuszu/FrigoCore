@@ -8,6 +8,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import pl.frigocore.service.data.local.SelectedObjectStore
 import pl.frigocore.service.data.model.AlarmResponse
@@ -111,6 +112,14 @@ class OverviewViewModel @Inject constructor(
     private var historyObjectId: String? = null
     private var historyFetchedAt: Instant = Instant.EPOCH
 
+    init {
+        // Another object picked: drop this one's sensors at once instead of
+        // showing them until the new object's data arrives.
+        viewModelScope.launch {
+            selectedObjectStore.selectedId.drop(1).collect { _uiState.value = OverviewUiState() }
+        }
+    }
+
     fun refresh() {
         viewModelScope.launch {
             val objectsJob = async { objectRepository.listObjects() }
@@ -140,30 +149,38 @@ class OverviewViewModel @Inject constructor(
                 .filter { it.is_active }
                 .sortedWith(compareBy({ it.display_order }, { it.name }))
 
-            val now = Instant.now()
-            if (historyObjectId != selectedId || Duration.between(historyFetchedAt, now).toMinutes() >= 5) {
-                history = sensors.map { s ->
-                    async { s.id to ((objectRepository.history(s.id, 24, targetPoints = 144) as? ApiResult.Success)?.data) }
-                }.awaitAll().mapNotNull { (id, data) -> data?.let { id to it } }.toMap()
-                historyObjectId = selectedId
-                historyFetchedAt = now
-            }
-
             // A different object picked while this poll was in flight makes it stale.
             if (selectedObjectStore.selectedId.value != stored) return@launch
 
-            _uiState.value = OverviewUiState(
-                isLoading = false,
-                objects = objects,
-                selectedObjectId = selectedId,
-                openAlarms = openAlarms,
-                cards = alarmsFirst(sensors.map { sensor ->
-                    val points = history[sensor.id].orEmpty().mapNotNull { m ->
-                        Formatters.parseInstant(m.received_at)?.let { ChartPoint(it, m.temperature) }
-                    }
-                    SensorCard(sensor, sensorStatus(sensor, openAlarms, now), tempStats(points.map { it.value }), points)
-                }),
-            )
+            val now = Instant.now()
+            fun publish() {
+                _uiState.value = OverviewUiState(
+                    isLoading = false,
+                    objects = objects,
+                    selectedObjectId = selectedId,
+                    openAlarms = openAlarms,
+                    cards = alarmsFirst(sensors.map { sensor ->
+                        val points = history[sensor.id].orEmpty().mapNotNull { m ->
+                            Formatters.parseInstant(m.received_at)?.let { ChartPoint(it, m.temperature) }
+                        }
+                        SensorCard(sensor, sensorStatus(sensor, openAlarms, now), tempStats(points.map { it.value }), points)
+                    }),
+                )
+            }
+
+            if (historyObjectId != selectedId || Duration.between(historyFetchedAt, now).toMinutes() >= 5) {
+                // Show the sensors and their readings straight away; the charts follow.
+                if (historyObjectId != selectedId) history = emptyMap()
+                publish()
+                val fetched = sensors.map { s ->
+                    async { s.id to ((objectRepository.history(s.id, 24, targetPoints = 144) as? ApiResult.Success)?.data) }
+                }.awaitAll().mapNotNull { (id, data) -> data?.let { id to it } }.toMap()
+                if (selectedObjectStore.selectedId.value != stored) return@launch
+                history = fetched
+                historyObjectId = selectedId
+                historyFetchedAt = now
+            }
+            publish()
         }
     }
 }

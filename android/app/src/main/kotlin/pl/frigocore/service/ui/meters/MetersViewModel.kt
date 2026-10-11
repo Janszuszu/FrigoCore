@@ -7,6 +7,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import pl.frigocore.service.data.local.SelectedObjectStore
 import pl.frigocore.service.data.model.Consumption
@@ -87,6 +88,14 @@ class MetersViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(MetersUiState())
     val uiState: StateFlow<MetersUiState> = _uiState.asStateFlow()
+
+    init {
+        // Another object picked: drop this one's meters at once instead of
+        // showing them until the new object's data arrives.
+        viewModelScope.launch {
+            selectedObjectStore.selectedId.drop(1).collect { _uiState.value = MetersUiState() }
+        }
+    }
 
     fun refresh() {
         viewModelScope.launch {

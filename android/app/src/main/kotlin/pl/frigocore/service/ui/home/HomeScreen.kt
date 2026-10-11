@@ -39,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,6 +111,7 @@ private object HomeRoutes {
     const val RECEIVERS = "devices/receivers"
     const val AGGREGATES = "devices/aggregates"
     const val METERS = "devices/meters"
+    val DEVICES = setOf(RECEIVERS, AGGREGATES, METERS)
     const val OBJECTS = "objects"
     const val ALARMS = "alarms"
     const val SENSOR = "sensor/{objectId}/{sensorId}?name={name}"
@@ -132,6 +134,9 @@ fun HomeScreen(
     val chrome = route != HomeRoutes.SENSOR
     var menuOpen by remember { mutableStateOf(false) }
     var devicesOpen by remember { mutableStateOf(false) }
+    // Picking another object returns to the device list that was open.
+    var devicesRoute by rememberSaveable { mutableStateOf(HomeRoutes.RECEIVERS) }
+    LaunchedEffect(route) { if (route in HomeRoutes.DEVICES) devicesRoute = route!! }
 
     Scaffold(
         containerColor = FrigoBackground,
@@ -160,7 +165,7 @@ fun HomeScreen(
                         )
                         // Devices are grouped by type; the button opens the picker.
                         NavigationBarItem(
-                            selected = route in setOf(HomeRoutes.RECEIVERS, HomeRoutes.AGGREGATES, HomeRoutes.METERS),
+                            selected = route in HomeRoutes.DEVICES,
                             onClick = { devicesOpen = true },
                             icon = { Icon(Icons.Outlined.Kitchen, contentDescription = null) },
                             label = { Text("Urządzenia") },
@@ -209,7 +214,7 @@ fun HomeScreen(
             composable(HomeRoutes.OBJECTS) {
                 ObjectsScreen(onObjectClick = {
                     viewModel.selectObject(it.id)
-                    navController.switchTab(HomeRoutes.RECEIVERS)
+                    navController.switchTab(devicesRoute)
                 })
             }
             composable(HomeRoutes.ALARMS) {

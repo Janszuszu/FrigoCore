@@ -1118,7 +1118,7 @@ async def list_measurements(
 MAX_AGGREGATION_ROWS = 100_000
 
 
-def _decimate_measurements(rows: list[Measurement], target_points: int) -> list[Measurement]:
+def _decimate_measurements(rows: list, target_points: int) -> list:
     """Reduce `rows` (ascending by received_at) to ~target_points by taking
     the min and max temperature per time bucket, preserving real excursions
     instead of averaging them away. Mirrors the chart's original
@@ -1127,7 +1127,7 @@ def _decimate_measurements(rows: list[Measurement], target_points: int) -> list[
     if len(rows) <= target_points:
         return rows
     bucket_size = math.ceil(len(rows) / max(target_points / 2, 1))
-    result: list[Measurement] = []
+    result: list = []
     for i in range(0, len(rows), bucket_size):
         bucket = rows[i : i + bucket_size]
         if not bucket:
@@ -1153,7 +1153,7 @@ async def list_measurements_aggregated(
     target_points: int = Query(80, ge=10, le=200),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> list[Measurement]:
+) -> list[MeasurementResponse]:
     """Chart data endpoint. Aggregates readings in [since, until] down to
     ~target_points columns instead of returning a fixed number of raw
     points — the frontend sizes target_points from its actual rendered
@@ -1162,8 +1162,11 @@ async def list_measurements_aggregated(
     """
     await _visible_sensor_or_404(db, sensor_id, user)
     until_dt = until or datetime.now(timezone.utc)
+    # Plain column rows, not ORM entities: a busy sensor has ~17k readings a
+    # day, and building that many Measurement objects only to keep ~150 of
+    # them took most of a second per chart.
     result = await db.execute(
-        select(Measurement)
+        select(Measurement.id, Measurement.temperature, Measurement.received_at, Measurement.sensor_id)
         .where(
             Measurement.sensor_id == sensor_id,
             Measurement.received_at >= since,
@@ -1172,8 +1175,8 @@ async def list_measurements_aggregated(
         .order_by(Measurement.received_at.asc())
         .limit(MAX_AGGREGATION_ROWS)
     )
-    rows = list(result.scalars().all())
-    decimated = _decimate_measurements(rows, target_points)
+    rows = list(result.all())
+    decimated = [MeasurementResponse.model_validate(r) for r in _decimate_measurements(rows, target_points)]
     # The plain /measurements endpoint returns newest-first, and the
     # frontend's readings computed (DashboardView.vue) always .reverse()s
     # that into oldest-first before handing it to the chart. Match that
