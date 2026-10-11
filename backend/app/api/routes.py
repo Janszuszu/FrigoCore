@@ -5,7 +5,6 @@ OpenAPI documented, Pydantic-validated, async SQLAlchemy.
 
 from __future__ import annotations
 
-import math
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -1118,33 +1117,6 @@ async def list_measurements(
 MAX_AGGREGATION_ROWS = 100_000
 
 
-def _decimate_measurements(rows: list, target_points: int) -> list:
-    """Reduce `rows` (ascending by received_at) to ~target_points by taking
-    the min and max temperature per time bucket, preserving real excursions
-    instead of averaging them away. Mirrors the chart's original
-    client-side decimation, now run server-side so the frontend never has
-    to fetch more than it will actually render."""
-    if len(rows) <= target_points:
-        return rows
-    bucket_size = math.ceil(len(rows) / max(target_points / 2, 1))
-    result: list = []
-    for i in range(0, len(rows), bucket_size):
-        bucket = rows[i : i + bucket_size]
-        if not bucket:
-            continue
-        min_r = min(bucket, key=lambda r: r.temperature)
-        max_r = max(bucket, key=lambda r: r.temperature)
-        if min_r is max_r:
-            result.append(min_r)
-        elif min_r.received_at <= max_r.received_at:
-            result.append(min_r)
-            result.append(max_r)
-        else:
-            result.append(max_r)
-            result.append(min_r)
-    return result
-
-
 @measurements_router.get("/{sensor_id}/measurements/aggregated", response_model=list[MeasurementResponse])
 async def list_measurements_aggregated(
     sensor_id: UUID,
@@ -1162,10 +1134,14 @@ async def list_measurements_aggregated(
     """
     await _visible_sensor_or_404(db, sensor_id, user)
     until_dt = until or datetime.now(timezone.utc)
-    # Plain column rows, not ORM entities: a busy sensor has ~17k readings a
-    # day, and building that many Measurement objects only to keep ~150 of
-    # them took most of a second per chart.
-    result = await db.execute(
+    # The database thins the readings out itself: a busy sensor has ~17k a
+    # day, and shipping them all to Python only to keep ~150 cost most of a
+    # second per chart. The window is cut into target_points / 2 buckets of
+    # equal reading counts, and each bucket keeps its lowest and highest
+    # reading (one row when they coincide), so real excursions survive
+    # instead of being averaged away. A window with no more readings than
+    # target_points comes back whole.
+    readings = (
         select(Measurement.id, Measurement.temperature, Measurement.received_at, Measurement.sensor_id)
         .where(
             Measurement.sensor_id == sensor_id,
@@ -1174,9 +1150,27 @@ async def list_measurements_aggregated(
         )
         .order_by(Measurement.received_at.asc())
         .limit(MAX_AGGREGATION_ROWS)
+        .subquery()
     )
-    rows = list(result.all())
-    decimated = [MeasurementResponse.model_validate(r) for r in _decimate_measurements(rows, target_points)]
+    buckets = select(
+        readings,
+        func.ntile(max(target_points // 2, 1)).over(order_by=readings.c.received_at).label("bucket"),
+    ).subquery()
+    ranked = select(
+        buckets,
+        func.row_number().over(
+            partition_by=buckets.c.bucket, order_by=(buckets.c.temperature.asc(), buckets.c.received_at)
+        ).label("low"),
+        func.row_number().over(
+            partition_by=buckets.c.bucket, order_by=(buckets.c.temperature.desc(), buckets.c.received_at)
+        ).label("high"),
+    ).subquery()
+    result = await db.execute(
+        select(ranked.c.id, ranked.c.temperature, ranked.c.received_at, ranked.c.sensor_id)
+        .where((ranked.c.low == 1) | (ranked.c.high == 1))
+        .order_by(ranked.c.received_at.asc())
+    )
+    decimated = [MeasurementResponse.model_validate(r) for r in result.all()]
     # The plain /measurements endpoint returns newest-first, and the
     # frontend's readings computed (DashboardView.vue) always .reverse()s
     # that into oldest-first before handing it to the chart. Match that

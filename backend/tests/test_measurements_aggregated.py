@@ -41,3 +41,23 @@ async def test_aggregated_keeps_extremes_newest_first(client, db_session, make_u
     assert times == sorted(times, reverse=True)
     assert {"id", "temperature", "received_at", "sensor_id"} <= points[0].keys()
     assert points[0]["sensor_id"] == str(sensor.id)
+
+
+@pytest.mark.asyncio
+async def test_aggregated_returns_a_small_window_whole(client, db_session, make_user):
+    user = await make_user(UserRole.ADMIN)
+    obj = await make_object(db_session)
+    sensor = Sensor(name="Komora", mqtt_topic="frigo/t/few", object_id=obj.id)
+    db_session.add(sensor)
+    await db_session.flush()
+    start = datetime.now(timezone.utc) - timedelta(minutes=30)
+    for i in range(15):
+        db_session.add(Measurement(sensor_id=sensor.id, temperature=float(i), received_at=start + timedelta(minutes=i)))
+    await db_session.commit()
+
+    resp = await client.get(
+        f"/api/v1/sensors/{sensor.id}/measurements/aggregated",
+        params={"since": (start - timedelta(minutes=1)).isoformat(), "target_points": 20},
+        headers=auth_headers(user),
+    )
+    assert [p["temperature"] for p in resp.json()] == [float(i) for i in reversed(range(15))]
