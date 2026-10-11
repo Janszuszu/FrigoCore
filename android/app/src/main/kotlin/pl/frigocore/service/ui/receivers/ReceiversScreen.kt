@@ -35,7 +35,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -262,47 +261,61 @@ private fun StateIcon(look: StateLook) {
     Icon(look.icon, contentDescription = look.label, tint = look.color, modifier = Modifier.size(26.dp))
 }
 
-/** Two stopwatches for the refrigeration cycle: blue times the cooling
- * (from cut-in to cut-out), green the idle that follows. The running one
- * counts on, the other keeps its last run, dimmed, until its turn. Each
- * phase's end temperature sits on its outer side, unlabelled: the cut-out
- * before the blue one, the cut-in after the green one. */
+/** Idle in the stopwatch row: a pale ice blue beside the brand blue of
+ * cooling (the user wanted shades of blue there, not green). */
+private val IdleBlue = Color(0xFF9ADCF7)
+
+/** The refrigeration cycle on one line with a single stopwatch icon in
+ * the exact middle, brand blue while cooling and pale blue while idle. Left of it the
+ * cooling time (cut-in to cut-out) with the cut-out temperature, right of it
+ * the idle time with the cut-in temperature, both in brackets. The running time counts on in
+ * full colour; the other keeps its last run, dimmed. Both halves take equal
+ * width, so the icon never moves and growing times push outwards. */
 @Composable
 private fun Stopwatches(receiver: ReceiverResponse, elapsedSinceFetch: Long) {
     val phase = receiver.cycle_phase
+    val cooling = phase == "cooling"
+    val idle = phase == "idle"
     fun running(seconds: Long?, isRunning: Boolean) = if (isRunning && seconds != null) seconds + elapsedSinceFetch else seconds
-    Row(
-        Modifier.fillMaxWidth().padding(top = 12.dp).height(IntrinsicSize.Min),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        receiver.cut_out?.let { Threshold(it, FrigoAccent) }
-        Stopwatch(running(receiver.cooling_seconds, phase == "cooling"), FrigoAccent, active = phase == "cooling", label = "Chłodzenie")
-        VerticalDivider(Modifier.padding(horizontal = 12.dp, vertical = 2.dp), thickness = 1.5.dp, color = FrigoTextMuted.copy(alpha = 0.5f))
-        Stopwatch(running(receiver.idle_seconds, phase == "idle"), FrigoOk, active = phase == "idle", label = "Postój")
-        receiver.cut_in?.let { Threshold(it, FrigoOk, before = false) }
+    fun tint(color: Color, active: Boolean) = if (active) color else color.copy(alpha = 0.45f)
+    val iconTint = when {
+        cooling -> FrigoAccent
+        idle -> IdleBlue
+        else -> FrigoTextMuted
+    }
+    Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            receiver.cut_out?.let { Threshold(it, FrigoAccent) }
+            Spacer(Modifier.width(8.dp))
+            CycleTime(running(receiver.cooling_seconds, cooling), tint(FrigoAccent, cooling))
+        }
+        Icon(
+            Icons.Outlined.Timer,
+            contentDescription = if (cooling) "Chłodzenie" else if (idle) "Postój" else null,
+            tint = iconTint,
+            modifier = Modifier.padding(horizontal = 10.dp).size(22.dp),
+        )
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+            CycleTime(running(receiver.idle_seconds, idle), tint(IdleBlue, idle))
+            Spacer(Modifier.width(8.dp))
+            receiver.cut_in?.let { Threshold(it, IdleBlue) }
+        }
     }
 }
 
 @Composable
-private fun Stopwatch(seconds: Long?, color: Color, active: Boolean, label: String) {
-    val tint = if (active) color else color.copy(alpha = 0.45f)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Outlined.Timer, contentDescription = label, tint = tint, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(5.dp))
-        Text(stopwatch(seconds), color = tint, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, style = TabularNumbers)
-    }
+private fun CycleTime(seconds: Long?, color: Color) {
+    Text(stopwatch(seconds), color = color, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, style = TabularNumbers)
 }
 
-/** A cut-out / cut-in temperature beside its stopwatch, in its colour. */
+/** A cut-out / cut-in temperature beside its time, in brackets, in its colour. */
 @Composable
-private fun Threshold(value: Double, color: Color, before: Boolean = true) {
+private fun Threshold(value: Double, color: Color) {
     Text(
-        Formatters.temperature(value),
+        "(${Formatters.temperature(value)})",
         color = color.copy(alpha = 0.75f),
         fontSize = 13.sp,
         maxLines = 1,
         style = TabularNumbers,
-        modifier = Modifier.padding(start = if (before) 0.dp else 8.dp, end = if (before) 8.dp else 0.dp),
     )
 }
