@@ -89,6 +89,8 @@ data class AggregateResponse(
     val refrigerant_charge_kg: Double? = null,
     /** ISO date, YYYY-MM-DD. */
     val installed_on: String? = null,
+    /** Rated cooling capacity, kW. */
+    val cooling_capacity_kw: Double? = null,
     val sensor_ids: List<String> = emptyList(),
     val display_order: Int = 0,
     val is_active: Boolean = true,

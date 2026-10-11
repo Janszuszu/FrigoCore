@@ -35,7 +35,7 @@ async def test_admin_creates_aggregate_and_owner_sees_it(client, db_session, mak
     resp = await client.post(
         f"/api/v1/objects/{obj.id}/aggregates",
         json={"name": "Agregat mroźni", "compressor_model": "Bitzer 4FES-5Y", "refrigerant": "R404A",
-              "refrigerant_charge_kg": 6.5, "installed_on": "2019-05-14",
+              "refrigerant_charge_kg": 6.5, "installed_on": "2019-05-14", "cooling_capacity_kw": 5.8,
               "sensor_ids": [str(discharge.id), str(outdoor.id)]},
         headers=auth_headers(admin),
     )
@@ -49,6 +49,7 @@ async def test_admin_creates_aggregate_and_owner_sees_it(client, db_session, mak
     assert aggregate["refrigerant"] == "R404A"
     assert aggregate["refrigerant_charge_kg"] == 6.5
     assert aggregate["installed_on"] == "2019-05-14"
+    assert aggregate["cooling_capacity_kw"] == 5.8
     # The technician's order is kept.
     assert aggregate["sensor_ids"] == [str(discharge.id), str(outdoor.id)]
 
@@ -89,6 +90,7 @@ async def test_aggregate_validation_and_reordering(client, db_session, make_user
         {"name": "X", "sensor_ids": [str(obcy.id)]},
         {"name": "X", "sensor_ids": [str(a.id), str(a.id)]},
         {"name": "X", "refrigerant_charge_kg": -1},
+        {"name": "X", "cooling_capacity_kw": -2},
         {"name": ""},
     ):
         assert (await client.post(url, json=body, headers=headers)).status_code in (400, 422), body

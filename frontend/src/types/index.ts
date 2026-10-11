@@ -74,6 +74,8 @@ export interface AggregateItem {
   refrigerant_charge_kg: number | null;
   /** ISO date, YYYY-MM-DD. */
   installed_on: string | null;
+  /** Rated cooling capacity, kW. */
+  cooling_capacity_kw: number | null;
   sensor_ids: string[];
   display_order: number;
   is_active: boolean;
@@ -85,6 +87,8 @@ export interface AggregateInput {
   refrigerant: string | null;
   refrigerant_charge_kg: number | null;
   installed_on: string | null;
+  /** Rated cooling capacity, kW. */
+  cooling_capacity_kw: number | null;
   sensor_ids: string[];
   is_active: boolean;
 }

@@ -169,6 +169,7 @@ class AggregateCreate(BaseModel):
     refrigerant: str | None = Field(None, max_length=64)
     refrigerant_charge_kg: float | None = Field(None, ge=0, le=10000)
     installed_on: date | None = None
+    cooling_capacity_kw: float | None = Field(None, ge=0, le=10000)
     sensor_ids: list[UUID] = Field(default_factory=list, max_length=AGGREGATE_MAX_SENSORS)
     is_active: bool = True
 
@@ -179,6 +180,7 @@ class AggregateUpdate(BaseModel):
     refrigerant: str | None = Field(None, max_length=64)
     refrigerant_charge_kg: float | None = Field(None, ge=0, le=10000)
     installed_on: date | None = None
+    cooling_capacity_kw: float | None = Field(None, ge=0, le=10000)
     sensor_ids: list[UUID] | None = Field(None, max_length=AGGREGATE_MAX_SENSORS)
     display_order: int | None = Field(None, ge=0, le=9999)
     is_active: bool | None = None
@@ -196,6 +198,7 @@ class AggregateResponse(BaseModel):
     refrigerant: str | None
     refrigerant_charge_kg: float | None
     installed_on: date | None
+    cooling_capacity_kw: float | None
     sensor_ids: list[UUID]
     display_order: int
     is_active: bool

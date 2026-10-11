@@ -16,9 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -60,7 +57,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** Urządzenia → Agregaty. A single aggregate opens straight away; several
- * are offered as tiles first. An aggregate shows its nameplate on top and
+ * are offered first as full-width tiles, one under another. An aggregate shows its nameplate on top and
  * its sensors below as slim rows that unfold into the 24 h chart. */
 @Composable
 fun AggregatesScreen(
@@ -82,11 +79,9 @@ fun AggregatesScreen(
         uiState.isLoading && aggregates.isEmpty() -> LoadingState()
         uiState.error != null && aggregates.isEmpty() -> MessageState(uiState.error.orEmpty(), viewModel::refresh)
         aggregates.isEmpty() -> MessageState("Ten obiekt nie ma jeszcze agregatów.")
-        selected == null -> LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+        selected == null -> LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
             contentPadding = PaddingValues(top = 10.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(aggregates, key = { it.aggregate.id }) { card ->
@@ -165,8 +160,8 @@ private fun AggregateTile(card: AggregateCard, onClick: () -> Unit) {
     }
 }
 
-/** Name on top, then compressor, refrigerant and its charge, and the
- * installation date. [onBack] returns to the tiles when there are several. */
+/** Name on top, then compressor and its cooling capacity, refrigerant and
+ * its charge, and the installation date. [onBack] returns to the tiles when there are several. */
 @Composable
 private fun Nameplate(aggregate: AggregateResponse, onBack: (() -> Unit)?) {
     Card(
@@ -196,13 +191,15 @@ private fun Nameplate(aggregate: AggregateResponse, onBack: (() -> Unit)?) {
             Spacer(Modifier.height(6.dp))
             Row(Modifier.fillMaxWidth()) {
                 Fact("Model sprężarki", aggregate.compressor_model, Modifier.weight(1f))
-                Fact("Data instalacji", aggregate.installed_on?.let(::formatDate), Modifier.weight(1f))
+                Fact("Moc chłodnicza", aggregate.cooling_capacity_kw?.let { formatAmount(it, "kW") }, Modifier.weight(1f))
             }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth()) {
                 Fact("Czynnik", aggregate.refrigerant, Modifier.weight(1f))
-                Fact("Ilość czynnika", aggregate.refrigerant_charge_kg?.let(::formatKilograms), Modifier.weight(1f))
+                Fact("Ilość czynnika", aggregate.refrigerant_charge_kg?.let { formatAmount(it, "kg") }, Modifier.weight(1f))
             }
+            Spacer(Modifier.height(8.dp))
+            Fact("Data instalacji", aggregate.installed_on?.let(::formatDate))
         }
     }
 }
@@ -228,8 +225,8 @@ private val dateFormat = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 internal fun formatDate(iso: String): String =
     runCatching { LocalDate.parse(iso).format(dateFormat) }.getOrDefault(iso)
 
-/** 4.2 → "4,2 kg", 6.0 → "6 kg". */
-internal fun formatKilograms(kg: Double): String {
-    val text = "%.2f".format(Locale.ROOT, kg).trimEnd('0').trimEnd('.')
-    return "${text.replace('.', ',')} kg"
+/** (4.2, "kg") → "4,2 kg", (6.0, "kW") → "6 kW". */
+internal fun formatAmount(value: Double, unit: String): String {
+    val text = "%.2f".format(Locale.ROOT, value).trimEnd('0').trimEnd('.')
+    return "${text.replace('.', ',')} $unit"
 }

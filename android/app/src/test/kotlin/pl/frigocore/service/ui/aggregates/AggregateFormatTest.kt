@@ -9,11 +9,11 @@ import pl.frigocore.service.data.model.AggregateResponse
 class AggregateFormatTest {
 
     @Test
-    fun `refrigerant charge in Polish notation without trailing zeros`() {
-        assertEquals("4,2 kg", formatKilograms(4.2))
-        assertEquals("6 kg", formatKilograms(6.0))
-        assertEquals("0,25 kg", formatKilograms(0.25))
-        assertEquals("5 kg", formatKilograms(4.999))
+    fun `amounts in Polish notation without trailing zeros`() {
+        assertEquals("4,2 kg", formatAmount(4.2, "kg"))
+        assertEquals("6 kW", formatAmount(6.0, "kW"))
+        assertEquals("0,25 kg", formatAmount(0.25, "kg"))
+        assertEquals("5 kg", formatAmount(4.999, "kg"))
     }
 
     @Test
@@ -26,10 +26,11 @@ class AggregateFormatTest {
     fun `backend aggregate parses with optional nameplate fields missing`() {
         val json = Json { ignoreUnknownKeys = true }
         val aggregate = json.decodeFromString<AggregateResponse>(
-            """{"id":"a1","name":"Agregat","object_id":"o1","compressor_model":null,
+            """{"id":"a1","name":"Agregat","object_id":"o1","compressor_model":null,"cooling_capacity_kw":5.8,
                "sensor_ids":["s2","s1"],"display_order":0,"is_active":true,"created_at":"x"}""",
         )
         assertEquals(listOf("s2", "s1"), aggregate.sensor_ids)
         assertNull(aggregate.refrigerant_charge_kg)
+        assertEquals(5.8, aggregate.cooling_capacity_kw!!, 0.0)
     }
 }

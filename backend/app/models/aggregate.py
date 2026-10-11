@@ -1,11 +1,11 @@
 """FrigoCore — Aggregate (agregat) model.
 
 An aggregate is a condensing unit as the service technician knows it: its
-nameplate data (compressor model, refrigerant and its charge, installation
-date) plus a hand-picked group of the object's sensors — outdoor
-temperature, discharge or suction line and so on. An object may have
-several aggregates, and one sensor (typically the outdoor one) may belong to
-more than one of them.
+nameplate data (compressor model, cooling capacity, refrigerant and its
+charge, installation date) plus a hand-picked group of the object's
+sensors — outdoor temperature, discharge or suction line and so on. An
+object may have several aggregates, and one sensor (typically the outdoor
+one) may belong to more than one of them.
 
 Like receivers, aggregates are presentation only — alarms keep using each
 sensor's own AlarmConfig thresholds.
@@ -40,6 +40,9 @@ class Aggregate(Base, UUIDMixin, TimestampMixin):
     )
     refrigerant_charge_kg: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     installed_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    cooling_capacity_kw: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True, comment="Rated cooling capacity, kW"
+    )
 
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)

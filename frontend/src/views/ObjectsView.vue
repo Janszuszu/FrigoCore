@@ -323,6 +323,7 @@ async function loadAggregates(objectId: string) {
 // Form fields stay text until saved, like the receiver form.
 type AggregateDraft = Pick<AggregateInput, "name" | "sensor_ids" | "is_active"> & {
   compressor_model: string;
+  cooling_capacity_kw: string;
   refrigerant: string;
   refrigerant_charge_kg: string;
   installed_on: string;
@@ -341,6 +342,7 @@ function openAggregate(objectId: string, aggregate: AggregateItem | null) {
     draft: {
       name: aggregate?.name ?? "",
       compressor_model: aggregate?.compressor_model ?? "",
+      cooling_capacity_kw: aggregate?.cooling_capacity_kw == null ? "" : String(aggregate.cooling_capacity_kw),
       refrigerant: aggregate?.refrigerant ?? "",
       refrigerant_charge_kg: aggregate?.refrigerant_charge_kg == null ? "" : String(aggregate.refrigerant_charge_kg),
       installed_on: aggregate?.installed_on ?? "",
@@ -381,9 +383,15 @@ async function saveAggregate() {
     aggregateError.value = "Ilość czynnika wpisz jako liczbę kilogramów, np. 6,5";
     return;
   }
+  const capacity = parseDegrees(d.cooling_capacity_kw);
+  if (capacity != null && (Number.isNaN(capacity) || capacity < 0)) {
+    aggregateError.value = "Moc chłodniczą wpisz jako liczbę kilowatów, np. 5,8";
+    return;
+  }
   const data: AggregateInput = {
     name: d.name.trim(),
     compressor_model: d.compressor_model.trim() || null,
+    cooling_capacity_kw: capacity,
     refrigerant: d.refrigerant.trim() || null,
     refrigerant_charge_kg: charge,
     installed_on: d.installed_on || null,
@@ -616,6 +624,7 @@ onMounted(async () => {
               <tr>
                 <th class="col-name">Agregat</th>
                 <th>Sprężarka</th>
+                <th>Moc chł.</th>
                 <th>Czynnik</th>
                 <th>Instalacja</th>
                 <th>Czujniki</th>
@@ -626,6 +635,7 @@ onMounted(async () => {
               <tr v-for="aggregate in aggregatesOf(object.id)" :key="aggregate.id" :class="{ inactive: !aggregate.is_active }">
                 <td class="col-name"><span>{{ aggregate.name }}</span></td>
                 <td>{{ aggregate.compressor_model || "—" }}</td>
+                <td>{{ aggregate.cooling_capacity_kw != null ? `${aggregate.cooling_capacity_kw.toLocaleString("pl-PL")} kW` : "—" }}</td>
                 <td>
                   {{ aggregate.refrigerant || "—" }}<template v-if="aggregate.refrigerant_charge_kg != null">, {{ aggregate.refrigerant_charge_kg.toLocaleString("pl-PL") }} kg</template>
                 </td>
@@ -641,7 +651,7 @@ onMounted(async () => {
                 </td>
               </tr>
               <tr v-if="!aggregatesOf(object.id).length">
-                <td colspan="6" class="no-sensors">Brak agregatów — dodaj agregat i wybierz jego czujniki</td>
+                <td colspan="7" class="no-sensors">Brak agregatów — dodaj agregat i wybierz jego czujniki</td>
               </tr>
             </tbody>
           </table>
@@ -743,10 +753,16 @@ onMounted(async () => {
           Nazwa
           <input v-model="aggregateEdit.draft.name" placeholder="Agregat mroźni" required />
         </label>
-        <label>
-          Model sprężarki
-          <input v-model="aggregateEdit.draft.compressor_model" placeholder="Bitzer 4FES-5Y" />
-        </label>
+        <div class="pair">
+          <label>
+            Model sprężarki
+            <input v-model="aggregateEdit.draft.compressor_model" placeholder="Bitzer 4FES-5Y" />
+          </label>
+          <label>
+            Moc chłodnicza, kW
+            <input v-model="aggregateEdit.draft.cooling_capacity_kw" inputmode="decimal" placeholder="5,8" />
+          </label>
+        </div>
         <div class="pair">
           <label>
             Czynnik
