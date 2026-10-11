@@ -15,6 +15,7 @@ import pl.frigocore.service.data.repository.ObjectRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 import javax.inject.Inject
@@ -52,6 +53,16 @@ private fun Consumption.byDay(): Map<LocalDate, Double> =
 /** "4,2 kWh"; one decimal is plenty for consumption. */
 internal fun kwh(value: Double?): String =
     if (value == null) "—" else String.format(Locale.forLanguageTag("pl"), "%.1f kWh", value)
+
+private val weekdays = listOf("Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd")
+
+/** "Pn" … "Nd" under the week's bars. */
+internal fun weekdayLabel(day: LocalDate): String = weekdays[day.dayOfWeek.value - 1]
+
+private val dayTitleFormat = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.forLanguageTag("pl"))
+
+/** "środa 1 października" above the chart for a tapped bar. */
+internal fun dayTitle(day: LocalDate): String = day.format(dayTitleFormat)
 
 /** Monday to Sunday of [today]'s week. */
 internal fun weekBars(consumption: Consumption, today: LocalDate): List<DayBar> {

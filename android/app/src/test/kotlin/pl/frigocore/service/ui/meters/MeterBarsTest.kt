@@ -9,7 +9,7 @@ import java.time.LocalDate
 
 class MeterBarsTest {
 
-    // Wednesday 1 October 2026: the week began on Monday 29 September.
+    // Thursday 1 October 2026: the week began on Monday 28 September.
     private val today = LocalDate.of(2026, 10, 1)
     private val used = Consumption(
         days = listOf(EnergyDay("2026-09-29", 3.5), EnergyDay("2026-10-01", 1.25)),
@@ -32,6 +32,19 @@ class MeterBarsTest {
         assertEquals(31, bars.size)
         assertEquals(1.25, bars.first().kwh!!, 0.0)
         assertNull(bars.last().kwh)
+    }
+
+    @Test
+    fun `day labels in Polish`() {
+        assertEquals(listOf("Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"), weekBars(used, today).map { weekdayLabel(it.day) })
+        assertEquals("czwartek 1 października", dayTitle(today))
+    }
+
+    @Test
+    fun `screen file initialises`() {
+        // Its top-level values are created on first open — an invalid
+        // formatter there crashed the app as soon as Liczniki was tapped.
+        Class.forName("pl.frigocore.service.ui.meters.MetersScreenKt")
     }
 
     @Test

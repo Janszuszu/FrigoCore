@@ -67,7 +67,6 @@ import pl.frigocore.service.ui.theme.FrigoText
 import pl.frigocore.service.ui.theme.FrigoTextMuted
 import pl.frigocore.service.ui.theme.TabularNumbers
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** Urządzenia → Liczniki. A single meter opens straight away; several are
@@ -221,9 +220,6 @@ private fun Periods(card: MeterCard) {
     }
 }
 
-private val weekdayFormat = DateTimeFormatter.ofPattern("EEEEEE", Locale.forLanguageTag("pl"))
-private val dayMonthFormat = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.forLanguageTag("pl"))
-
 @OptIn(ExperimentalMaterial3Api::class)
 /** Bars per day — this week (Monday to Sunday) or this month. Tapping a bar
  * names its day and its consumption above the chart. */
@@ -258,7 +254,7 @@ private fun UsageChartCard(card: MeterCard) {
             Spacer(Modifier.height(10.dp))
             val shown = picked
             Text(
-                if (shown != null) "${shown.day.format(dayMonthFormat)}: ${kwh(shown.kwh)}"
+                if (shown != null) "${dayTitle(shown.day)}: ${kwh(shown.kwh)}"
                 else "Suma: ${kwh(bars.mapNotNull { it.kwh }.takeIf { it.isNotEmpty() }?.sum())}",
                 color = FrigoAccent,
                 fontWeight = FontWeight.Bold,
@@ -329,7 +325,7 @@ private fun DayBars(
             }
             val n = bar.day.dayOfMonth
             if (labelEvery == 1 || n == 1 || n % labelEvery == 0) {
-                val text = if (labelEvery == 1) bar.day.format(weekdayFormat).replaceFirstChar { it.uppercase() } else "$n"
+                val text = if (labelEvery == 1) weekdayLabel(bar.day) else "$n"
                 val label = textMeasurer.measure(text, if (bar.day == today) labelStyle.copy(color = FrigoAccent) else labelStyle)
                 drawText(label, topLeft = Offset(cx - label.size.width / 2, size.height - label.size.height))
             }
