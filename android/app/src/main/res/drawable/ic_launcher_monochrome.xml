@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FrigoCore mark: a cube framed by viewfinder corners, as in the app header. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.6" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M54.00,39.50L66.56,46.75L66.56,61.25L54.00,68.50L41.44,61.25L41.44,46.75Z M41.44,46.75L54,54L66.56,46.75 M54,54L54.00,68.50" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.6" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M33,43V33H43 M65,33H75V43 M75,65V75H65 M43,75H33V65" />
+</vector>
