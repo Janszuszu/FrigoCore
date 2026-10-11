@@ -4,7 +4,6 @@ import pl.frigocore.service.ui.theme.TabularNumbers
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,6 +63,7 @@ import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.common.LoadingState
 import pl.frigocore.service.ui.common.MessageState
 import pl.frigocore.service.ui.common.PollWhileVisible
+import pl.frigocore.service.ui.common.quietClickable
 import pl.frigocore.service.ui.sensor.ChartPoint
 import pl.frigocore.service.ui.theme.FrigoAccent
 import pl.frigocore.service.ui.theme.FrigoCritical
@@ -165,11 +165,10 @@ internal fun SensorCardView(card: SensorCard, expanded: Boolean, onToggle: () ->
     }
     val edge = if (card.status == SensorStatus.ALARM) FrigoCritical else FrigoAccent
     Card(
-        onClick = onToggle,
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, edge.copy(alpha = if (card.status == SensorStatus.ALARM) 0.8f else 0.35f)),
         colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().quietClickable(onToggle),
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
             Row(Modifier.heightIn(min = 34.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -202,7 +201,7 @@ internal fun SensorCardView(card: SensorCard, expanded: Boolean, onToggle: () ->
                 Column {
                     Spacer(Modifier.height(8.dp))
                     // A second tap, on the chart, opens it full screen.
-                    CardChart(card.history, trendColor, Modifier.fillMaxWidth().height(130.dp).clickable(onClick = onOpenChart))
+                    CardChart(card.history, trendColor, Modifier.fillMaxWidth().height(130.dp).quietClickable(onOpenChart))
                     Spacer(Modifier.height(10.dp))
                     // 24 h min / average / max, all in the brand colour.
                     Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {

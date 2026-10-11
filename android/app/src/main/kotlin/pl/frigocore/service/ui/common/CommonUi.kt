@@ -31,6 +31,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.remember
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -43,6 +47,14 @@ import kotlinx.coroutines.delay
 
 /** Runs [action] immediately and then every [intervalMillis] while the
  * screen is visible — stops in the background so it never drains battery. */
+/** A tap target without the grey pressed highlight — for charts and sensor
+ * cards, whose tap opens or unfolds something at once anyway. With the
+ * highlight, any touch (even the fingers of a screenshot gesture) greyed the
+ * chart out. */
+fun Modifier.quietClickable(onClick: () -> Unit): Modifier = composed {
+    clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+}
+
 @Composable
 fun PollWhileVisible(intervalMillis: Long = 30_000, action: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current

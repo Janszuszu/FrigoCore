@@ -10,7 +10,6 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.draw.clip
 import pl.frigocore.service.ui.overview.TempStats
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +56,7 @@ import pl.frigocore.service.data.model.ReceiverState
 import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.common.LoadingState
 import pl.frigocore.service.ui.common.PollWhileVisible
+import pl.frigocore.service.ui.common.quietClickable
 import pl.frigocore.service.ui.overview.CardChart
 import pl.frigocore.service.ui.overview.Stat
 import pl.frigocore.service.ui.overview.StatDivider
@@ -187,7 +187,7 @@ private fun ReceiverPage(
             CardChart(
                 card.chamber,
                 look.color,
-                Modifier.fillMaxWidth().weight(1f).clickable {
+                Modifier.fillMaxWidth().weight(1f).quietClickable {
                     receiver.chamber_sensor_id?.let { onOpenChart(it, receiver.name) }
                 },
             )
@@ -200,7 +200,7 @@ private fun ReceiverPage(
                 CardChart(
                     card.evaporator,
                     look.color,
-                    Modifier.fillMaxWidth().weight(1f).clickable {
+                    Modifier.fillMaxWidth().weight(1f).quietClickable {
                         receiver.evaporator_sensor_id?.let { onOpenChart(it, "${receiver.name} — parownik") }
                     },
                 )
