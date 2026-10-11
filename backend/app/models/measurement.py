@@ -23,7 +23,7 @@ class Measurement(Base, UUIDMixin):
 
     temperature: Mapped[float] = mapped_column(Float, nullable=False)
     received_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, index=True
+        DateTime(timezone=True), nullable=False
     )
 
     # Foreign key
