@@ -8,7 +8,7 @@ from datetime import datetime, time, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
-from app.api.routes import ENERGY_TIMEZONE
+from app.services.energy import ENERGY_TIMEZONE
 from app.enums import AlarmStatus, AlarmType, UserRole
 from app.models.alarm import Alarm
 from app.models.alarm_config import AlarmConfig

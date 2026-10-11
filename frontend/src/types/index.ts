@@ -93,6 +93,44 @@ export interface AggregateInput {
   is_active: boolean;
 }
 
+/** Electricity used — today, this week (from Monday), this month — and
+ * per day since the earlier of Monday and the 1st. */
+export interface Consumption {
+  today_kwh: number | null;
+  week_kwh: number | null;
+  month_kwh: number | null;
+  days: { day: string; kwh: number }[];
+}
+
+/** An electricity meter (licznik): its kWh counter plus the power, current
+ * and voltage it reports, with the consumption the backend works out. */
+export interface MeterItem {
+  id: string;
+  name: string;
+  object_id: string;
+  energy_sensor_id: string | null;
+  power_sensor_id: string | null;
+  current_sensor_id: string | null;
+  voltage_sensor_id: string | null;
+  display_order: number;
+  is_active: boolean;
+  total_kwh: number | null;
+  power_w: number | null;
+  current_a: number | null;
+  voltage_v: number | null;
+  last_message_at: string | null;
+  consumption: Consumption;
+}
+
+export interface MeterInput {
+  name: string;
+  energy_sensor_id: string | null;
+  power_sensor_id: string | null;
+  current_sensor_id: string | null;
+  voltage_sensor_id: string | null;
+  is_active: boolean;
+}
+
 export type UserRole = "admin" | "serwisant" | "user";
 
 export interface UserItem {

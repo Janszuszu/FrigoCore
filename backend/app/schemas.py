@@ -205,6 +205,69 @@ class AggregateResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Meter (licznik)
+# ---------------------------------------------------------------------------
+
+class MeterCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=256)
+    energy_sensor_id: UUID | None = None
+    power_sensor_id: UUID | None = None
+    current_sensor_id: UUID | None = None
+    voltage_sensor_id: UUID | None = None
+    is_active: bool = True
+
+
+class MeterUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=256)
+    energy_sensor_id: UUID | None = None
+    power_sensor_id: UUID | None = None
+    current_sensor_id: UUID | None = None
+    voltage_sensor_id: UUID | None = None
+    display_order: int | None = Field(None, ge=0, le=9999)
+    is_active: bool | None = None
+
+
+class ConsumptionResponse(BaseModel):
+    """Electricity used: today, this week (from Monday), this month, and
+    every day from the earlier of Monday and the 1st up to today. A day
+    without readings is missing from `days`; a period without any is null."""
+
+    today_kwh: float | None
+    week_kwh: float | None
+    month_kwh: float | None
+    days: list[EnergyDayResponse]
+
+
+class MeterResponse(BaseModel):
+    """Configuration, the live readings and the consumption."""
+
+    id: UUID
+    name: str
+    object_id: UUID
+    energy_sensor_id: UUID | None
+    power_sensor_id: UUID | None
+    current_sensor_id: UUID | None
+    voltage_sensor_id: UUID | None
+    display_order: int
+    is_active: bool
+    total_kwh: float | None = Field(None, description="Counter reading")
+    power_w: float | None
+    current_a: float | None
+    voltage_v: float | None
+    last_message_at: datetime | None
+    consumption: ConsumptionResponse
+
+
+class MeterTotalResponse(BaseModel):
+    """All active meters of an object added up."""
+
+    meter_count: int
+    total_kwh: float | None
+    power_w: float | None
+    consumption: ConsumptionResponse
+
+
+# ---------------------------------------------------------------------------
 # AlarmConfig (legacy, normalized)
 # ---------------------------------------------------------------------------
 

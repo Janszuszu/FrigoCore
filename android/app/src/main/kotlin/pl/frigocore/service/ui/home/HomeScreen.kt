@@ -68,6 +68,7 @@ import pl.frigocore.service.data.model.UserRole
 import pl.frigocore.service.data.repository.AuthRepository
 import pl.frigocore.service.ui.aggregates.AggregatesScreen
 import pl.frigocore.service.ui.dashboard.DashboardScreen
+import pl.frigocore.service.ui.meters.MetersScreen
 import pl.frigocore.service.ui.objects.ObjectsScreen
 import pl.frigocore.service.ui.overview.OverviewScreen
 import pl.frigocore.service.ui.receivers.ReceiversScreen
@@ -105,9 +106,10 @@ class HomeViewModel @Inject constructor(
 
 private object HomeRoutes {
     /** Urządzenia → Odbiorniki; falls back to the sensor overview for an
-     * object without receivers. Liczniki come later. */
+     * object without receivers. */
     const val RECEIVERS = "devices/receivers"
     const val AGGREGATES = "devices/aggregates"
+    const val METERS = "devices/meters"
     const val OBJECTS = "objects"
     const val ALARMS = "alarms"
     const val SENSOR = "sensor/{objectId}/{sensorId}?name={name}"
@@ -158,7 +160,7 @@ fun HomeScreen(
                         )
                         // Devices are grouped by type; the button opens the picker.
                         NavigationBarItem(
-                            selected = route == HomeRoutes.RECEIVERS || route == HomeRoutes.AGGREGATES,
+                            selected = route in setOf(HomeRoutes.RECEIVERS, HomeRoutes.AGGREGATES, HomeRoutes.METERS),
                             onClick = { devicesOpen = true },
                             icon = { Icon(Icons.Outlined.Kitchen, contentDescription = null) },
                             label = { Text("Urządzenia") },
@@ -201,6 +203,9 @@ fun HomeScreen(
                     navController.navigate(HomeRoutes.sensorRoute(sensor.object_id, sensor.id, sensor.name))
                 })
             }
+            composable(HomeRoutes.METERS) {
+                MetersScreen()
+            }
             composable(HomeRoutes.OBJECTS) {
                 ObjectsScreen(onObjectClick = {
                     viewModel.selectObject(it.id)
@@ -239,7 +244,10 @@ fun HomeScreen(
                 devicesOpen = false
                 navController.switchTab(HomeRoutes.AGGREGATES)
             }
-            MenuItem(Icons.Outlined.ElectricMeter, "Liczniki", note = "wkrótce")
+            MenuItem(Icons.Outlined.ElectricMeter, "Liczniki") {
+                devicesOpen = false
+                navController.switchTab(HomeRoutes.METERS)
+            }
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -268,19 +276,17 @@ fun HomeScreen(
 }
 
 @Composable
-private fun MenuItem(icon: ImageVector, label: String, note: String? = null, onClick: (() -> Unit)? = null) {
+private fun MenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val enabled = onClick != null
-        Icon(icon, contentDescription = null, tint = if (enabled) FrigoAccent else FrigoTextMuted)
+        Icon(icon, contentDescription = null, tint = FrigoAccent)
         Spacer(Modifier.width(16.dp))
-        Text(label, color = if (enabled) FrigoText else FrigoTextMuted, fontSize = 17.sp, modifier = Modifier.weight(1f))
-        if (note != null) Text(note, color = FrigoTextMuted, fontSize = 13.sp)
+        Text(label, color = FrigoText, fontSize = 17.sp, modifier = Modifier.weight(1f))
     }
 }
 

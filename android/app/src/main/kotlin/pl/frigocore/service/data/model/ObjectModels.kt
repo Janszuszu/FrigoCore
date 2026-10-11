@@ -95,3 +95,48 @@ data class AggregateResponse(
     val display_order: Int = 0,
     val is_active: Boolean = true,
 )
+
+/** Energy used on one local (Europe/Warsaw) day — backend EnergyDayResponse. */
+@Serializable
+data class EnergyDay(val day: String, val kwh: Double)
+
+/** Mirrors backend/app/schemas.py:ConsumptionResponse. */
+@Serializable
+data class Consumption(
+    val today_kwh: Double? = null,
+    val week_kwh: Double? = null,
+    val month_kwh: Double? = null,
+    /** Every day with readings since the earlier of Monday and the 1st, oldest first. */
+    val days: List<EnergyDay> = emptyList(),
+)
+
+/** Mirrors backend/app/schemas.py:MeterResponse — an electricity meter with
+ * its live readings and the consumption. */
+@Serializable
+data class MeterResponse(
+    val id: String,
+    val name: String,
+    val object_id: String,
+    val energy_sensor_id: String? = null,
+    val power_sensor_id: String? = null,
+    val current_sensor_id: String? = null,
+    val voltage_sensor_id: String? = null,
+    val display_order: Int = 0,
+    val is_active: Boolean = true,
+    /** Counter reading, kWh. */
+    val total_kwh: Double? = null,
+    val power_w: Double? = null,
+    val current_a: Double? = null,
+    val voltage_v: Double? = null,
+    val last_message_at: String? = null,
+    val consumption: Consumption = Consumption(),
+)
+
+/** Mirrors backend/app/schemas.py:MeterTotalResponse — all active meters added up. */
+@Serializable
+data class MeterTotalResponse(
+    val meter_count: Int = 0,
+    val total_kwh: Double? = null,
+    val power_w: Double? = null,
+    val consumption: Consumption = Consumption(),
+)

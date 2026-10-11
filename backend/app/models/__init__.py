@@ -10,6 +10,7 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 from app.models.device_token import DeviceToken
 from app.models.escalation_policy import EscalationPolicy, EscalationTier
 from app.models.measurement import Measurement
+from app.models.meter import Meter
 from app.models.notification_endpoint import NotificationEndpoint
 from app.models.notification_profile import NotificationProfile
 from app.models.object import Object
@@ -30,6 +31,7 @@ __all__ = [
     "EscalationPolicy",
     "EscalationTier",
     "Measurement",
+    "Meter",
     "NotificationEndpoint",
     "NotificationProfile",
     "Object",

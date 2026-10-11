@@ -6,9 +6,8 @@ OpenAPI documented, Pydantic-validated, async SQLAlchemy.
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, update
@@ -77,6 +76,7 @@ from app.schemas import (
     UserResponse,
     UserUpdate,
 )
+from app.services.energy import daily_usage, local_today
 from app.services.dispatch_service import escalate, notify_object_owners, record_event
 from app.services.notification_engine import (
     CLIENT_ALARM_EVENT_EN_ROUTE,
@@ -1184,10 +1184,6 @@ async def list_measurements_aggregated(
     return decimated
 
 
-# Days are cut at local midnight — the owner reads "today" in Polish time.
-ENERGY_TIMEZONE = ZoneInfo("Europe/Warsaw")
-
-
 @measurements_router.get("/{sensor_id}/energy/daily", response_model=list[EnergyDayResponse])
 async def energy_daily(
     sensor_id: UUID,
@@ -1195,49 +1191,15 @@ async def energy_daily(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[EnergyDayResponse]:
-    """Energy used per day, oldest first, ending today.
-
-    An energy meter reports an ever-growing kWh counter, so a day's
-    consumption is how far the counter moved since the end of the previous
-    day (or since its first reading that day, when the previous day has no
-    data). A counter that went backwards — a replaced or reset meter — counts
-    only that day's own movement instead of producing a negative day.
-    Days without readings are omitted.
-    """
+    """Energy used per day, oldest first, ending today (Polish days).
+    Days without readings are omitted — see app/services/energy.py."""
     sensor = await _visible_sensor_or_404(db, sensor_id, user)
     if not kind_info(sensor.kind).cumulative:
         raise HTTPException(status_code=400, detail="Sensor is not an energy counter")
 
-    today = datetime.now(ENERGY_TIMEZONE).date()
-    first_day = today - timedelta(days=days - 1)
-
-    async def day_range(day: date) -> tuple[float | None, float | None]:
-        start = datetime.combine(day, time.min, ENERGY_TIMEZONE).astimezone(timezone.utc)
-        end = datetime.combine(day + timedelta(days=1), time.min, ENERGY_TIMEZONE).astimezone(timezone.utc)
-        row = (await db.execute(
-            select(func.min(Measurement.temperature), func.max(Measurement.temperature)).where(
-                Measurement.sensor_id == sensor_id,
-                Measurement.received_at >= start,
-                Measurement.received_at < end,
-            )
-        )).one()
-        return row[0], row[1]
-
-    _, previous_max = await day_range(first_day - timedelta(days=1))
-    result: list[EnergyDayResponse] = []
-    for offset in range(days):
-        day = first_day + timedelta(days=offset)
-        day_min, day_max = await day_range(day)
-        if day_max is None:
-            previous_max = None
-            continue
-        if previous_max is not None and day_max >= previous_max:
-            used = day_max - previous_max
-        else:
-            used = day_max - day_min
-        result.append(EnergyDayResponse(day=day, kwh=round(used, 3)))
-        previous_max = day_max
-    return result
+    today = local_today()
+    usage = await daily_usage(db, sensor_id, today - timedelta(days=days - 1), today)
+    return [EnergyDayResponse(day=day, kwh=kwh) for day, kwh in usage.items()]
 
 
 # ===================================================================

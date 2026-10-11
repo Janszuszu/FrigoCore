@@ -26,8 +26,8 @@ android {
         applicationId = "pl.frigocore.service"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
-        versionName = "1.5.8"
+        versionCode = 29
+        versionName = "1.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -1,6 +1,8 @@
 import type {
   AggregateInput,
   AggregateItem,
+  MeterInput,
+  MeterItem,
   ReceiverInput,
   ReceiverItem,
   AlarmConfigCreate,
@@ -160,6 +162,27 @@ export const apiAggregates = {
     }),
   delete: (objectId: string, aggregateId: string) =>
     request<void>(`/objects/${objectId}/aggregates/${aggregateId}`, {
+      method: "DELETE",
+    }),
+};
+
+// ─── Meters (liczniki) ─────────────────────────────────────────────
+
+export const apiMeters = {
+  list: (objectId: string) =>
+    request<MeterItem[]>(`/objects/${objectId}/meters`),
+  create: (objectId: string, data: MeterInput) =>
+    request<MeterItem>(`/objects/${objectId}/meters`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (objectId: string, meterId: string, data: Partial<MeterInput>) =>
+    request<MeterItem>(`/objects/${objectId}/meters/${meterId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  delete: (objectId: string, meterId: string) =>
+    request<void>(`/objects/${objectId}/meters/${meterId}`, {
       method: "DELETE",
     }),
 };

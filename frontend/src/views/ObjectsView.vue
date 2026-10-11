@@ -9,8 +9,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useSensorsStore } from "@/stores/sensors";
-import { apiAggregates, apiReceivers, apiSensors } from "@/api";
-import type { AggregateInput, AggregateItem, ObjectItem, ReceiverInput, ReceiverItem, ReceiverState, SensorItem } from "@/types";
+import { apiAggregates, apiMeters, apiReceivers, apiSensors } from "@/api";
+import type { AggregateInput, AggregateItem, MeterInput, MeterItem, ObjectItem, ReceiverInput, ReceiverItem, ReceiverState, SensorItem } from "@/types";
 import SensorIcon from "@/components/SensorIcon.vue";
 import SensorSettingsModal from "@/components/SensorSettingsModal.vue";
 import ObjectSettingsModal from "@/components/ObjectSettingsModal.vue";
@@ -29,7 +29,7 @@ async function loadSensors(objectId: string) {
     ...objectSensors.value,
     [objectId]: [...sensorsStore.sensors],
   };
-  await Promise.all([loadReceivers(objectId), loadAggregates(objectId)]);
+  await Promise.all([loadReceivers(objectId), loadAggregates(objectId), loadMeters(objectId)]);
 }
 
 async function toggle(object: ObjectItem) {
@@ -429,6 +429,82 @@ function formatDate(iso: string | null) {
   return `${d}.${m}.${y}`;
 }
 
+// ─── Meters (liczniki) ────────────────────────────────────────────
+// A meter's kWh counter (plus its power, current and voltage); the clients
+// show the consumption the backend works out per day, week and month.
+const objectMeters = ref<Record<string, MeterItem[]>>({});
+const metersOf = (id: string) => objectMeters.value[id] ?? [];
+
+async function loadMeters(objectId: string) {
+  try {
+    objectMeters.value = { ...objectMeters.value, [objectId]: await apiMeters.list(objectId) };
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Nie udało się wczytać liczników";
+  }
+}
+
+const sensorsOfKind = (objectId: string, kind: string) => sensorsOf(objectId).filter((s) => s.kind === kind);
+
+const METER_SLOTS = [
+  { key: "energy_sensor_id", label: "Licznik energii (kWh)", kind: "energy" },
+  { key: "power_sensor_id", label: "Moc (W)", kind: "power" },
+  { key: "current_sensor_id", label: "Prąd (A)", kind: "current" },
+  { key: "voltage_sensor_id", label: "Napięcie (V)", kind: "voltage" },
+] as const;
+
+const meterEdit = ref<{ objectId: string; id: string | null; draft: MeterInput } | null>(null);
+const meterError = ref("");
+const meterSaving = ref(false);
+
+function openMeter(objectId: string, meter: MeterItem | null) {
+  meterError.value = "";
+  meterEdit.value = {
+    objectId,
+    id: meter?.id ?? null,
+    draft: {
+      name: meter?.name ?? "",
+      energy_sensor_id: meter?.energy_sensor_id ?? null,
+      power_sensor_id: meter?.power_sensor_id ?? null,
+      current_sensor_id: meter?.current_sensor_id ?? null,
+      voltage_sensor_id: meter?.voltage_sensor_id ?? null,
+      is_active: meter?.is_active ?? true,
+    },
+  };
+}
+
+async function saveMeter() {
+  const edit = meterEdit.value;
+  if (!edit) return;
+  meterSaving.value = true;
+  try {
+    const data = { ...edit.draft, name: edit.draft.name.trim() };
+    if (edit.id) await apiMeters.update(edit.objectId, edit.id, data);
+    else await apiMeters.create(edit.objectId, data);
+    meterEdit.value = null;
+    await loadMeters(edit.objectId);
+  } catch (e) {
+    meterError.value = e instanceof Error ? e.message : "Nie udało się zapisać licznika";
+  } finally {
+    meterSaving.value = false;
+  }
+}
+
+async function deleteMeter() {
+  const edit = meterEdit.value;
+  if (!edit?.id || !window.confirm(`Usunąć licznik „${edit.draft.name}”? Czujniki zostaną.`)) return;
+  try {
+    await apiMeters.delete(edit.objectId, edit.id);
+    meterEdit.value = null;
+    await loadMeters(edit.objectId);
+  } catch (e) {
+    meterError.value = e instanceof Error ? e.message : "Nie udało się usunąć licznika";
+  }
+}
+
+function kwh(value: number | null) {
+  return value == null ? "—" : `${value.toLocaleString("pl-PL", { maximumFractionDigits: 1 })} kWh`;
+}
+
 const totalSensors = computed(() =>
   objectsStore.objects.reduce((sum, o) => sum + (o.sensor_count || 0), 0),
 );
@@ -659,6 +735,48 @@ onMounted(async () => {
             <button class="secondary" @click="openAggregate(object.id, null)">＋ Dodaj agregat</button>
             <span class="muted">Jeden czujnik (np. temperatura zewnętrzna) może należeć do kilku agregatów.</span>
           </div>
+
+          <h3 class="sub-head">Liczniki</h3>
+          <table class="sensor-table">
+            <thead>
+              <tr>
+                <th class="col-name">Licznik</th>
+                <th>Energia</th>
+                <th>Moc / prąd / napięcie</th>
+                <th>Dziś</th>
+                <th>Ten miesiąc</th>
+                <th>Stan licznika</th>
+                <th class="col-settings"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="meter in metersOf(object.id)" :key="meter.id" :class="{ inactive: !meter.is_active }">
+                <td class="col-name"><span>{{ meter.name }}</span></td>
+                <td>{{ sensorName(object.id, meter.energy_sensor_id) }}</td>
+                <td>
+                  {{ [meter.power_sensor_id, meter.current_sensor_id, meter.voltage_sensor_id].filter(Boolean).map((id) => sensorName(object.id, id)).join(", ") || "—" }}
+                </td>
+                <td>{{ kwh(meter.consumption.today_kwh) }}</td>
+                <td>{{ kwh(meter.consumption.month_kwh) }}</td>
+                <td>{{ kwh(meter.total_kwh) }}</td>
+                <td class="col-settings">
+                  <button class="icon-btn" title="Ustawienia licznika" aria-label="Ustawienia licznika" @click="openMeter(object.id, meter)">
+                    <svg viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56v.1h-3v-.1a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 15a1.7 1.7 0 0 0-1.56-1.03h-.1v-3h.1A1.7 1.7 0 0 0 7.06 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56v-.1h3v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.1v3h-.1A1.7 1.7 0 0 0 19.4 15Z" />
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="!metersOf(object.id).length">
+                <td colspan="7" class="no-sensors">Brak liczników — dodaj licznik i wskaż jego czujnik energii</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="panel-foot">
+            <button class="secondary" @click="openMeter(object.id, null)">＋ Dodaj licznik</button>
+            <span class="muted">Przy kilku licznikach klienci widzą też ich sumę.</span>
+          </div>
         </div>
       </article>
 
@@ -741,6 +859,35 @@ onMounted(async () => {
           <button v-if="receiverEdit.id" type="button" class="danger-link" @click="deleteReceiver">Usuń</button>
           <button type="button" @click="receiverEdit = null">Anuluj</button>
           <button class="primary" :disabled="receiverSaving">Zapisz</button>
+        </footer>
+      </form>
+    </div>
+
+    <!-- Meter settings -->
+    <div v-if="meterEdit" class="modal" @click.self="meterEdit = null">
+      <form class="receiver-form" @submit.prevent="saveMeter">
+        <h2>{{ meterEdit.id ? "Ustawienia licznika" : "Dodaj licznik" }}</h2>
+        <label>
+          Nazwa
+          <input v-model="meterEdit.draft.name" placeholder="Licznik główny" required />
+        </label>
+        <label v-for="slot in METER_SLOTS" :key="slot.key">
+          {{ slot.label }}
+          <select v-model="meterEdit.draft[slot.key]">
+            <option :value="null">— brak —</option>
+            <option v-for="s in sensorsOfKind(meterEdit.objectId, slot.kind)" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </label>
+        <p class="hint">Zużycie liczone jest z czujnika energii: dziś, w tym tygodniu i w tym miesiącu.</p>
+        <label class="check">
+          <input v-model="meterEdit.draft.is_active" type="checkbox" />
+          Pokazuj klientom
+        </label>
+        <p v-if="meterError" class="error">{{ meterError }}</p>
+        <footer>
+          <button v-if="meterEdit.id" type="button" class="danger-link" @click="deleteMeter">Usuń</button>
+          <button type="button" @click="meterEdit = null">Anuluj</button>
+          <button class="primary" :disabled="meterSaving">Zapisz</button>
         </footer>
       </form>
     </div>

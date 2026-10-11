@@ -11,6 +11,8 @@ import pl.frigocore.service.data.model.MeasurementResponse
 import pl.frigocore.service.data.model.ObjectResponse
 import pl.frigocore.service.data.model.ReceiverResponse
 import pl.frigocore.service.data.model.AggregateResponse
+import pl.frigocore.service.data.model.MeterResponse
+import pl.frigocore.service.data.model.MeterTotalResponse
 import pl.frigocore.service.data.model.SensorResponse
 import pl.frigocore.service.data.model.UserResponse
 import retrofit2.Response
@@ -48,6 +50,12 @@ interface FrigoCoreApi {
 
     @GET("objects/{objectId}/aggregates")
     suspend fun listAggregates(@Path("objectId") objectId: String): Response<List<AggregateResponse>>
+
+    @GET("objects/{objectId}/meters")
+    suspend fun listMeters(@Path("objectId") objectId: String): Response<List<MeterResponse>>
+
+    @GET("objects/{objectId}/meters/total")
+    suspend fun metersTotal(@Path("objectId") objectId: String): Response<MeterTotalResponse>
 
     @GET("objects/{objectId}/sensors/{sensorId}")
     suspend fun getSensor(
