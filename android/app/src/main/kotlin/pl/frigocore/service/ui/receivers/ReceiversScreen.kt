@@ -41,9 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -127,8 +125,9 @@ internal fun stopwatch(seconds: Long?): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-/** Top to bottom: the name, centred, with the state icon in its corner;
- * chamber | evaporator temperature; the chart; the cycle stopwatches; the
+/** Top to bottom: the name on the left, with the state icon in the right
+ * corner; the leading (chamber) | evaporator temperature, same size, each
+ * labelled in small grey; the chart; the cycle stopwatches; the
  * 24 h min / average / max. Readings and chart take the state colour (blue cooling,
  * green idle, orange defrost, red alarm). Tapping the chart opens it full
  * screen. */
@@ -143,8 +142,8 @@ private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpen
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            // Name centred on the card; the state icon keeps its corner.
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            // Name on the left; the state icon keeps its corner.
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
                 Text(
                     receiver.name.uppercase(),
                     color = FrigoText,
@@ -152,8 +151,7 @@ private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpen
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp),
+                    modifier = Modifier.fillMaxWidth().padding(end = 40.dp),
                 )
                 Box(Modifier.align(Alignment.CenterEnd)) { StateIcon(look) }
             }
@@ -163,14 +161,14 @@ private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpen
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
             ) {
-                Reading(receiver.chamber_temperature, look.color, 30.sp)
+                Reading(receiver.chamber_temperature, look.color, "WIODĄCA")
                 if (receiver.evaporator_sensor_id != null) {
                     VerticalDivider(
                         Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                         thickness = 1.5.dp,
                         color = look.color.copy(alpha = 0.6f),
                     )
-                    Reading(receiver.evaporator_temperature, look.color, 24.sp)
+                    Reading(receiver.evaporator_temperature, look.color, "PAROWNIK")
                 }
             }
             Spacer(Modifier.height(10.dp))
@@ -192,16 +190,20 @@ private fun ReceiverCardView(card: ReceiverCard, elapsedSinceFetch: Long, onOpen
     }
 }
 
+/** A temperature with what it measures underneath in small grey. */
 @Composable
-private fun Reading(value: Double?, color: Color, size: TextUnit) {
-    Text(
-        Formatters.temperature(value),
-        color = color,
-        fontSize = size,
-        fontWeight = FontWeight.Bold,
-        maxLines = 1,
-        style = TabularNumbers,
-    )
+private fun Reading(value: Double?, color: Color, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            Formatters.temperature(value),
+            color = color,
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            style = TabularNumbers,
+        )
+        Text(label, color = FrigoTextMuted, fontSize = 11.sp, letterSpacing = 0.5.sp, maxLines = 1)
+    }
 }
 
 /** The state as a bare icon in its colour — no frame, no label. */
