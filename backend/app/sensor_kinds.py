@@ -18,6 +18,9 @@ class SensorKind(str, Enum):
     VOLTAGE = "voltage"
     POWER = "power"
     ENERGY = "energy"
+    # 0/1 states read from a controller's status bits (1 = open / defrosting).
+    DOOR = "door"
+    DEFROST = "defrost"
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +34,9 @@ class SensorKindInfo:
     # True for counters that only ever grow (kWh): the chart and the daily
     # summary show consumption, not the raw counter value.
     cumulative: bool = False
+    # (label for 0, label for 1) for on/off sensors; None for measurements.
+    # A state alarm has no value worth reading out, only its reason.
+    states: tuple[str, str] | None = None
 
 
 SENSOR_KINDS: dict[SensorKind, SensorKindInfo] = {
@@ -41,7 +47,21 @@ SENSOR_KINDS: dict[SensorKind, SensorKindInfo] = {
     SensorKind.ENERGY: SensorKindInfo(
         "kWh", "Wysokie zużycie energii", "Niskie zużycie energii", "kilowatogodzin", cumulative=True
     ),
+    # A door alarm is a HIGH alarm with a threshold of 0.5 — the trigger
+    # delay is how long the door may stay open.
+    SensorKind.DOOR: SensorKindInfo(
+        "", "Drzwi otwarte", "Drzwi zamknięte", "", states=("Zamknięte", "Otwarte")
+    ),
+    SensorKind.DEFROST: SensorKindInfo(
+        "", "Odszranianie trwa", "Brak odszraniania", "", states=("Chłodzenie", "Odszranianie")
+    ),
 }
+
+# Defrost sensor slug suffix. A defrost sensor whose topic ends in
+# "<group>-odszranianie" covers the temperature sensors of its object whose
+# topic ends in "<group>" or "<group>-..." (e.g. "komora", "komora-parownik"):
+# their high-temperature alarms wait while the defrost is on.
+DEFROST_TOPIC_SUFFIX = "-odszranianie"
 
 SENSOR_KIND_PATTERN = "^(" + "|".join(k.value for k in SensorKind) + ")$"
 

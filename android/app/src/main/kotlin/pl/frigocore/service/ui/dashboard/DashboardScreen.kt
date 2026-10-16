@@ -211,7 +211,7 @@ private fun AlarmRow(alarm: AlarmResponse, accentColor: Color, onClick: () -> Un
                 )
                 Text(
                     text = Formatters.dateTime(alarm.detected_at) +
-                        (alarm.trigger_value?.takeIf { alarm.alarm_type != AlarmType.OFFLINE }?.let { " · ${Formatters.reading(it, alarm.sensor_unit)}" } ?: ""),
+                        (alarm.trigger_value?.takeIf { alarm.alarm_type != AlarmType.OFFLINE && !Formatters.isStateKind(alarm.sensor_kind) }?.let { " · ${Formatters.reading(it, alarm.sensor_unit)}" } ?: ""),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

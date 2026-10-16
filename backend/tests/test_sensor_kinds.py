@@ -170,3 +170,92 @@ async def test_alarm_api_reports_sensor_unit(client, db_session, make_user):
     alarm = resp.json()[0]
     assert alarm["sensor_kind"] == "voltage"
     assert alarm["sensor_unit"] == "V"
+
+
+async def _state_test_sensor(db_session, obj, slug, kind, value, threshold=None):
+    sensor = Sensor(
+        name=slug, mqtt_topic=f"frigo/{obj.id}/{slug}", object_id=obj.id, kind=kind,
+        current_temperature=value, last_message_at=datetime.now(timezone.utc),
+    )
+    db_session.add(sensor)
+    await db_session.flush()
+    if threshold is not None:
+        db_session.add(AlarmConfig(
+            alarm_type=AlarmType.HIGH_TEMPERATURE, threshold_value=threshold, trigger_delay_seconds=0,
+            is_enabled=True, sensor_id=sensor.id,
+        ))
+    return sensor
+
+
+@pytest.mark.asyncio
+async def test_defrost_holds_high_alarm_of_its_room_only(db_session):
+    obj = await make_object(db_session, "Lewiatan defrost")
+    defrost = await _state_test_sensor(db_session, obj, "komora-odszranianie", "defrost", 1.0)
+    room = await _state_test_sensor(db_session, obj, "komora", "temperature", 12.0, threshold=6.0)
+    evaporator = await _state_test_sensor(db_session, obj, "komora-parownik", "temperature", 15.0, threshold=6.0)
+    counter = await _state_test_sensor(db_session, obj, "lada-1", "temperature", 12.0, threshold=6.0)
+    await db_session.commit()
+
+    engine = AlarmEngine(async_session_factory)
+    await engine._evaluate_all()
+    await engine._evaluate_all()
+
+    async with async_session_factory() as session:
+        alarmed = set(await session.scalars(select(Alarm.sensor_id).where(
+            Alarm.sensor_id.in_([room.id, evaporator.id, counter.id]))))
+        assert alarmed == {counter.id}  # the counter is not covered by the room's defrost
+
+        row = await session.get(Sensor, defrost.id)
+        row.current_temperature = 0.0
+        await session.commit()
+
+    await engine._evaluate_all()
+    await engine._evaluate_all()
+
+    async with async_session_factory() as session:
+        statuses = {
+            a.sensor_id: a.status
+            for a in await session.scalars(select(Alarm).where(Alarm.sensor_id.in_([room.id, evaporator.id])))
+        }
+    assert statuses == {room.id: AlarmStatus.TRIGGERED, evaporator.id: AlarmStatus.TRIGGERED}
+
+
+@pytest.mark.asyncio
+async def test_silent_defrost_sensor_does_not_hold_alarms(db_session):
+    obj = await make_object(db_session, "Lewiatan stale defrost")
+    defrost = await _state_test_sensor(db_session, obj, "komora-odszranianie", "defrost", 1.0)
+    defrost.last_message_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    room = await _state_test_sensor(db_session, obj, "komora", "temperature", 12.0, threshold=6.0)
+    await db_session.commit()
+
+    engine = AlarmEngine(async_session_factory)
+    await engine._evaluate_all()
+    await engine._evaluate_all()
+
+    async with async_session_factory() as session:
+        alarm = await session.scalar(select(Alarm).where(Alarm.sensor_id == room.id))
+    assert alarm.status == AlarmStatus.TRIGGERED
+
+
+@pytest.mark.asyncio
+async def test_door_alarm_is_worded_without_a_number(db_session):
+    obj = await make_object(db_session, "Lewiatan door")
+    door = await _state_test_sensor(db_session, obj, "komora-drzwi", "door", 1.0, threshold=0.5)
+    door.name = "Drzwi komory"
+    await db_session.commit()
+
+    engine = AlarmEngine(async_session_factory)
+    await engine._evaluate_all()
+    await engine._evaluate_all()
+
+    async with async_session_factory() as session:
+        alarm = await session.scalar(select(Alarm).where(Alarm.sensor_id == door.id))
+        obj_row = await session.get(Object, obj.id)
+        push = build_client_alarm_payload(alarm, obj_row, "triggered")
+        voice = build_voice_message(alarm, obj_row.name)
+
+    assert alarm.status == AlarmStatus.TRIGGERED
+    assert alarm.description == "Drzwi otwarte"
+    assert push["message"] == "Drzwi komory: Drzwi otwarte"
+    assert "Drzwi otwarte" in voice and "aktualnie" not in voice
+    assert alarm.sensor_unit == ""

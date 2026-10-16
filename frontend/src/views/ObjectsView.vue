@@ -6,6 +6,7 @@
  * table. Every per-row action lives behind a settings icon (Object →
  * Sensor → Settings) instead of the old selection-checkbox workflow.
  */
+import { formatSensorValue } from "@/utils/units";
 import { computed, onMounted, ref } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useSensorsStore } from "@/stores/sensors";
@@ -622,7 +623,7 @@ onMounted(async () => {
                 </td>
                 <td class="col-topic"><code>{{ sensor.mqtt_topic }}</code></td>
                 <td class="col-value">
-                  <strong>{{ sensorOnline(sensor) ? temperature(sensor.current_temperature) : "—" }}</strong>
+                  <strong>{{ sensorOnline(sensor) ? formatSensorValue(sensor.current_temperature, sensor) : "—" }}</strong>
                   <em v-if="sensor.calibration_offset" class="calib">
                     {{ sensor.calibration_offset > 0 ? "+" : "" }}{{ sensor.calibration_offset }}°
                   </em>

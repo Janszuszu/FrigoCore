@@ -89,11 +89,13 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
             )
             Spacer(Modifier.width(16.dp))
             val unit = uiState.sensor?.unit ?: "°C"
-            StatLabel("MIN", uiState.min, unit, FrigoWarning)
-            Separator()
-            StatLabel("AVG", uiState.avg, unit, FrigoOk)
-            Separator()
-            StatLabel("MAX", uiState.max, unit, FrigoCritical)
+            if (!Formatters.isStateKind(uiState.sensor?.kind)) {
+                StatLabel("MIN", uiState.min, unit, FrigoWarning)
+                Separator()
+                StatLabel("AVG", uiState.avg, unit, FrigoOk)
+                Separator()
+                StatLabel("MAX", uiState.max, unit, FrigoCritical)
+            }
             Spacer(Modifier.weight(1f))
             RangePicker(uiState.range, viewModel::selectRange)
             Spacer(Modifier.width(10.dp))

@@ -49,11 +49,27 @@ object Formatters {
         return when {
             value == null -> number
             unit == "°C" -> "$number°C"
+            unit.isEmpty() -> number
             else -> "$number $unit"
         }
     }
 
     fun temperature(value: Double?): String = reading(value, "°C")
+
+    /** 0/1 on/off sensors (backend sensor_kinds.py) — shown as words. */
+    private val stateLabels = mapOf(
+        "door" to ("Zamknięte" to "Otwarte"),
+        "defrost" to ("Chłodzenie" to "Odszranianie"),
+    )
+
+    fun isStateKind(kind: String?): Boolean = kind in stateLabels
+
+    /** "Otwarte" / "Zamknięte" etc. for a 0/1 reading. */
+    fun stateLabel(value: Double?, kind: String): String {
+        val labels = stateLabels[kind] ?: return readingValue(value, "")
+        if (value == null) return "—"
+        return if (value >= 0.5) labels.second else labels.first
+    }
 
     /** "przed chwilą", "5 min temu", "3 godz. temu", "2 dni temu". */
     fun ago(raw: String?, now: Instant = Instant.now()): String {
@@ -86,6 +102,8 @@ object Formatters {
             "voltage" -> if (high) "Wysokie napięcie" else "Niskie napięcie"
             "power" -> if (high) "Wysoka moc" else "Niska moc"
             "energy" -> if (high) "Wysokie zużycie energii" else "Niskie zużycie energii"
+            "door" -> if (high) "Drzwi otwarte" else "Drzwi zamknięte"
+            "defrost" -> if (high) "Odszranianie trwa" else "Brak odszraniania"
             else -> if (high) "Wysoka temperatura" else "Niska temperatura"
         }
     }

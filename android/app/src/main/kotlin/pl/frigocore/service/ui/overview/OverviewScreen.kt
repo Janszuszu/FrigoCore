@@ -186,9 +186,13 @@ internal fun SensorCardView(card: SensorCard, expanded: Boolean, onToggle: () ->
                 Spacer(Modifier.width(8.dp))
                 Text(
                     buildAnnotatedString {
-                        append(Formatters.readingValue(card.sensor.current_temperature, card.sensor.unit))
-                        val unit = card.sensor.unit
-                        withStyle(SpanStyle(fontSize = 15.sp)) { append(if (unit == "°C") unit else " $unit") }
+                        if (Formatters.isStateKind(card.sensor.kind)) {
+                            append(Formatters.stateLabel(card.sensor.current_temperature, card.sensor.kind))
+                        } else {
+                            append(Formatters.readingValue(card.sensor.current_temperature, card.sensor.unit))
+                            val unit = card.sensor.unit
+                            withStyle(SpanStyle(fontSize = 15.sp)) { append(if (unit == "°C") unit else " $unit") }
+                        }
                     },
                     color = trendColor,
                     fontWeight = FontWeight.Bold,
@@ -203,8 +207,9 @@ internal fun SensorCardView(card: SensorCard, expanded: Boolean, onToggle: () ->
                     // A second tap, on the chart, opens it full screen.
                     CardChart(card.history, trendColor, Modifier.fillMaxWidth().height(130.dp).quietClickable(onOpenChart))
                     Spacer(Modifier.height(10.dp))
-                    // 24 h min / average / max, all in the brand colour.
-                    Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                    // 24 h min / average / max, all in the brand colour —
+                    // meaningless for an open/closed state, so skipped there.
+                    if (!Formatters.isStateKind(card.sensor.kind)) Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
                         Stat("MIN", card.stats?.min, card.sensor.unit, Modifier.weight(1f))
                         StatDivider()
                         Stat("ŚREDNIA", card.stats?.avg, card.sensor.unit, Modifier.weight(1f))

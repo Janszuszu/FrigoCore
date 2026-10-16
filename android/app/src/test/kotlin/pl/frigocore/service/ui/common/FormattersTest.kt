@@ -74,4 +74,16 @@ class FormattersTest {
         assertEquals("Niskie napięcie", Formatters.alarmType("low_temperature", "voltage"))
         assertEquals("Brak komunikacji", Formatters.alarmType("offline", "current"))
     }
+
+    @Test
+    fun `door and defrost show words instead of 0 or 1`() {
+        assertEquals("Otwarte", Formatters.stateLabel(1.0, "door"))
+        assertEquals("Zamknięte", Formatters.stateLabel(0.0, "door"))
+        assertEquals("Odszranianie", Formatters.stateLabel(1.0, "defrost"))
+        assertEquals("Chłodzenie", Formatters.stateLabel(0.0, "defrost"))
+        assertEquals("—", Formatters.stateLabel(null, "door"))
+        assertTrue(Formatters.isStateKind("defrost"))
+        assertFalse(Formatters.isStateKind("temperature"))
+        assertEquals("Drzwi otwarte", Formatters.alarmType("high_temperature", "door"))
+    }
 }

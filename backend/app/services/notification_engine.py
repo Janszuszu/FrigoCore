@@ -405,6 +405,8 @@ def _alarm_reason(alarm: Alarm, spoken: bool) -> str:
         value = None
     else:
         reason = "Alarm"
+    if info.states is not None:
+        value = None  # on/off sensor: "Drzwi otwarte" needs no number
     if value is not None:
         number = f"{value:.1f}".replace(".", ",")
         reason += f", aktualnie {number} {info.spoken_unit}" if spoken else f" ({number} {info.unit})"

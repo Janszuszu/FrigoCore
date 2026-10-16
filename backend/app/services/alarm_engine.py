@@ -31,7 +31,7 @@ from app.api.websocket import manager as ws_manager
 from app.models.notification_profile import NotificationProfile
 from app.models.sensor import Sensor
 from app.schemas import AlarmResponse
-from app.sensor_kinds import kind_info
+from app.sensor_kinds import DEFROST_TOPIC_SUFFIX, SensorKind, kind_info
 from app.services.dispatch_service import notify_object_owners, record_event
 from app.services.notification_engine import (
     CLIENT_ALARM_EVENT_RESOLVED,
@@ -137,7 +137,9 @@ class AlarmEngine:
 
                 if config.alarm_type == AlarmType.HIGH_TEMPERATURE:
                     if sensor.current_temperature is not None and config.threshold_value is not None:
-                        if sensor.current_temperature > config.threshold_value:
+                        if sensor.current_temperature > config.threshold_value and not await _defrost_active(
+                            session, sensor, now
+                        ):
                             breached = True
                             trigger_value = sensor.current_temperature
                 elif config.alarm_type == AlarmType.LOW_TEMPERATURE:
@@ -197,6 +199,16 @@ class AlarmEngine:
             alarm_type_str = _alarm_type_str(alarm)
             if alarm_type_str == AlarmType.OFFLINE.value:
                 delay_seconds = sensor.offline_timeout_seconds + config.trigger_delay_seconds
+
+            # The room warms up during a defrost by design: hold the alarm
+            # and restart its delay, so it only fires if the temperature is
+            # still too high a full delay after the defrost has ended.
+            if alarm_type_str == AlarmType.HIGH_TEMPERATURE.value and await _defrost_active(
+                session, sensor, now
+            ):
+                alarm.detected_at = now
+                session.add(alarm)
+                continue
 
             elapsed = (now - _ensure_utc(alarm.detected_at)).total_seconds()
             if elapsed >= delay_seconds:
@@ -277,8 +289,46 @@ class AlarmEngine:
                     await notify_object_owners(session, alarm, CLIENT_ALARM_EVENT_RESOLVED)
 
 
+def _topic_slug(topic: str) -> str:
+    return topic.rsplit("/", 1)[-1]
+
+
+async def _defrost_active(session: AsyncSession, sensor: Sensor, now: datetime) -> bool:
+    """True when a fresh defrost sensor of the same object reports 1 and
+    covers this temperature sensor (see DEFROST_TOPIC_SUFFIX). A defrost
+    sensor that went silent never holds alarms back."""
+    if sensor.kind != SensorKind.TEMPERATURE.value:
+        return False
+    slug = _topic_slug(sensor.mqtt_topic)
+    defrost_sensors = await session.scalars(
+        select(Sensor).where(
+            Sensor.object_id == sensor.object_id,
+            Sensor.kind == SensorKind.DEFROST.value,
+            Sensor.is_active == True,
+        )
+    )
+    for defrost in defrost_sensors:
+        defrost_slug = _topic_slug(defrost.mqtt_topic)
+        if not defrost_slug.endswith(DEFROST_TOPIC_SUFFIX):
+            continue
+        group = defrost_slug[: -len(DEFROST_TOPIC_SUFFIX)]
+        if slug != group and not slug.startswith(group + "-"):
+            continue
+        if defrost.current_temperature is None or defrost.current_temperature < 0.5:
+            continue
+        if defrost.last_message_at is None:
+            continue
+        age = (now - _ensure_utc(defrost.last_message_at)).total_seconds()
+        if age <= defrost.offline_timeout_seconds:
+            return True
+    return False
+
+
 def _build_description(alarm_type: AlarmType, value: float | None, kind: str | None = None) -> str:
     info = kind_info(kind)
+    if info.states is not None and alarm_type != AlarmType.OFFLINE:
+        # On/off sensor: the value is just 0/1, the reason says it all.
+        return info.high_reason if alarm_type == AlarmType.HIGH_TEMPERATURE else info.low_reason
     if alarm_type == AlarmType.HIGH_TEMPERATURE:
         return f"{info.high_reason} — aktualnie {value} {info.unit}"
     if alarm_type == AlarmType.LOW_TEMPERATURE:

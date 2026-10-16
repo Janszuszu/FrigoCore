@@ -9,7 +9,7 @@ import TemperatureChart from "@/components/TemperatureChart.vue";
 import { countCycles } from "@/utils/cycles";
 import SensorIcon from "@/components/SensorIcon.vue";
 import { suggestIconFromName } from "@/utils/sensorIcons";
-import { alarmShortLabel, formatNumber, formatReading, unitOf } from "@/utils/units";
+import { alarmShortLabel, formatNumber, formatSensorValue, isStateKind, stateLabel, unitOf } from "@/utils/units";
 
 defineProps<{ time: string; date: string }>();
 
@@ -82,7 +82,7 @@ const activeAlarmLabel=computed(()=>{
 // Compressor on/off cycles only make sense for a temperature trace.
 const isTemperatureSensor=computed(()=>!sensor.value?.kind||sensor.value.kind==='temperature');
 
-function reading(value:number|null|undefined,item:SensorItem|null=sensor.value){return formatReading(value,unitOf(item))}
+function reading(value:number|null|undefined,item:SensorItem|null=sensor.value){return formatSensorValue(value,item)}
 // The API's timestamps are UTC but sometimes serialize without an
 // offset/"Z" suffix — plain `new Date(iso)` would then parse them as local
 // time and throw every online/offline comparison off by the local UTC
@@ -90,7 +90,7 @@ function reading(value:number|null|undefined,item:SensorItem|null=sensor.value){
 function parseUtc(iso:string){return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso)?iso:`${iso}Z`).getTime()}
 function isOnline(item:SensorItem|null){const last=item?.last_message_at;if(!last||!item)return false;return Date.now()-parseUtc(last)<item.offline_timeout_seconds*1000}
 function online(){return isOnline(sensor.value)}
-function displayValue(item:SensorItem){return isOnline(item)?formatNumber(item.current_temperature,unitOf(item)):"—"}
+function displayValue(item:SensorItem){if(!isOnline(item))return "—";return isStateKind(item.kind)?stateLabel(item.current_temperature,item.kind as string):formatNumber(item.current_temperature,unitOf(item))}
 function hasLiveValue(item:SensorItem){return isOnline(item)&&item.current_temperature!=null}
 
 // ---------- Sensor card display helpers ----------
