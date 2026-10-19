@@ -7,6 +7,8 @@ Handles:
   - Payload validation (JSON with temperature field).
   - Writing Measurement to the database.
   - Updating Sensor.current_temperature and Sensor.last_message_at.
+  - Back-filling readings a gateway buffered during an outage: they are
+    stored at their own timestamp and never touch the live sensor state.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import paho.mqtt.client as mqtt
 from sqlalchemy import select
@@ -33,6 +35,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 QOS = 1
 TOPIC_WILDCARD = "frigo/#"
+
+# A reading whose own timestamp is older than this (or that the gateway marks
+# STALE) is a buffered one being replayed after an outage, not live data.
+BACKFILL_AFTER = timedelta(minutes=5)
+# Timestamps further back than this are not trusted (a gateway without an RTC
+# can boot with a wrong clock) — such readings are stored as received now.
+MAX_BACKFILL_AGE = timedelta(days=14)
 
 
 def is_gateway_topic(topic: str) -> bool:
@@ -177,12 +186,12 @@ class MQTTEngine:
             return
         try:
             # 1. Parse and validate payload
-            temperature = self._parse_payload(payload)
+            temperature, measured_at, stale = self._parse_payload(payload)
 
             # 2. Resolve sensor by exact mqtt_topic match
             async with self.session_factory() as session:
                 await self._persist_measurement(
-                    session, topic, temperature
+                    session, topic, temperature, measured_at=measured_at, stale=stale
                 )
                 await session.commit()
 
@@ -194,10 +203,13 @@ class MQTTEngine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _parse_payload(payload: bytes) -> float:
+    def _parse_payload(payload: bytes) -> tuple[float, datetime | None, bool]:
         """Parse and validate the MQTT payload.
 
-        Expected JSON format: {"temperature": 4.2}
+        Expected JSON format: {"temperature": 4.2}, optionally with the
+        gateway's "timestamp" (ISO 8601) and "quality". Returns the value,
+        the measurement time (None when absent or unparseable) and whether the
+        gateway flagged the reading as STALE (replayed from its buffer).
         """
         try:
             data = json.loads(payload)
@@ -209,17 +221,38 @@ class MQTTEngine:
             raise ValueError(f"Missing 'temperature' field in payload: {data}")
 
         try:
-            return float(temperature)
+            value = float(temperature)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid temperature value: {temperature!r}") from exc
+
+        measured_at: datetime | None = None
+        raw_ts = data.get("timestamp")
+        if isinstance(raw_ts, str):
+            try:
+                measured_at = datetime.fromisoformat(raw_ts)
+            except ValueError:
+                measured_at = None
+            if measured_at is not None and measured_at.tzinfo is None:
+                measured_at = measured_at.replace(tzinfo=timezone.utc)
+
+        return value, measured_at, data.get("quality") == "STALE"
 
     @staticmethod
     async def _persist_measurement(
         session: AsyncSession,
         mqtt_topic: str,
         temperature: float,
+        *,
+        measured_at: datetime | None = None,
+        stale: bool = False,
     ) -> None:
-        """Look up the sensor by its exact mqtt_topic, then persist the measurement."""
+        """Look up the sensor by its exact mqtt_topic, then persist the measurement.
+
+        A back-filled reading (STALE, or timestamped more than BACKFILL_AFTER
+        ago) goes into the history at its own time only: replaying a gateway's
+        outage buffer must not overwrite the current value, re-arm alarms or
+        reset the offline timer with days-old data.
+        """
         stmt = select(Sensor).where(Sensor.mqtt_topic == mqtt_topic)
         result = await session.execute(stmt)
         sensor = result.scalar_one_or_none()
@@ -232,6 +265,10 @@ class MQTTEngine:
             return
 
         now = datetime.now(timezone.utc)
+        backfill_at: datetime | None = None
+        if measured_at is not None and now - MAX_BACKFILL_AGE <= measured_at <= now:
+            if stale or now - measured_at > BACKFILL_AFTER:
+                backfill_at = measured_at
 
         # Calibration is applied once, here at ingest, so the stored history,
         # the alarm thresholds and the dashboard all speak about the same
@@ -242,9 +279,13 @@ class MQTTEngine:
         measurement = Measurement(
             sensor_id=sensor.id,
             temperature=temperature,
-            received_at=now,
+            received_at=backfill_at or now,
         )
         session.add(measurement)
+
+        if backfill_at is not None:
+            logger.debug("Back-filled measurement — topic=%s at=%s", mqtt_topic, backfill_at.isoformat())
+            return
 
         # Update sensor live telemetry
         sensor.current_temperature = temperature
