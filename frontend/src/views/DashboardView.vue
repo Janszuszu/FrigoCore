@@ -3,7 +3,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useSensorsStore } from "@/stores/sensors";
 import { useAlarmsStore } from "@/stores/alarms";
-import { apiAlarmConfigs } from "@/api";
+import { apiAlarmConfigs, apiSensors } from "@/api";
+import { useLiveRefresh } from "@/composables/useLiveRefresh";
 import type { AlarmConfigItem, ChartRange, MeasurementItem, SensorItem } from "@/types";
 import TemperatureChart from "@/components/TemperatureChart.vue";
 import { countCycles } from "@/utils/cycles";
@@ -167,6 +168,13 @@ onUnmounted(()=>{
   document.removeEventListener("fullscreenchange", onFullscreenChange);
 });
 watch(selectedObjectId,pickObject);
+// Fallback for a dropped websocket (mobile browsers freeze background tabs):
+// refresh current values without touching the open chart.
+useLiveRefresh(async()=>{
+  const id=selectedObjectId.value;
+  if(!id)return;
+  try{const fresh=await apiSensors.list(id);if(id===selectedObjectId.value)sensorsStore.sensors=fresh}catch{/* next tick retries */}
+},30_000);
 </script>
 <template>
  <section class="dashboard">

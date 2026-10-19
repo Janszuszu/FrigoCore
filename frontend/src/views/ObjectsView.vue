@@ -7,7 +7,7 @@
  * Sensor → Settings) instead of the old selection-checkbox workflow.
  */
 import { formatSensorValue } from "@/utils/units";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useObjectsStore } from "@/stores/objects";
 import { useSensorsStore } from "@/stores/sensors";
 import { apiAggregates, apiMeters, apiReceivers, apiSensors } from "@/api";
@@ -16,6 +16,8 @@ import SensorIcon from "@/components/SensorIcon.vue";
 import SensorSettingsModal from "@/components/SensorSettingsModal.vue";
 import ObjectSettingsModal from "@/components/ObjectSettingsModal.vue";
 import { suggestIconFromName } from "@/utils/sensorIcons";
+import { onWsEvent } from "@/composables/useWebSocket";
+import { useLiveRefresh } from "@/composables/useLiveRefresh";
 
 const objectsStore = useObjectsStore();
 const sensorsStore = useSensorsStore();
@@ -509,6 +511,34 @@ function kwh(value: number | null) {
 const totalSensors = computed(() =>
   objectsStore.objects.reduce((sum, o) => sum + (o.sensor_count || 0), 0),
 );
+
+// The sensor tables are per-object copies, so live updates must be patched
+// into them here — the store only tracks the dashboard's object.
+const stopSensorUpdates = onWsEvent("sensor.updated", (data) => {
+  const update = data as Partial<SensorItem> & { id: string };
+  for (const [objectId, list] of Object.entries(objectSensors.value)) {
+    const idx = list.findIndex((s) => s.id === update.id);
+    if (idx !== -1) {
+      const next = [...list];
+      next[idx] = { ...next[idx], ...update };
+      objectSensors.value = { ...objectSensors.value, [objectId]: next };
+      return;
+    }
+  }
+});
+onUnmounted(stopSensorUpdates);
+
+// Fallback for a dropped websocket (mobile browsers freeze background tabs).
+useLiveRefresh(async () => {
+  for (const objectId of expanded.value) {
+    try {
+      const fresh = await apiSensors.list(objectId);
+      objectSensors.value = { ...objectSensors.value, [objectId]: fresh };
+    } catch {
+      // keep the last values; the next tick retries
+    }
+  }
+}, 15_000);
 
 onMounted(async () => {
   await objectsStore.fetchObjects();

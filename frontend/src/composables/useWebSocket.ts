@@ -91,7 +91,18 @@ export function useWebSocket() {
     { immediate: true },
   );
 
+  // A frozen background tab can lose its socket without a close event
+  // reaching us; reopen it as soon as the page is visible again.
+  function onVisibility() {
+    if (document.visibilityState !== "visible") return;
+    if (!wsInstance || wsInstance.readyState === WebSocket.CLOSED || wsInstance.readyState === WebSocket.CLOSING) {
+      connect();
+    }
+  }
+  document.addEventListener("visibilitychange", onVisibility);
+
   onUnmounted(() => {
+    document.removeEventListener("visibilitychange", onVisibility);
     stopWatch();
     disconnect();
   });
