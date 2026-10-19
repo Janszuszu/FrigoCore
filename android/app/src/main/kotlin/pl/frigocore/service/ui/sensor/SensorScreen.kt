@@ -106,6 +106,8 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
             }
         }
 
+        // Value-axis zoom outlives page and range switches; a double tap on the chart clears it.
+        var yZoom by remember { mutableStateOf<Pair<Double, Double>?>(null) }
         val onSwipePage: ((Int) -> Unit)? = if (uiState.window != null) viewModel::shiftPage else null
         val limits = uiState.limits
         Box(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
@@ -127,6 +129,8 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
                     yBounds = normalBandBounds(limits?.low, limits?.high),
                     limits = listOfNotNull(limits?.low, limits?.high),
                     onSwipePage = onSwipePage,
+                    yZoom = yZoom,
+                    onYZoom = { yZoom = it },
                     modifier = Modifier.fillMaxSize(),
                 )
             }

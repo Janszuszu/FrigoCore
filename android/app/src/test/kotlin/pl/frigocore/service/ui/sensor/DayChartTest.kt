@@ -87,4 +87,22 @@ class DayChartTest {
         // Never finer than a whole unit, so labels stay integers.
         assertEquals(Triple(3.0, 5.0, 1.0), niceAxis(3.0, 5.0))
     }
+
+    @Test
+    fun `pinch zooms the value range around the fingers`() {
+        // Spread to double distance mid-chart on 0..20: 5..15.
+        assertEquals(5.0 to 15.0, pinchRange(20.0, 20.0, 0.5f, 0.5f, 2f))
+        // Pinch in near the top keeps the value under the fingers in place.
+        val (lo, hi) = pinchRange(20.0, 20.0, 0.25f, 0.25f, 4f)
+        assertEquals(15.0, hi - 0.25 * (hi - lo), 1e-9)
+        assertEquals(5.0, hi - lo, 1e-9)
+        // Never narrower than one unit.
+        assertEquals(1.0, pinchRange(20.0, 20.0, 0.5f, 0.5f, 1000f).let { it.second - it.first }, 1e-9)
+    }
+
+    @Test
+    fun `zoomed axis may tick finer than a unit`() {
+        assertEquals(2.0, niceAxis(2.0, 8.0, minStep = 0.1).third, 1e-9)
+        assertEquals(0.2, niceAxis(4.2, 5.1, minStep = 0.1).third, 1e-9)
+    }
 }
