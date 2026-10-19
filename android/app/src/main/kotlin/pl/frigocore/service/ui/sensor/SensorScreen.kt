@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -55,8 +54,6 @@ import pl.frigocore.service.ui.common.PollWhileVisible
 import pl.frigocore.service.ui.theme.FrigoAccent
 import pl.frigocore.service.ui.theme.FrigoBackground
 import pl.frigocore.service.ui.theme.FrigoOutline
-import pl.frigocore.service.ui.theme.FrigoSurface
-import pl.frigocore.service.ui.theme.FrigoText
 import pl.frigocore.service.ui.theme.FrigoTextMuted
 
 /** Full-screen landscape chart, the same way the web dashboard presents one:
@@ -73,54 +70,39 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
             .background(FrigoBackground)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .background(FrigoSurface, RoundedCornerShape(12.dp))
-                .border(BorderStroke(1.dp, FrigoOutline), RoundedCornerShape(12.dp))
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        // Header: name and the shown day on the left, pager, range and close on the right.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             val window = uiState.window
-            Column(Modifier.weight(1f, fill = false)) {
-                Text(
-                    uiState.sensor?.name.orEmpty().uppercase(),
-                    color = FrigoText,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    dayHeading(window?.first ?: java.time.Instant.now()),
-                    color = FrigoTextMuted,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                )
-            }
-            Spacer(Modifier.width(16.dp))
-            val unit = uiState.sensor?.unit ?: "°C"
-            if (!Formatters.isStateKind(uiState.sensor?.kind)) {
-                StatLabel("MIN", uiState.min, unit)
-                Separator()
-                StatLabel("AVG", uiState.avg, unit)
-                Separator()
-                StatLabel("MAX", uiState.max, unit)
-            }
+            Text(
+                uiState.sensor?.name.orEmpty().uppercase(),
+                color = FrigoAccent,
+                fontSize = 18.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(28.dp))
+            Text(
+                dayHeading(window?.first ?: java.time.Instant.now()),
+                color = FrigoAccent,
+                fontSize = 16.sp,
+                maxLines = 1,
+                style = TabularNumbers,
+            )
             Spacer(Modifier.weight(1f))
             if (window != null) {
                 PagePager(uiState.range, uiState.pageOffset, window, viewModel::shiftPage)
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(16.dp))
             }
             RangePicker(uiState.range, viewModel::selectRange)
             Spacer(Modifier.width(10.dp))
             Box(
                 Modifier
                     .size(40.dp)
-                    .border(1.dp, FrigoOutline, RoundedCornerShape(8.dp))
                     .clickable(onClick = onClose),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.Close, contentDescription = "Zamknij", tint = FrigoText)
+                Icon(Icons.Filled.Close, contentDescription = "Zamknij", tint = FrigoTextMuted)
             }
         }
 
@@ -147,6 +129,18 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
                     onSwipePage = onSwipePage,
                     modifier = Modifier.fillMaxSize(),
                 )
+            }
+        }
+
+        // MIN / AVG / MAX under the chart, aligned with the plot's left edge.
+        val unit = uiState.sensor?.unit ?: "°C"
+        if (!Formatters.isStateKind(uiState.sensor?.kind)) {
+            Row(Modifier.padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                StatLabel("MIN", uiState.min, unit)
+                Separator()
+                StatLabel("AVG", uiState.avg, unit)
+                Separator()
+                StatLabel("MAX", uiState.max, unit)
             }
         }
     }
@@ -184,29 +178,29 @@ private fun PagePager(range: HistoryRange, pageOffset: Int, window: Pair<java.ti
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowLeft,
             contentDescription = "Wstecz",
-            tint = FrigoText,
-            modifier = Modifier.size(36.dp).clickable { onShift(-1) }.padding(6.dp),
+            tint = FrigoAccent,
+            modifier = Modifier.size(40.dp).clickable { onShift(-1) }.padding(6.dp),
         )
-        Text(label, color = FrigoText, fontWeight = FontWeight.Bold, style = TabularNumbers)
+        Text(label, color = FrigoAccent, fontSize = 18.sp, style = TabularNumbers, modifier = Modifier.padding(horizontal = 12.dp))
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = "Dalej",
-            tint = if (pageOffset < 0) FrigoText else FrigoOutline,
-            modifier = Modifier.size(36.dp).clickable(enabled = pageOffset < 0) { onShift(1) }.padding(6.dp),
+            tint = if (pageOffset < 0) FrigoAccent else FrigoOutline,
+            modifier = Modifier.size(40.dp).clickable(enabled = pageOffset < 0) { onShift(1) }.padding(6.dp),
         )
     }
 }
 
 @Composable
 private fun StatLabel(label: String, value: Double?, unit: String) {
-    Text(label, color = FrigoTextMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-    Spacer(Modifier.width(6.dp))
-    Text(Formatters.reading(value, unit), color = FrigoAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp, style = TabularNumbers)
+    Text(label, color = FrigoTextMuted, fontSize = 15.sp)
+    Spacer(Modifier.width(8.dp))
+    Text(Formatters.reading(value, unit), color = FrigoAccent, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, style = TabularNumbers)
 }
 
 @Composable
 private fun Separator() {
-    Text("|", color = FrigoOutline, modifier = Modifier.padding(horizontal = 10.dp))
+    Text("|", color = FrigoOutline, modifier = Modifier.padding(horizontal = 16.dp))
 }
 
 @Composable
@@ -220,8 +214,9 @@ private fun RangePicker(selected: HistoryRange, onSelect: (HistoryRange) -> Unit
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(selected.label, color = FrigoText, fontWeight = FontWeight.Bold)
-            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Zakres", tint = FrigoText)
+            Text(selected.label, color = FrigoAccent, fontSize = 18.sp)
+            Spacer(Modifier.width(8.dp))
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Zakres", tint = FrigoAccent)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             HistoryRange.entries.forEach { range ->

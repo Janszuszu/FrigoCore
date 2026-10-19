@@ -33,6 +33,9 @@ import java.time.ZoneId
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.log10
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 /** Rounded y-axis bounds with a little headroom, so a flat line still has
  * visible scale and labels land on whole degrees. */
@@ -40,6 +43,16 @@ internal fun axisBounds(min: Double, max: Double): Pair<Double, Double> {
     val span = (max - min).coerceAtLeast(2.0)
     val pad = span * 0.1
     return floor(min - pad) to ceil(max + pad)
+}
+
+/** Value axis widened to whole steps of 1, 2 or 5 (times a power of ten)
+ * giving at most five intervals, e.g. 1.9..18.3 reads 0..20 every 5.
+ * Returns (low, high, step). */
+internal fun niceAxis(min: Double, max: Double): Triple<Double, Double, Double> {
+    val raw = ((max - min) / 5).coerceAtLeast(1e-9)
+    val magnitude = 10.0.pow(floor(log10(raw)))
+    val step = listOf(1.0, 2.0, 5.0, 10.0).map { it * magnitude }.first { it >= raw }.coerceAtLeast(1.0)
+    return Triple(floor(min / step) * step, ceil(max / step) * step, step)
 }
 
 /** Fixed value axis around the normal-work band [low, high] (the sensor's
@@ -139,7 +152,8 @@ fun TemperatureChart(
         val chartW = size.width - leftPad
         val chartH = size.height - bottomPad - topPad
 
-        val (yMin, yMax) = yBounds ?: axisBounds(points.minOf { it.value }, points.maxOf { it.value })
+        val (rawMin, rawMax) = yBounds ?: axisBounds(points.minOf { it.value }, points.maxOf { it.value })
+        val (yMin, yMax, yStep) = niceAxis(rawMin, rawMax)
         val tStart = window?.first?.toEpochMilli() ?: points.first().time.toEpochMilli()
         val tEnd = window?.second?.toEpochMilli() ?: points.last().time.toEpochMilli()
         val tSpan = (tEnd - tStart).coerceAtLeast(1).toFloat()
@@ -147,9 +161,9 @@ fun TemperatureChart(
         fun y(v: Double) = topPad + ((yMax - v) / (yMax - yMin)).toFloat() * chartH
 
         // Horizontal grid + y labels
-        val steps = 4
+        val steps = ((yMax - yMin) / yStep).roundToInt()
         for (i in 0..steps) {
-            val v = yMin + (yMax - yMin) * i / steps
+            val v = yMin + yStep * i
             val yy = y(v)
             drawLine(gridColor, Offset(leftPad, yy), Offset(size.width, yy), 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
             val label = textMeasurer.measure(String.format(java.util.Locale.ROOT, if (unit == "°C") "%.0f°" else "%.0f", v), labelStyle)

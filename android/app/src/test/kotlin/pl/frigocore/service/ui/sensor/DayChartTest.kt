@@ -77,4 +77,14 @@ class DayChartTest {
         assertNull(normalBandBounds(-2.0, null))
         assertNull(normalBandBounds(5.0, 5.0))
     }
+
+    @Test
+    fun `value axis snaps to round steps`() {
+        // The data range of the 20.10 mockup: 0..20 every 5 degrees.
+        assertEquals(Triple(0.0, 20.0, 5.0), niceAxis(0.0, 20.0))
+        assertEquals(Triple(-5.0, 15.0, 5.0), niceAxis(-5.0, 11.0))
+        assertEquals(Triple(-24.0, -12.0, 2.0), niceAxis(-23.0, -13.0))
+        // Never finer than a whole unit, so labels stay integers.
+        assertEquals(Triple(3.0, 5.0, 1.0), niceAxis(3.0, 5.0))
+    }
 }
