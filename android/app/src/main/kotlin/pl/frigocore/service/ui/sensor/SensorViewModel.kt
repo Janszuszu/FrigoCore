@@ -54,8 +54,10 @@ data class SensorUiState(
     val isLoadingHistory: Boolean = true,
     val error: String? = null,
 ) {
-    val min: Double? get() = points.minOfOrNull { it.value }
-    val max: Double? get() = points.maxOfOrNull { it.value }
+    val minPoint: ChartPoint? get() = points.minByOrNull { it.value }
+    val maxPoint: ChartPoint? get() = points.maxByOrNull { it.value }
+    val min: Double? get() = minPoint?.value
+    val max: Double? get() = maxPoint?.value
     val avg: Double? get() = points.takeIf { it.isNotEmpty() }?.map { it.value }?.average()
 
     /** Time axis span: the shown page of a paged range, null (= the data itself) for 7D. */

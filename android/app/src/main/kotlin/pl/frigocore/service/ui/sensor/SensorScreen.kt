@@ -9,12 +9,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,11 +26,14 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -38,6 +43,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -53,11 +60,16 @@ import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.common.PollWhileVisible
 import pl.frigocore.service.ui.theme.FrigoAccent
 import pl.frigocore.service.ui.theme.FrigoBackground
+import pl.frigocore.service.ui.theme.FrigoCritical
+import pl.frigocore.service.ui.theme.FrigoMin
+import pl.frigocore.service.ui.theme.FrigoOk
 import pl.frigocore.service.ui.theme.FrigoOutline
+import pl.frigocore.service.ui.theme.FrigoSurface
+import pl.frigocore.service.ui.theme.FrigoText
 import pl.frigocore.service.ui.theme.FrigoTextMuted
 
-/** Full-screen landscape chart, the same way the web dashboard presents one:
- * a MIN/AVG/MAX strip with a range picker and a close button over the plot. */
+/** Full-screen landscape chart: name and day over the plot with the page
+ * switcher and range picker, MIN / ŚREDNIA / MAX with their times under it. */
 @Composable
 fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
@@ -70,41 +82,8 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
             .background(FrigoBackground)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        // Header: name and the shown day on the left, pager, range and close on the right.
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            val window = uiState.window
-            Text(
-                uiState.sensor?.name.orEmpty().uppercase(),
-                color = FrigoAccent,
-                fontSize = 18.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.width(28.dp))
-            Text(
-                dayHeading(window?.first ?: java.time.Instant.now()),
-                color = FrigoAccent,
-                fontSize = 16.sp,
-                maxLines = 1,
-                style = TabularNumbers,
-            )
-            Spacer(Modifier.weight(1f))
-            if (window != null) {
-                PagePager(uiState.range, uiState.pageOffset, window, viewModel::shiftPage)
-                Spacer(Modifier.width(16.dp))
-            }
-            RangePicker(uiState.range, viewModel::selectRange)
-            Spacer(Modifier.width(10.dp))
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clickable(onClick = onClose),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Filled.Close, contentDescription = "Zamknij", tint = FrigoTextMuted)
-            }
-        }
+        Header(uiState, viewModel::shiftPage, viewModel::selectRange, onClose)
+        HorizontalDivider(Modifier.padding(top = 8.dp), color = FrigoOutline)
 
         // Value-axis zoom outlives page and range switches; a double tap on the chart clears it.
         var yZoom by remember { mutableStateOf<Pair<Double, Double>?>(null) }
@@ -126,7 +105,6 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
                     unit = uiState.sensor?.unit ?: "°C",
                     window = uiState.window,
                     xLabels = uiState.window?.let { pageAxisLabels(uiState.range, it) },
-                    yBounds = normalBandBounds(limits?.low, limits?.high),
                     limits = listOfNotNull(limits?.low, limits?.high),
                     onSwipePage = onSwipePage,
                     yZoom = yZoom,
@@ -136,16 +114,81 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
             }
         }
 
-        // MIN / AVG / MAX under the chart, aligned with the plot's left edge.
-        val unit = uiState.sensor?.unit ?: "°C"
         if (!Formatters.isStateKind(uiState.sensor?.kind)) {
-            Row(Modifier.padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                StatLabel("MIN", uiState.min, unit)
-                Separator()
-                StatLabel("AVG", uiState.avg, unit)
-                Separator()
-                StatLabel("MAX", uiState.max, unit)
+            HorizontalDivider(Modifier.padding(top = 6.dp), color = FrigoOutline)
+            StatsFooter(uiState)
+        }
+    }
+}
+
+/** "Komora - mroźnia 1 (czujnik główny)" → "Komora - mroźnia 1" over
+ * "Czujnik główny"; a name without a trailing bracket has no subtitle. */
+internal fun splitSensorName(name: String): Pair<String, String?> {
+    val match = Regex("""^(.*\S)\s*\(([^()]+)\)\s*$""").find(name) ?: return name to null
+    return match.groupValues[1] to match.groupValues[2].trim().replaceFirstChar { it.uppercase() }
+}
+
+@Composable
+private fun Header(
+    uiState: SensorUiState,
+    onShift: (Int) -> Unit,
+    onRange: (HistoryRange) -> Unit,
+    onClose: () -> Unit,
+) {
+    val window = uiState.window
+    val (title, subtitle) = splitSensorName(uiState.sensor?.name.orEmpty())
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(4.dp).height(44.dp).background(FrigoAccent, RoundedCornerShape(2.dp)))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f, fill = false)) {
+            Text(title, color = FrigoText, fontWeight = FontWeight.Bold, fontSize = 22.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (subtitle != null) {
+                Text(subtitle, color = FrigoTextMuted, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+        }
+        Spacer(Modifier.weight(1f))
+        Icon(Icons.Outlined.CalendarMonth, contentDescription = null, tint = FrigoTextMuted, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(dayHeading(window?.first ?: java.time.Instant.now()), color = FrigoTextMuted, fontSize = 16.sp, maxLines = 1, style = TabularNumbers)
+        Spacer(Modifier.width(24.dp))
+        if (window != null) {
+            PagePager(uiState.range, uiState.pageOffset, window, onShift)
+            Spacer(Modifier.width(16.dp))
+        }
+        RangePicker(uiState.range, onRange)
+        Spacer(Modifier.width(8.dp))
+        Box(Modifier.size(40.dp).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Close, contentDescription = "Zamknij", tint = FrigoTextMuted)
+        }
+    }
+}
+
+/** MIN, ŚREDNIA and MAX side by side, split by thin rules; MIN and MAX also say when. */
+@Composable
+private fun StatsFooter(uiState: SensorUiState) {
+    val unit = uiState.sensor?.unit ?: "°C"
+    val withDate = uiState.range == HistoryRange.D7
+    fun at(point: ChartPoint?) = point?.time?.let {
+        if (withDate) "${Formatters.shortDate(it)} ${Formatters.time(it)}" else Formatters.time(it)
+    }
+    Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+        Stat("MIN", uiState.min, unit, FrigoMin, at(uiState.minPoint), Modifier.weight(1f))
+        VerticalDivider(Modifier.height(36.dp), color = FrigoOutline)
+        Stat("ŚREDNIA", uiState.avg, unit, FrigoOk, null, Modifier.weight(1f))
+        VerticalDivider(Modifier.height(36.dp), color = FrigoOutline)
+        Stat("MAX", uiState.max, unit, FrigoCritical, at(uiState.maxPoint), Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun Stat(label: String, value: Double?, unit: String, color: Color, time: String?, modifier: Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = FrigoTextMuted, fontSize = 15.sp)
+        Spacer(Modifier.width(16.dp))
+        Text(Formatters.reading(value, unit), color = color, fontWeight = FontWeight.SemiBold, fontSize = 28.sp, style = TabularNumbers)
+        if (time != null) {
+            Spacer(Modifier.width(12.dp))
+            Text(time, color = FrigoTextMuted, fontSize = 14.sp, style = TabularNumbers)
         }
     }
 }
@@ -179,32 +222,35 @@ private fun PagePager(range: HistoryRange, pageOffset: Int, window: Pair<java.ti
         else -> Formatters.shortDate(window.first)
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-            contentDescription = "Wstecz",
-            tint = FrigoAccent,
-            modifier = Modifier.size(40.dp).clickable { onShift(-1) }.padding(6.dp),
+        PagerButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Wstecz", enabled = true) { onShift(-1) }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            label,
+            color = FrigoAccent,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            style = TabularNumbers,
+            modifier = Modifier
+                .border(1.dp, FrigoAccent, RoundedCornerShape(22.dp))
+                .padding(horizontal = 22.dp, vertical = 8.dp),
         )
-        Text(label, color = FrigoAccent, fontSize = 18.sp, style = TabularNumbers, modifier = Modifier.padding(horizontal = 12.dp))
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = "Dalej",
-            tint = if (pageOffset < 0) FrigoAccent else FrigoOutline,
-            modifier = Modifier.size(40.dp).clickable(enabled = pageOffset < 0) { onShift(1) }.padding(6.dp),
-        )
+        Spacer(Modifier.width(12.dp))
+        PagerButton(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Dalej", enabled = pageOffset < 0) { onShift(1) }
     }
 }
 
 @Composable
-private fun StatLabel(label: String, value: Double?, unit: String) {
-    Text(label, color = FrigoTextMuted, fontSize = 15.sp)
-    Spacer(Modifier.width(8.dp))
-    Text(Formatters.reading(value, unit), color = FrigoAccent, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, style = TabularNumbers)
-}
-
-@Composable
-private fun Separator() {
-    Text("|", color = FrigoOutline, modifier = Modifier.padding(horizontal = 16.dp))
+private fun PagerButton(icon: ImageVector, description: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .background(FrigoSurface, RoundedCornerShape(12.dp))
+            .border(1.dp, FrigoOutline, RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = description, tint = if (enabled) FrigoAccent else FrigoOutline)
+    }
 }
 
 @Composable
@@ -213,13 +259,13 @@ private fun RangePicker(selected: HistoryRange, onSelect: (HistoryRange) -> Unit
     Box {
         Row(
             Modifier
-                .border(1.dp, FrigoOutline, RoundedCornerShape(8.dp))
+                .border(1.dp, FrigoOutline, RoundedCornerShape(12.dp))
                 .clickable { expanded = true }
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(selected.label, color = FrigoAccent, fontSize = 18.sp)
-            Spacer(Modifier.width(8.dp))
+            Text(selected.label, color = FrigoAccent, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.width(20.dp))
             Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Zakres", tint = FrigoAccent)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

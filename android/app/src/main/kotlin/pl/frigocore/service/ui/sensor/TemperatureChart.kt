@@ -58,15 +58,6 @@ internal fun niceAxis(min: Double, max: Double, minStep: Double = 1.0): Triple<D
     return Triple(floor(min / step) * step, ceil(max / step) * step, step)
 }
 
-/** Fixed value axis around the normal-work band [low, high] (the sensor's
- * alarm thresholds), so paging between days never rescales the chart.
- * Null when the band is not fully defined; the chart then fits the data. */
-internal fun normalBandBounds(low: Double?, high: Double?): Pair<Double, Double>? {
-    if (low == null || high == null || high <= low) return null
-    val pad = ((high - low) * 0.25).coerceAtLeast(2.0)
-    return floor(low - pad) to ceil(high + pad)
-}
-
 /** Narrowest and widest value span a pinch can reach, in the sensor's unit. */
 private const val MIN_ZOOM_SPAN = 1.0
 private const val MAX_ZOOM_SPAN = 200.0
@@ -105,21 +96,25 @@ private suspend fun AwaitPointerEventScope.trackPinch(frame: AxisFrame, onZoom: 
     }
 }
 
-/** Bottom-axis labels at the start, middle and end of a page: minutes
- * 00 / 30 / 60 for an hour, clock times otherwise, with the closing
+/** Bottom-axis labels spread evenly over a page: every 15 minutes (00..60)
+ * for 1H, every hour for 6H, every 3 hours for 24H, with the closing
  * midnight written 24:00. */
 internal fun pageAxisLabels(range: HistoryRange, window: Pair<Instant, Instant>, zone: ZoneId = ZoneId.systemDefault()): List<String> {
-    if (range == HistoryRange.H1) return listOf("00", "30", "60")
+    if (range == HistoryRange.H1) return listOf("00", "15", "30", "45", "60")
+    val intervals = if (range == HistoryRange.H6) 6 else 8
     val (start, end) = window
-    val mid = Instant.ofEpochMilli((start.toEpochMilli() + end.toEpochMilli()) / 2)
-    val endLabel = Formatters.time(end, zone).let { if (it == "00:00") "24:00" else it }
-    return listOf(Formatters.time(start, zone), Formatters.time(mid, zone), endLabel)
+    val step = (end.toEpochMilli() - start.toEpochMilli()) / intervals
+    return (0..intervals).map { i ->
+        val text = Formatters.time(Instant.ofEpochMilli(start.toEpochMilli() + step * i), zone)
+        if (i == intervals && text == "00:00") "24:00" else text
+    }
 }
 
 /** Line chart of temperature over time. Tap to read a value; long-press and
  * drag to scrub. With [onSwipePage], a horizontal drag pages the window
  * (left = +1, right = -1); without it any drag scrubs. [window] pins the time
- * axis, labelled with [xLabels] (start, middle, end), [yBounds] the value axis.
+ * axis, labelled with [xLabels] spread evenly over it. The value axis fits
+ * the readings' min..max, widened to round steps.
  * Two fingers zoom the value axis only ([yZoom], reported via [onYZoom]); while
  * zoomed a vertical drag pans it, and a double tap returns to the default
  * scale. Readings outside the shown range run off the plot and get a small
@@ -132,7 +127,6 @@ fun TemperatureChart(
     unit: String = "°C",
     window: Pair<Instant, Instant>? = null,
     xLabels: List<String>? = null,
-    yBounds: Pair<Double, Double>? = null,
     limits: List<Double> = emptyList(),
     onSwipePage: ((Int) -> Unit)? = null,
     yZoom: Pair<Double, Double>? = null,
@@ -254,7 +248,7 @@ fun TemperatureChart(
         val chartW = size.width - leftPad
         val chartH = size.height - bottomPad - topPad
 
-        val (rawMin, rawMax) = yBounds ?: axisBounds(points.minOf { it.value }, points.maxOf { it.value })
+        val (rawMin, rawMax) = axisBounds(points.minOf { it.value }, points.maxOf { it.value })
         // A pinch shows exactly the chosen range, ticked at round values inside it;
         // the default scale snaps its ends to round values.
         val (yMin, yMax, yStep) = yZoom?.let { (lo, hi) -> Triple(lo, hi, niceAxis(lo, hi, minStep = 0.1).third) }
@@ -282,17 +276,18 @@ fun TemperatureChart(
             v += yStep
         }
 
-        // X labels: start, middle, end
+        // X labels spread evenly, each centred under its own dashed gridline
         val labels = xLabels ?: listOf(0f, 0.5f, 1f).map { f ->
             val instant = Instant.ofEpochMilli(tStart + (tSpan * f).toLong())
             if (showDates) "${Formatters.shortDate(instant)} ${Formatters.time(instant)}" else Formatters.time(instant)
         }
-        listOf(0f, 0.5f, 1f).zip(labels).forEach { (f, text) ->
+        labels.forEachIndexed { i, text ->
+            val f = if (labels.size > 1) i.toFloat() / (labels.size - 1) else 0f
+            val gx = leftPad + chartW * f
             val label = textMeasurer.measure(text, labelStyle)
-            val lx = (leftPad + chartW * f - label.size.width * f).coerceIn(leftPad, size.width - label.size.width)
+            val lx = (gx - label.size.width / 2f).coerceIn(0f, size.width - label.size.width)
             drawText(label, topLeft = Offset(lx, size.height - label.size.height))
-            if (window != null && f > 0f) {
-                val gx = leftPad + chartW * f
+            if (window != null && i > 0) {
                 drawLine(gridColor, Offset(gx, topPad), Offset(gx, topPad + chartH), 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
             }
         }

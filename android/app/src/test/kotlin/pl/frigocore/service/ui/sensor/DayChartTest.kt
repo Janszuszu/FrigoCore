@@ -58,24 +58,22 @@ class DayChartTest {
     }
 
     @Test
-    fun `axis labels read minutes for 1H and close the day as 24 00`() {
-        assertEquals(listOf("00", "30", "60"), pageAxisLabels(HistoryRange.H1, pageWindow(HistoryRange.H1, 0, now, warsaw)!!, warsaw))
-        assertEquals(listOf("00:00", "12:00", "24:00"), pageAxisLabels(HistoryRange.H24, pageWindow(HistoryRange.H24, 0, now, warsaw)!!, warsaw))
-        assertEquals(listOf("18:00", "21:00", "24:00"), pageAxisLabels(HistoryRange.H6, pageWindow(HistoryRange.H6, -3, now, warsaw)!!, warsaw))
+    fun `axis labels spread evenly and close the day as 24 00`() {
+        assertEquals(listOf("00", "15", "30", "45", "60"), pageAxisLabels(HistoryRange.H1, pageWindow(HistoryRange.H1, 0, now, warsaw)!!, warsaw))
+        assertEquals(
+            listOf("00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "24:00"),
+            pageAxisLabels(HistoryRange.H24, pageWindow(HistoryRange.H24, 0, now, warsaw)!!, warsaw),
+        )
+        assertEquals(
+            listOf("18:00", "19:00", "20:00", "21:00", "22:00", "23:00", "24:00"),
+            pageAxisLabels(HistoryRange.H6, pageWindow(HistoryRange.H6, -3, now, warsaw)!!, warsaw),
+        )
     }
 
     @Test
-    fun `normal band pads the thresholds to whole degrees`() {
-        assertEquals(-5.0 to 11.0, normalBandBounds(-2.0, 8.0))
-        // A narrow band still gets at least 2 degrees either side.
-        assertEquals(-23.0 to -13.0, normalBandBounds(-21.0, -15.0))
-    }
-
-    @Test
-    fun `incomplete band falls back to the data`() {
-        assertNull(normalBandBounds(null, 8.0))
-        assertNull(normalBandBounds(-2.0, null))
-        assertNull(normalBandBounds(5.0, 5.0))
+    fun `sensor name splits off a trailing bracket as subtitle`() {
+        assertEquals("Komora chłodnicza - mroźnia 1" to "Czujnik główny", splitSensorName("Komora chłodnicza - mroźnia 1 (czujnik główny)"))
+        assertEquals("Agregat" to null, splitSensorName("Agregat"))
     }
 
     @Test
