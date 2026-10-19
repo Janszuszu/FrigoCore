@@ -2,6 +2,7 @@ package pl.frigocore.service.data.repository
 
 import pl.frigocore.service.data.api.FrigoCoreApi
 import pl.frigocore.service.data.model.AggregateResponse
+import pl.frigocore.service.data.model.AlarmLimitsResponse
 import pl.frigocore.service.data.model.MeasurementResponse
 import pl.frigocore.service.data.model.MeterResponse
 import pl.frigocore.service.data.model.MeterTotalResponse
@@ -46,10 +47,20 @@ class ObjectRepository @Inject constructor(
 
     /** Oldest-first readings from the last [hours], ready to plot. */
     suspend fun history(sensorId: String, hours: Long, targetPoints: Int = 120): ApiResult<List<MeasurementResponse>> {
-        val since = Instant.now().minus(hours, ChronoUnit.HOURS).truncatedTo(ChronoUnit.SECONDS).toString()
-        return when (val result = safeApiCall { api.listMeasurementsAggregated(sensorId, since, targetPoints) }) {
+        val since = Instant.now().minus(hours, ChronoUnit.HOURS)
+        return history(sensorId, since, until = null, targetPoints)
+    }
+
+    /** Oldest-first readings in [since, until] (until = now when null). */
+    suspend fun history(sensorId: String, since: Instant, until: Instant?, targetPoints: Int = 120): ApiResult<List<MeasurementResponse>> {
+        val sinceParam = since.truncatedTo(ChronoUnit.SECONDS).toString()
+        val untilParam = until?.truncatedTo(ChronoUnit.SECONDS)?.toString()
+        return when (val result = safeApiCall { api.listMeasurementsAggregated(sensorId, sinceParam, targetPoints, untilParam) }) {
             is ApiResult.Success -> ApiResult.Success(result.data.reversed())
             is ApiResult.Error -> result
         }
     }
+
+    suspend fun alarmLimits(sensorId: String): ApiResult<AlarmLimitsResponse> =
+        safeApiCall { api.alarmLimits(sensorId) }
 }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,26 +39,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.common.PollWhileVisible
+import pl.frigocore.service.ui.theme.FrigoAccent
 import pl.frigocore.service.ui.theme.FrigoBackground
-import pl.frigocore.service.ui.theme.FrigoCritical
-import pl.frigocore.service.ui.theme.FrigoOk
 import pl.frigocore.service.ui.theme.FrigoOutline
 import pl.frigocore.service.ui.theme.FrigoSurface
 import pl.frigocore.service.ui.theme.FrigoText
 import pl.frigocore.service.ui.theme.FrigoTextMuted
-import pl.frigocore.service.ui.theme.FrigoWarning
 
 /** Full-screen landscape chart, the same way the web dashboard presents one:
  * a MIN/AVG/MAX strip with a range picker and a close button over the plot. */
@@ -79,24 +81,36 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                uiState.sensor?.name.orEmpty(),
-                color = FrigoText,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
+            val window = uiState.window
+            Column(Modifier.weight(1f, fill = false)) {
+                Text(
+                    uiState.sensor?.name.orEmpty().uppercase(),
+                    color = FrigoText,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    dayHeading(window?.first ?: java.time.Instant.now()),
+                    color = FrigoTextMuted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                )
+            }
             Spacer(Modifier.width(16.dp))
             val unit = uiState.sensor?.unit ?: "°C"
             if (!Formatters.isStateKind(uiState.sensor?.kind)) {
-                StatLabel("MIN", uiState.min, unit, FrigoWarning)
+                StatLabel("MIN", uiState.min, unit)
                 Separator()
-                StatLabel("AVG", uiState.avg, unit, FrigoOk)
+                StatLabel("AVG", uiState.avg, unit)
                 Separator()
-                StatLabel("MAX", uiState.max, unit, FrigoCritical)
+                StatLabel("MAX", uiState.max, unit)
             }
             Spacer(Modifier.weight(1f))
+            if (window != null) {
+                PagePager(uiState.range, uiState.pageOffset, window, viewModel::shiftPage)
+                Spacer(Modifier.width(10.dp))
+            }
             RangePicker(uiState.range, viewModel::selectRange)
             Spacer(Modifier.width(10.dp))
             Box(
@@ -110,14 +124,27 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
             }
         }
 
+        val onSwipePage: ((Int) -> Unit)? = if (uiState.window != null) viewModel::shiftPage else null
+        val limits = uiState.limits
         Box(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
             when {
                 uiState.isLoadingHistory -> CircularProgressIndicator()
-                uiState.points.size < 2 -> Text(uiState.error ?: "Brak odczytów w tym okresie", color = FrigoTextMuted)
+                // An empty page still pages, or a gap in the data would be a dead end.
+                uiState.points.size < 2 -> Box(
+                    Modifier.fillMaxSize().swipePages(onSwipePage, 60.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(uiState.error ?: "Brak odczytów w tym okresie", color = FrigoTextMuted)
+                }
                 else -> TemperatureChart(
                     uiState.points,
                     showDates = uiState.range == HistoryRange.D7,
                     unit = uiState.sensor?.unit ?: "°C",
+                    window = uiState.window,
+                    xLabels = uiState.window?.let { pageAxisLabels(uiState.range, it) },
+                    yBounds = normalBandBounds(limits?.low, limits?.high),
+                    limits = listOfNotNull(limits?.low, limits?.high),
+                    onSwipePage = onSwipePage,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -125,11 +152,56 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
     }
 }
 
+/** Horizontal drag of at least [distance] pages the window: left = +1, right = -1. */
+private fun Modifier.swipePages(onSwipePage: ((Int) -> Unit)?, distance: Dp): Modifier =
+    if (onSwipePage == null) this else pointerInput(onSwipePage) {
+        var dx = 0f
+        detectHorizontalDragGestures(
+            onDragStart = { dx = 0f },
+            onDragEnd = {
+                if (dx <= -distance.toPx()) onSwipePage(1)
+                else if (dx >= distance.toPx()) onSwipePage(-1)
+            },
+        ) { _, amount -> dx += amount }
+    }
+
+private val headingFormat = java.time.format.DateTimeFormatter.ofPattern("EEEE, dd.MM.yyyy", java.util.Locale.forLanguageTag("pl"))
+
+/** "Poniedziałek, 19.10.2026" — the day the chart shows. */
+private fun dayHeading(instant: java.time.Instant): String =
+    instant.atZone(java.time.ZoneId.systemDefault()).format(headingFormat).replaceFirstChar { it.uppercase() }
+
+/** "‹ Dziś ›" / "‹ 12:00–18:00 ›" switcher of a paged range; the future is out of reach. */
 @Composable
-private fun StatLabel(label: String, value: Double?, unit: String, color: Color) {
-    Text(label, color = color, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+private fun PagePager(range: HistoryRange, pageOffset: Int, window: Pair<java.time.Instant, java.time.Instant>, onShift: (Int) -> Unit) {
+    val label = when {
+        range != HistoryRange.H24 -> pageAxisLabels(HistoryRange.H6, window).let { "${it.first()}–${it.last()}" }
+        pageOffset == 0 -> "Dziś"
+        pageOffset == -1 -> "Wczoraj"
+        else -> Formatters.shortDate(window.first)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+            contentDescription = "Wstecz",
+            tint = FrigoText,
+            modifier = Modifier.size(36.dp).clickable { onShift(-1) }.padding(6.dp),
+        )
+        Text(label, color = FrigoText, fontWeight = FontWeight.Bold, style = TabularNumbers)
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = "Dalej",
+            tint = if (pageOffset < 0) FrigoText else FrigoOutline,
+            modifier = Modifier.size(36.dp).clickable(enabled = pageOffset < 0) { onShift(1) }.padding(6.dp),
+        )
+    }
+}
+
+@Composable
+private fun StatLabel(label: String, value: Double?, unit: String) {
+    Text(label, color = FrigoTextMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     Spacer(Modifier.width(6.dp))
-    Text(Formatters.reading(value, unit), color = FrigoText, fontSize = 14.sp, style = TabularNumbers)
+    Text(Formatters.reading(value, unit), color = FrigoAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp, style = TabularNumbers)
 }
 
 @Composable

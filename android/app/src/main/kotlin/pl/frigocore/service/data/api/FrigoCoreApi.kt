@@ -1,6 +1,7 @@
 package pl.frigocore.service.data.api
 
 import pl.frigocore.service.data.model.AlarmEventResponse
+import pl.frigocore.service.data.model.AlarmLimitsResponse
 import pl.frigocore.service.data.model.AlarmResponse
 import pl.frigocore.service.data.model.ArchiveResolvedResponse
 import pl.frigocore.service.data.model.DeviceTokenRegister
@@ -69,7 +70,12 @@ interface FrigoCoreApi {
         @Path("sensorId") sensorId: String,
         @Query("since") since: String,
         @Query("target_points") targetPoints: Int = 120,
+        @Query("until") until: String? = null,
     ): Response<List<MeasurementResponse>>
+
+    /** Enabled LOW / HIGH thresholds, the band a chart's value axis is pinned to. */
+    @GET("sensors/{sensorId}/alarm-limits")
+    suspend fun alarmLimits(@Path("sensorId") sensorId: String): Response<AlarmLimitsResponse>
 
     @GET("alarms")
     suspend fun listAlarms(

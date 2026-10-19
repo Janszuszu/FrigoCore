@@ -40,6 +40,13 @@ data class MeasurementResponse(
     val sensor_id: String,
 )
 
+/** Mirrors backend/app/schemas.py:AlarmLimitsResponse. */
+@Serializable
+data class AlarmLimitsResponse(
+    val low: Double? = null,
+    val high: Double? = null,
+)
+
 /** Mirrors backend/app/schemas.py:ReceiverResponse — a refrigerated space
  * with its inferred working state. */
 @Serializable

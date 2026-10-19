@@ -6,7 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.enums import UserRole
+from app.enums import AlarmType, UserRole
+from app.models.alarm_config import AlarmConfig
 from app.models.measurement import Measurement
 from app.models.sensor import Sensor
 from tests.conftest import auth_headers
@@ -61,3 +62,36 @@ async def test_aggregated_returns_a_small_window_whole(client, db_session, make_
         headers=auth_headers(user),
     )
     assert [p["temperature"] for p in resp.json()] == [float(i) for i in reversed(range(15))]
+
+
+@pytest.mark.asyncio
+async def test_alarm_limits_report_enabled_thresholds(client, db_session, make_user):
+    user = await make_user(UserRole.SERWISANT)
+    obj = await make_object(db_session)
+    sensor = Sensor(name="Komora", mqtt_topic="frigo/t/limits", object_id=obj.id)
+    db_session.add(sensor)
+    await db_session.flush()
+    db_session.add_all([
+        AlarmConfig(sensor_id=sensor.id, alarm_type=AlarmType.LOW_TEMPERATURE, threshold_value=-2.0),
+        AlarmConfig(sensor_id=sensor.id, alarm_type=AlarmType.HIGH_TEMPERATURE, threshold_value=8.0),
+        AlarmConfig(sensor_id=sensor.id, alarm_type=AlarmType.HIGH_TEMPERATURE, threshold_value=20.0, is_enabled=False),
+        AlarmConfig(sensor_id=sensor.id, alarm_type=AlarmType.OFFLINE),
+    ])
+    await db_session.commit()
+
+    resp = await client.get(f"/api/v1/sensors/{sensor.id}/alarm-limits", headers=auth_headers(user))
+    assert resp.status_code == 200
+    assert resp.json() == {"low": -2.0, "high": 8.0}
+
+
+@pytest.mark.asyncio
+async def test_alarm_limits_empty_without_thresholds(client, db_session, make_user):
+    user = await make_user(UserRole.ADMIN)
+    obj = await make_object(db_session)
+    sensor = Sensor(name="Komora", mqtt_topic="frigo/t/nolimits", object_id=obj.id)
+    db_session.add(sensor)
+    await db_session.commit()
+
+    resp = await client.get(f"/api/v1/sensors/{sensor.id}/alarm-limits", headers=auth_headers(user))
+    assert resp.status_code == 200
+    assert resp.json() == {"low": None, "high": None}

@@ -44,6 +44,7 @@ from app.schemas import (
     AlarmAssignmentResponse,
     AlarmConfigCreate,
     AlarmConfigResponse,
+    AlarmLimitsResponse,
     AlarmConfigUpdate,
     AlarmEventResponse,
     AlarmResponse,
@@ -1108,6 +1109,29 @@ async def list_measurements(
         .limit(limit)
     )
     return result.scalars().all()
+
+
+@measurements_router.get("/{sensor_id}/alarm-limits", response_model=AlarmLimitsResponse)
+async def get_alarm_limits(
+    sensor_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AlarmLimitsResponse:
+    await _visible_sensor_or_404(db, sensor_id, user)
+    result = await db.execute(
+        select(AlarmConfig.alarm_type, AlarmConfig.threshold_value).where(
+            AlarmConfig.sensor_id == sensor_id,
+            AlarmConfig.is_enabled.is_(True),
+            AlarmConfig.threshold_value.is_not(None),
+        )
+    )
+    limits = AlarmLimitsResponse()
+    for alarm_type, value in result.all():
+        if alarm_type == AlarmType.LOW_TEMPERATURE:
+            limits.low = value if limits.low is None else max(limits.low, value)
+        elif alarm_type == AlarmType.HIGH_TEMPERATURE:
+            limits.high = value if limits.high is None else min(limits.high, value)
+    return limits
 
 
 # Hard ceiling on rows pulled from the DB for a single aggregation request,

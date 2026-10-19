@@ -297,6 +297,15 @@ class AlarmConfigResponse(BaseModel):
     updated_at: datetime
 
 
+class AlarmLimitsResponse(BaseModel):
+    """A sensor's enabled LOW / HIGH thresholds — the band of normal work
+    that clients pin a chart's value axis to. Readable by anyone who can
+    see the sensor, unlike the full alarm configs."""
+
+    low: float | None = None
+    high: float | None = None
+
+
 # ---------------------------------------------------------------------------
 # Measurement
 # ---------------------------------------------------------------------------
