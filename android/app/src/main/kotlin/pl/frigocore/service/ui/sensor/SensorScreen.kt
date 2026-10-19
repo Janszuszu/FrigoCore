@@ -22,8 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -44,7 +42,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -64,7 +61,6 @@ import pl.frigocore.service.ui.theme.FrigoCritical
 import pl.frigocore.service.ui.theme.FrigoMin
 import pl.frigocore.service.ui.theme.FrigoOk
 import pl.frigocore.service.ui.theme.FrigoOutline
-import pl.frigocore.service.ui.theme.FrigoSurface
 import pl.frigocore.service.ui.theme.FrigoText
 import pl.frigocore.service.ui.theme.FrigoTextMuted
 
@@ -82,7 +78,7 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
             .background(FrigoBackground)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        Header(uiState, viewModel::shiftPage, viewModel::selectRange, onClose)
+        Header(uiState, viewModel::selectRange, onClose)
         HorizontalDivider(Modifier.padding(top = 8.dp), color = FrigoOutline)
 
         // Value-axis zoom outlives page and range switches; a double tap on the chart clears it.
@@ -131,7 +127,6 @@ internal fun splitSensorName(name: String): Pair<String, String?> {
 @Composable
 private fun Header(
     uiState: SensorUiState,
-    onShift: (Int) -> Unit,
     onRange: (HistoryRange) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -140,21 +135,18 @@ private fun Header(
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(4.dp).height(44.dp).background(FrigoAccent, RoundedCornerShape(2.dp)))
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f, fill = false)) {
-            Text(title, color = FrigoText, fontWeight = FontWeight.Bold, fontSize = 22.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // Takes all the room the date and range picker leave; a long name wraps rather than cuts.
+        Column(Modifier.weight(1f)) {
+            Text(title, color = FrigoText, fontSize = 20.sp, lineHeight = 24.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (subtitle != null) {
                 Text(subtitle, color = FrigoTextMuted, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.width(16.dp))
         Icon(Icons.Outlined.CalendarMonth, contentDescription = null, tint = FrigoTextMuted, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(8.dp))
         Text(dayHeading(window?.first ?: java.time.Instant.now()), color = FrigoTextMuted, fontSize = 16.sp, maxLines = 1, style = TabularNumbers)
         Spacer(Modifier.width(24.dp))
-        if (window != null) {
-            PagePager(uiState.range, uiState.pageOffset, window, onShift)
-            Spacer(Modifier.width(16.dp))
-        }
         RangePicker(uiState.range, onRange)
         Spacer(Modifier.width(8.dp))
         Box(Modifier.size(40.dp).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
@@ -211,47 +203,6 @@ private val headingFormat = java.time.format.DateTimeFormatter.ofPattern("EEEE, 
 /** "Poniedziałek, 19.10.2026" — the day the chart shows. */
 private fun dayHeading(instant: java.time.Instant): String =
     instant.atZone(java.time.ZoneId.systemDefault()).format(headingFormat).replaceFirstChar { it.uppercase() }
-
-/** "‹ Dziś ›" / "‹ 12:00–18:00 ›" switcher of a paged range; the future is out of reach. */
-@Composable
-private fun PagePager(range: HistoryRange, pageOffset: Int, window: Pair<java.time.Instant, java.time.Instant>, onShift: (Int) -> Unit) {
-    val label = when {
-        range != HistoryRange.H24 -> pageAxisLabels(HistoryRange.H6, window).let { "${it.first()}–${it.last()}" }
-        pageOffset == 0 -> "Dziś"
-        pageOffset == -1 -> "Wczoraj"
-        else -> Formatters.shortDate(window.first)
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        PagerButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Wstecz", enabled = true) { onShift(-1) }
-        Spacer(Modifier.width(12.dp))
-        Text(
-            label,
-            color = FrigoAccent,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold,
-            style = TabularNumbers,
-            modifier = Modifier
-                .border(1.dp, FrigoAccent, RoundedCornerShape(22.dp))
-                .padding(horizontal = 22.dp, vertical = 8.dp),
-        )
-        Spacer(Modifier.width(12.dp))
-        PagerButton(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Dalej", enabled = pageOffset < 0) { onShift(1) }
-    }
-}
-
-@Composable
-private fun PagerButton(icon: ImageVector, description: String, enabled: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .size(44.dp)
-            .background(FrigoSurface, RoundedCornerShape(12.dp))
-            .border(1.dp, FrigoOutline, RoundedCornerShape(12.dp))
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = description, tint = if (enabled) FrigoAccent else FrigoOutline)
-    }
-}
 
 @Composable
 private fun RangePicker(selected: HistoryRange, onSelect: (HistoryRange) -> Unit) {
