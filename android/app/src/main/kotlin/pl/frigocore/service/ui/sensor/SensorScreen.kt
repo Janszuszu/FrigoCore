@@ -100,9 +100,10 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
                     showDates = uiState.range == HistoryRange.D7,
                     unit = uiState.sensor?.unit ?: "°C",
                     window = uiState.window,
-                    xLabels = uiState.window?.let { pageAxisLabels(uiState.range, it) },
+                    xTicks = { axisTicks(uiState.range, it) },
                     limits = listOfNotNull(limits?.low, limits?.high),
                     onSwipePage = onSwipePage,
+                    onPanTime = if (uiState.window != null) viewModel::panBy else null,
                     yZoom = yZoom,
                     onYZoom = { yZoom = it },
                     modifier = Modifier.fillMaxSize(),
@@ -148,7 +149,7 @@ private fun Header(
         // 1H and 6H pages also say which hours they cover: "Poniedziałek, 19.10.2026 · 12:00–18:00".
         val day = dayHeading(window?.first ?: java.time.Instant.now())
         val hours = window?.takeIf { uiState.range == HistoryRange.H1 || uiState.range == HistoryRange.H6 }
-            ?.let { pageAxisLabels(HistoryRange.H6, it).let { labels -> " · ${labels.first()}–${labels.last()}" } }
+            ?.let { " · ${windowHours(it)}" }
         Text(day + hours.orEmpty(), color = FrigoTextMuted, fontSize = 16.sp, maxLines = 1, style = TabularNumbers)
         Spacer(Modifier.width(24.dp))
         RangePicker(uiState.range, onRange)

@@ -58,16 +58,28 @@ class DayChartTest {
     }
 
     @Test
-    fun `axis labels spread evenly and close the day as 24 00`() {
-        assertEquals(listOf("00", "15", "30", "45", "60"), pageAxisLabels(HistoryRange.H1, pageWindow(HistoryRange.H1, 0, now, warsaw)!!, warsaw))
+    fun `time ticks sit on round clock times`() {
         assertEquals(
             listOf("00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "24:00"),
-            pageAxisLabels(HistoryRange.H24, pageWindow(HistoryRange.H24, 0, now, warsaw)!!, warsaw),
+            axisTicks(HistoryRange.H24, pageWindow(HistoryRange.H24, 0, now, warsaw)!!, warsaw).map { it.second },
         )
         assertEquals(
-            listOf("18:00", "19:00", "20:00", "21:00", "22:00", "23:00", "24:00"),
-            pageAxisLabels(HistoryRange.H6, pageWindow(HistoryRange.H6, -3, now, warsaw)!!, warsaw),
+            listOf("14:00", "14:15", "14:30", "14:45", "15:00"),
+            axisTicks(HistoryRange.H1, pageWindow(HistoryRange.H1, 0, now, warsaw)!!, warsaw).map { it.second },
         )
+        // A 6H window slid to 12:30-18:30 ticks on the whole hours inside it.
+        val slid = slideWindow(pageWindow(HistoryRange.H6, 0, now, warsaw)!!, 30 * 60_000L, Instant.parse("2026-10-20T00:00:00Z"))
+        assertEquals(listOf("13:00", "14:00", "15:00", "16:00", "17:00", "18:00"), axisTicks(HistoryRange.H6, slid, warsaw).map { it.second })
+        assertEquals("12:30–18:30", windowHours(slid, warsaw))
+    }
+
+    @Test
+    fun `sliding never runs past the latest end`() {
+        val day = pageWindow(HistoryRange.H24, 0, now, warsaw)!!
+        // Back two hours is free.
+        assertEquals(day.first.minusSeconds(7200), slideWindow(day, -7_200_000L, day.second).first)
+        // Forward is capped at the current day's end.
+        assertEquals(day, slideWindow(day, 3_600_000L, day.second))
     }
 
     @Test

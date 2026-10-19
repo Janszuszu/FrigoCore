@@ -34,6 +34,8 @@ import pl.frigocore.service.ui.theme.FrigoAccent
 import pl.frigocore.service.ui.theme.FrigoCritical
 import pl.frigocore.service.ui.theme.FrigoWarning
 import java.time.Instant
+import java.time.Duration
+import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -76,9 +78,16 @@ internal fun pinchRange(max0: Double, span0: Double, focalFrac0: Float, focalFra
 }
 
 /** The value axis as last drawn, read by the gesture handler. */
-private class AxisFrame(var max: Double = 1.0, var span: Double = 1.0, var top: Float = 0f, var height: Float = 1f)
+private class AxisFrame(
+    var max: Double = 1.0,
+    var span: Double = 1.0,
+    var top: Float = 0f,
+    var height: Float = 1f,
+    /** Time per pixel along the time axis, for turning a drag into a shift. */
+    var msPerPx: Float = 0f,
+)
 
-private enum class Gesture { TAP, SWIPE, SCRUB, PAN, PINCH }
+private enum class Gesture { TAP, SWIPE, SCRUB, SLIDE, PAN, PINCH }
 
 /** Two-finger pinch on the value axis until fewer than two fingers remain. */
 private suspend fun AwaitPointerEventScope.trackPinch(frame: AxisFrame, onZoom: (Pair<Double, Double>) -> Unit) {
@@ -98,26 +107,46 @@ private suspend fun AwaitPointerEventScope.trackPinch(frame: AxisFrame, onZoom: 
     }
 }
 
-/** Bottom-axis labels spread evenly over a page: every 15 minutes (00..60)
- * for 1H, every hour for 6H, every 3 hours for 24H, with the closing
- * midnight written 24:00. */
-internal fun pageAxisLabels(range: HistoryRange, window: Pair<Instant, Instant>, zone: ZoneId = ZoneId.systemDefault()): List<String> {
-    if (range == HistoryRange.H1) return listOf("00", "15", "30", "45", "60")
-    val intervals = if (range == HistoryRange.H6) 6 else 8
-    val (start, end) = window
-    val step = (end.toEpochMilli() - start.toEpochMilli()) / intervals
-    return (0..intervals).map { i ->
-        val text = Formatters.time(Instant.ofEpochMilli(start.toEpochMilli() + step * i), zone)
-        if (i == intervals && text == "00:00") "24:00" else text
+/** Time-axis ticks on round clock times inside [window]: every 15 minutes
+ * for 1H, every hour for 6H, every 3 hours for 24H; none for 7D. A tick on
+ * the window's closing midnight reads 24:00. */
+internal fun axisTicks(range: HistoryRange, window: Pair<Instant, Instant>, zone: ZoneId = ZoneId.systemDefault()): List<Pair<Instant, String>> {
+    val stepMinutes = when (range) {
+        HistoryRange.H1 -> 15L
+        HistoryRange.H6 -> 60L
+        HistoryRange.H24 -> 180L
+        HistoryRange.D7 -> return emptyList()
     }
+    val (start, end) = window
+    val local = LocalDateTime.ofInstant(start, zone)
+    val midnight = local.toLocalDate().atStartOfDay()
+    var tick = midnight.plusMinutes(Duration.between(midnight, local).toMinutes() / stepMinutes * stepMinutes)
+    if (tick.isBefore(local)) tick = tick.plusMinutes(stepMinutes)
+    val ticks = mutableListOf<Pair<Instant, String>>()
+    while (true) {
+        val at = tick.atZone(zone).toInstant()
+        if (at.isAfter(end)) break
+        val text = Formatters.time(at, zone)
+        ticks += at to if (at == end && text == "00:00") "24:00" else text
+        tick = tick.plusMinutes(stepMinutes)
+    }
+    return ticks
+}
+
+/** "12:00–18:00": the hours [window] covers, its closing midnight as 24:00. */
+internal fun windowHours(window: Pair<Instant, Instant>, zone: ZoneId = ZoneId.systemDefault()): String {
+    val end = Formatters.time(window.second, zone).let { if (it == "00:00") "24:00" else it }
+    return "${Formatters.time(window.first, zone)}–$end"
 }
 
 /** Line chart of temperature over time. Tap to read a value under a
- * crosshair; while a value is shown, or after a long press, dragging moves
- * the crosshair along the curve and the reading stays up after release.
- * Otherwise, with [onSwipePage], a horizontal drag pages the window
- * (left = +1, right = -1); without it any drag scrubs. [window] pins the time
- * axis, labelled with [xLabels] spread evenly over it. The value axis fits
+ * crosshair. While a value is shown, a sideways drag slides the curve and
+ * the time axis under the crosshair, which stays put and reads whatever
+ * passes beneath it; on release the shift goes to [onPanTime] to load the
+ * new stretch. A long press scrubs the crosshair itself. With no reading up,
+ * [onSwipePage] turns a sideways drag into paging (left = +1, right = -1).
+ * [window] pins the time axis; [xTicks] gives its labelled ticks for any
+ * (slid) window. The value axis fits
  * the readings' min..max, widened to round steps.
  * Two fingers zoom the value axis only ([yZoom], reported via [onYZoom]); while
  * zoomed a vertical drag pans it, and a double tap clears the reading and
@@ -130,9 +159,10 @@ fun TemperatureChart(
     showDates: Boolean,
     unit: String = "°C",
     window: Pair<Instant, Instant>? = null,
-    xLabels: List<String>? = null,
+    xTicks: ((Pair<Instant, Instant>) -> List<Pair<Instant, String>>)? = null,
     limits: List<Double> = emptyList(),
     onSwipePage: ((Int) -> Unit)? = null,
+    onPanTime: ((Long) -> Unit)? = null,
     yZoom: Pair<Double, Double>? = null,
     onYZoom: (Pair<Double, Double>?) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -142,8 +172,11 @@ fun TemperatureChart(
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = TextStyle(fontSize = 11.sp, color = labelColor)
-    // Survives the minute-by-minute refresh; a new page or range clears it.
-    var selectedX by remember(window) { mutableStateOf<Float?>(null) }
+    // Survives the minute refresh and sliding; a new range clears it.
+    var selectedX by remember(window?.let { it.second.toEpochMilli() - it.first.toEpochMilli() }) { mutableStateOf<Float?>(null) }
+    // Live time shift of a slide in progress; the next window from the view model replaces it.
+    var dragShift by remember(window) { mutableStateOf(0L) }
+    val panTime = rememberUpdatedState(onPanTime)
     val frame = remember { AxisFrame() }
     val zoomed = rememberUpdatedState(yZoom != null)
     val setZoom = rememberUpdatedState(onYZoom)
@@ -152,7 +185,7 @@ fun TemperatureChart(
 
     Canvas(
         modifier = modifier
-            .pointerInput(points, onSwipePage) {
+            .pointerInput(points, onSwipePage, window) {
                 val pageDistance = 60.dp.toPx()
                 val zoomTo: (Pair<Double, Double>) -> Unit = { setZoom.value(it) }
                 awaitEachGesture {
@@ -171,8 +204,12 @@ fun TemperatureChart(
                             gesture = when {
                                 event.changes.count { it.pressed } >= 2 -> Gesture.PINCH
                                 change == null || !change.pressed -> Gesture.TAP
-                                // With a reading up, a sideways drag moves it instead of paging.
-                                dx > slop && dx >= dy -> if (selectedX != null) Gesture.SCRUB else Gesture.SWIPE
+                                // With a reading up, a sideways drag slides the chart under it instead of paging.
+                                dx > slop && dx >= dy -> when {
+                                    selectedX == null -> Gesture.SWIPE
+                                    panTime.value != null && window != null -> Gesture.SLIDE
+                                    else -> Gesture.SCRUB
+                                }
                                 dy > slop && zoomed.value -> Gesture.PAN
                                 else -> null
                             }
@@ -197,6 +234,17 @@ fun TemperatureChart(
                         Gesture.PINCH -> {
                             selectedX = null
                             trackPinch(frame, zoomTo)
+                            return@awaitEachGesture
+                        }
+                        Gesture.SLIDE -> {
+                            while (true) {
+                                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) break
+                                // The curve follows the finger: dragging right brings earlier times in.
+                                dragShift = (-(change.position.x - down.position.x) * frame.msPerPx).toLong()
+                                change.consume()
+                            }
+                            if (dragShift != 0L) panTime.value?.invoke(dragShift)
                             return@awaitEachGesture
                         }
                         Gesture.PAN -> {
@@ -259,9 +307,10 @@ fun TemperatureChart(
         frame.span = yMax - yMin
         frame.top = topPad
         frame.height = chartH
-        val tStart = window?.first?.toEpochMilli() ?: points.first().time.toEpochMilli()
-        val tEnd = window?.second?.toEpochMilli() ?: points.last().time.toEpochMilli()
+        val tStart = window?.first?.toEpochMilli()?.plus(dragShift) ?: points.first().time.toEpochMilli()
+        val tEnd = window?.second?.toEpochMilli()?.plus(dragShift) ?: points.last().time.toEpochMilli()
         val tSpan = (tEnd - tStart).coerceAtLeast(1).toFloat()
+        frame.msPerPx = tSpan / chartW
         fun x(p: ChartPoint) = leftPad + (p.time.toEpochMilli() - tStart) / tSpan * chartW
         fun y(v: Double) = topPad + ((yMax - v) / (yMax - yMin)).toFloat() * chartH
 
@@ -278,18 +327,19 @@ fun TemperatureChart(
             v += yStep
         }
 
-        // X labels spread evenly, each centred under its own dashed gridline
-        val labels = xLabels ?: listOf(0f, 0.5f, 1f).map { f ->
-            val instant = Instant.ofEpochMilli(tStart + (tSpan * f).toLong())
-            if (showDates) "${Formatters.shortDate(instant)} ${Formatters.time(instant)}" else Formatters.time(instant)
-        }
-        labels.forEachIndexed { i, text ->
-            val f = if (labels.size > 1) i.toFloat() / (labels.size - 1) else 0f
-            val gx = leftPad + chartW * f
+        // Time ticks on round clock times, each centred under its own dashed gridline;
+        // without a window, start / middle / end of the data.
+        val ticks = window?.let { xTicks?.invoke(Instant.ofEpochMilli(tStart) to Instant.ofEpochMilli(tEnd)) }
+            ?: listOf(0f, 0.5f, 1f).map { f ->
+                val instant = Instant.ofEpochMilli(tStart + (tSpan * f).toLong())
+                instant to if (showDates) "${Formatters.shortDate(instant)} ${Formatters.time(instant)}" else Formatters.time(instant)
+            }
+        ticks.forEach { (at, text) ->
+            val gx = leftPad + (at.toEpochMilli() - tStart) / tSpan * chartW
             val label = textMeasurer.measure(text, labelStyle)
             val lx = (gx - label.size.width / 2f).coerceIn(0f, size.width - label.size.width)
             drawText(label, topLeft = Offset(lx, size.height - label.size.height))
-            if (window != null && i > 0) {
+            if (window != null && gx > leftPad + 1f) {
                 drawLine(gridColor, Offset(gx, topPad), Offset(gx, topPad + chartH), 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
             }
         }

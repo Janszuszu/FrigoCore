@@ -44,11 +44,21 @@ internal fun pageWindow(range: HistoryRange, offset: Int, now: LocalDateTime, zo
     return start.atZone(zone).toInstant() to start.plusHours(range.hours).atZone(zone).toInstant()
 }
 
+/** [window] slid by [millis] (negative = back in time), its end held at or
+ * before [latestEnd] so the chart never runs into the future. */
+internal fun slideWindow(window: Pair<Instant, Instant>, millis: Long, latestEnd: Instant): Pair<Instant, Instant> {
+    val length = window.second.toEpochMilli() - window.first.toEpochMilli()
+    val start = (window.first.toEpochMilli() + millis).coerceAtMost(latestEnd.toEpochMilli() - length)
+    return Instant.ofEpochMilli(start) to Instant.ofEpochMilli(start + length)
+}
+
 data class SensorUiState(
     val sensor: SensorResponse? = null,
     val range: HistoryRange = HistoryRange.H24,
     /** Page shown in the 1H / 6H / 24H view: 0 = the current one, -1 = the one before, ... */
     val pageOffset: Int = 0,
+    /** Start of a window slid off the page grid by dragging the chart; null = on [pageOffset]. */
+    val customStart: Instant? = null,
     val limits: AlarmLimitsResponse? = null,
     val points: List<ChartPoint> = emptyList(),
     val isLoadingHistory: Boolean = true,
@@ -60,9 +70,14 @@ data class SensorUiState(
     val max: Double? get() = maxPoint?.value
     val avg: Double? get() = points.takeIf { it.isNotEmpty() }?.map { it.value }?.average()
 
-    /** Time axis span: the shown page of a paged range, null (= the data itself) for 7D. */
+    /** Time axis span: the shown page (or slid window) of a paged range, null (= the data itself) for 7D. */
     val window: Pair<Instant, Instant>?
-        get() = pageWindow(range, pageOffset, LocalDateTime.now(), ZoneId.systemDefault())
+        get() = customStart?.let { it to it.plusSeconds(range.hours * 3600) }
+            ?: pageWindow(range, pageOffset, LocalDateTime.now(), ZoneId.systemDefault())
+
+    /** End of the current page: no window may reach past it. */
+    val latestEnd: Instant?
+        get() = pageWindow(range, 0, LocalDateTime.now(), ZoneId.systemDefault())?.second
 }
 
 @HiltViewModel
@@ -79,36 +94,57 @@ class SensorViewModel @Inject constructor(
 
     fun selectRange(range: HistoryRange) {
         if (range == _uiState.value.range) return
-        _uiState.value = _uiState.value.copy(range = range, pageOffset = 0, isLoadingHistory = true, points = emptyList())
+        _uiState.value = _uiState.value.copy(range = range, pageOffset = 0, customStart = null, isLoadingHistory = true, points = emptyList())
         refresh()
     }
 
     /** Pages a paged range by its own length; the future (offset > 0) is out of reach. */
     fun shiftPage(by: Int) {
         val state = _uiState.value
-        val offset = (state.pageOffset + by).coerceAtMost(0)
-        if (state.window == null || offset == state.pageOffset) return
-        _uiState.value = state.copy(pageOffset = offset, isLoadingHistory = true, points = emptyList())
+        val window = state.window ?: return
+        if (state.customStart != null) {
+            val length = window.second.toEpochMilli() - window.first.toEpochMilli()
+            val slid = slideWindow(window, by * length, state.latestEnd ?: return)
+            if (slid.first == window.first) return
+            _uiState.value = state.copy(customStart = slid.first, isLoadingHistory = true, points = emptyList())
+        } else {
+            val offset = (state.pageOffset + by).coerceAtMost(0)
+            if (offset == state.pageOffset) return
+            _uiState.value = state.copy(pageOffset = offset, isLoadingHistory = true, points = emptyList())
+        }
+        refresh()
+    }
+
+    /** Slides the window by [millis] after the chart was dragged under its
+     * crosshair. The old readings stay on screen until the new ones land. */
+    fun panBy(millis: Long) {
+        val state = _uiState.value
+        val window = state.window ?: return
+        val slid = slideWindow(window, millis, state.latestEnd ?: return)
+        if (slid.first == window.first) return
+        _uiState.value = state.copy(customStart = slid.first)
         refresh()
     }
 
     fun refresh() {
         val range = _uiState.value.range
         val pageOffset = _uiState.value.pageOffset
+        val customStart = _uiState.value.customStart
         val window = _uiState.value.window
         viewModelScope.launch {
             val sensor = async { objectRepository.getSensor(objectId, sensorId) }
             val limits = async { objectRepository.alarmLimits(sensorId) }
             val history = async {
                 if (window == null) objectRepository.history(sensorId, range.hours)
-                // The current page runs up to now; a past one is fetched whole.
-                else objectRepository.history(sensorId, window.first, window.second.takeIf { pageOffset < 0 }, targetPoints = 144)
+                // A window reaching past now runs up to now; a past one is fetched whole.
+                else objectRepository.history(sensorId, window.first, window.second.takeIf { it.isBefore(Instant.now()) }, targetPoints = 144)
             }
             val sensorResult = sensor.await()
             val limitsResult = limits.await()
             val historyResult = history.await()
-            // A range or page switch while this request was in flight makes it stale.
-            if (_uiState.value.range != range || _uiState.value.pageOffset != pageOffset) return@launch
+            // A range, page or slide change while this request was in flight makes it stale.
+            val now = _uiState.value
+            if (now.range != range || now.pageOffset != pageOffset || now.customStart != customStart) return@launch
             _uiState.value = _uiState.value.copy(
                 sensor = (sensorResult as? ApiResult.Success)?.data ?: _uiState.value.sensor,
                 limits = (limitsResult as? ApiResult.Success)?.data ?: _uiState.value.limits,
