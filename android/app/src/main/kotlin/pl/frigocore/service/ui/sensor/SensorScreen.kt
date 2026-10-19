@@ -145,7 +145,11 @@ private fun Header(
         Spacer(Modifier.width(16.dp))
         Icon(Icons.Outlined.CalendarMonth, contentDescription = null, tint = FrigoTextMuted, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(8.dp))
-        Text(dayHeading(window?.first ?: java.time.Instant.now()), color = FrigoTextMuted, fontSize = 16.sp, maxLines = 1, style = TabularNumbers)
+        // 1H and 6H pages also say which hours they cover: "Poniedziałek, 19.10.2026 · 12:00–18:00".
+        val day = dayHeading(window?.first ?: java.time.Instant.now())
+        val hours = window?.takeIf { uiState.range == HistoryRange.H1 || uiState.range == HistoryRange.H6 }
+            ?.let { pageAxisLabels(HistoryRange.H6, it).let { labels -> " · ${labels.first()}–${labels.last()}" } }
+        Text(day + hours.orEmpty(), color = FrigoTextMuted, fontSize = 16.sp, maxLines = 1, style = TabularNumbers)
         Spacer(Modifier.width(24.dp))
         RangePicker(uiState.range, onRange)
         Spacer(Modifier.width(8.dp))

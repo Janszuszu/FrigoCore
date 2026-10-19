@@ -15,6 +15,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import pl.frigocore.service.ui.common.Formatters
+import pl.frigocore.service.ui.theme.FrigoAccent
 import pl.frigocore.service.ui.theme.FrigoCritical
 import pl.frigocore.service.ui.theme.FrigoWarning
 import java.time.Instant
@@ -76,7 +78,7 @@ internal fun pinchRange(max0: Double, span0: Double, focalFrac0: Float, focalFra
 /** The value axis as last drawn, read by the gesture handler. */
 private class AxisFrame(var max: Double = 1.0, var span: Double = 1.0, var top: Float = 0f, var height: Float = 1f)
 
-private enum class Gesture { TAP, SWIPE, PAN, PINCH }
+private enum class Gesture { TAP, SWIPE, SCRUB, PAN, PINCH }
 
 /** Two-finger pinch on the value axis until fewer than two fingers remain. */
 private suspend fun AwaitPointerEventScope.trackPinch(frame: AxisFrame, onZoom: (Pair<Double, Double>) -> Unit) {
@@ -110,14 +112,16 @@ internal fun pageAxisLabels(range: HistoryRange, window: Pair<Instant, Instant>,
     }
 }
 
-/** Line chart of temperature over time. Tap to read a value; long-press and
- * drag to scrub. With [onSwipePage], a horizontal drag pages the window
+/** Line chart of temperature over time. Tap to read a value under a
+ * crosshair; while a value is shown, or after a long press, dragging moves
+ * the crosshair along the curve and the reading stays up after release.
+ * Otherwise, with [onSwipePage], a horizontal drag pages the window
  * (left = +1, right = -1); without it any drag scrubs. [window] pins the time
  * axis, labelled with [xLabels] spread evenly over it. The value axis fits
  * the readings' min..max, widened to round steps.
  * Two fingers zoom the value axis only ([yZoom], reported via [onYZoom]); while
- * zoomed a vertical drag pans it, and a double tap returns to the default
- * scale. Readings outside the shown range run off the plot and get a small
+ * zoomed a vertical drag pans it, and a double tap clears the reading and
+ * returns to the default scale. Readings outside the shown range run off the plot and get a small
  * marker at that edge. [limits] are drawn as dashed alarm lines.
  * Fills whatever size [modifier] gives it. */
 @Composable
@@ -136,11 +140,10 @@ fun TemperatureChart(
     val lineColor = MaterialTheme.colorScheme.primary
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-    val tooltipColor = MaterialTheme.colorScheme.inverseSurface
-    val tooltipText = MaterialTheme.colorScheme.inverseOnSurface
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = TextStyle(fontSize = 11.sp, color = labelColor)
-    var selectedX by remember(points) { mutableStateOf<Float?>(null) }
+    // Survives the minute-by-minute refresh; a new page or range clears it.
+    var selectedX by remember(window) { mutableStateOf<Float?>(null) }
     val frame = remember { AxisFrame() }
     val zoomed = rememberUpdatedState(yZoom != null)
     val setZoom = rememberUpdatedState(onYZoom)
@@ -168,7 +171,8 @@ fun TemperatureChart(
                             gesture = when {
                                 event.changes.count { it.pressed } >= 2 -> Gesture.PINCH
                                 change == null || !change.pressed -> Gesture.TAP
-                                dx > slop && dx >= dy -> Gesture.SWIPE
+                                // With a reading up, a sideways drag moves it instead of paging.
+                                dx > slop && dx >= dy -> if (selectedX != null) Gesture.SCRUB else Gesture.SWIPE
                                 dy > slop && zoomed.value -> Gesture.PAN
                                 else -> null
                             }
@@ -235,8 +239,6 @@ fun TemperatureChart(
                         val dx = lastX - down.position.x
                         if (dx <= -pageDistance) onSwipePage?.invoke(1)
                         else if (dx >= pageDistance) onSwipePage?.invoke(-1)
-                    } else {
-                        selectedX = null
                     }
                 }
             },
@@ -338,21 +340,29 @@ fun TemperatureChart(
             drawPath(triangle, FrigoWarning.copy(alpha = 0.85f))
         }
 
-        // Selected point tooltip
+        // Selected reading: crosshair through the point, label above it in a
+        // black box with an accent border.
         selectedX?.let { sx ->
             val nearest = points.minBy { abs(x(it) - sx) }
             val px = x(nearest)
             val py = y(nearest.value).coerceIn(topPad, topPad + chartH)
-            drawLine(labelColor, Offset(px, topPad), Offset(px, topPad + chartH), 1f)
-            drawCircle(lineColor, 5.dp.toPx(), Offset(px, py))
+            val cross = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))
+            drawLine(FrigoAccent.copy(alpha = 0.7f), Offset(px, topPad), Offset(px, topPad + chartH), 1.5f, pathEffect = cross)
+            drawLine(FrigoAccent.copy(alpha = 0.7f), Offset(leftPad, py), Offset(size.width, py), 1.5f, pathEffect = cross)
+            drawCircle(Color.Black, 6.dp.toPx(), Offset(px, py))
+            drawCircle(FrigoAccent, 6.dp.toPx(), Offset(px, py), style = Stroke(2.dp.toPx()))
             val text = "${Formatters.reading(nearest.value, unit)} · ${Formatters.shortDate(nearest.time)} ${Formatters.time(nearest.time)}"
-            val label = textMeasurer.measure(text, TextStyle(fontSize = 12.sp, color = tooltipText))
-            val boxW = label.size.width + 16.dp.toPx()
-            val boxH = label.size.height + 8.dp.toPx()
+            val label = textMeasurer.measure(text, TextStyle(fontSize = 13.sp, color = FrigoAccent))
+            val boxW = label.size.width + 20.dp.toPx()
+            val boxH = label.size.height + 10.dp.toPx()
             val bx = (px - boxW / 2).coerceIn(leftPad, size.width - boxW)
-            val by = (py - boxH - 10.dp.toPx()).coerceAtLeast(0f)
-            drawRoundRect(tooltipColor, Offset(bx, by), Size(boxW, boxH), CornerRadius(6.dp.toPx()))
-            drawText(label, topLeft = Offset(bx + 8.dp.toPx(), by + 4.dp.toPx()))
+            // Above the point when there is room, below it otherwise.
+            val above = py - boxH - 12.dp.toPx()
+            val by = if (above >= 0f) above else (py + 12.dp.toPx()).coerceAtMost(topPad + chartH - boxH)
+            val corner = CornerRadius(6.dp.toPx())
+            drawRoundRect(Color.Black, Offset(bx, by), Size(boxW, boxH), corner)
+            drawRoundRect(FrigoAccent, Offset(bx, by), Size(boxW, boxH), corner, style = Stroke(1.dp.toPx()))
+            drawText(label, topLeft = Offset(bx + 10.dp.toPx(), by + 5.dp.toPx()))
         }
     }
 }
