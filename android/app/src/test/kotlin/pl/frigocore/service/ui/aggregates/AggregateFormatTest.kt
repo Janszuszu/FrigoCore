@@ -18,7 +18,7 @@ class AggregateFormatTest {
 
     @Test
     fun `installation date as day month year`() {
-        assertEquals("15.06.2021", formatDate("2021-06-15"))
+        assertEquals("15.06.21", formatDate("2021-06-15"))
         assertEquals("niedawno", formatDate("niedawno"))
     }
 

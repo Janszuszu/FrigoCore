@@ -124,12 +124,8 @@ class HomeViewModel @Inject constructor(
 }
 
 private object HomeRoutes {
-    /** Urządzenia → Odbiorniki; falls back to the sensor overview for an
-     * object without receivers. */
-    const val RECEIVERS = "devices/receivers"
-    const val AGGREGATES = "devices/aggregates"
-    const val METERS = "devices/meters"
-    val DEVICES = setOf(RECEIVERS, AGGREGATES, METERS)
+    /** Urządzenia: receivers, aggregates and meters, swiped between (DevicesPager). */
+    const val DEVICES = "devices"
     const val OBJECTS = "objects"
     const val ALARMS = "alarms"
     const val REPORTS = "reports"
@@ -149,10 +145,8 @@ fun HomeScreen(
     var chart by rememberSaveable { mutableStateOf<String?>(null) }
     val openChart = { objectId: String, sensorId: String -> chart = "$objectId/$sensorId" }
     var menuOpen by remember { mutableStateOf(false) }
-    var devicesOpen by remember { mutableStateOf(false) }
-    // Picking another object returns to the device list that was open.
-    var devicesRoute by rememberSaveable { mutableStateOf(HomeRoutes.RECEIVERS) }
-    LaunchedEffect(route) { if (route in HomeRoutes.DEVICES) devicesRoute = route!! }
+    // The device group shown (receivers, aggregates, meters) — kept across tabs and object picks.
+    var devicesPage by rememberSaveable { mutableStateOf(0) }
 
     Box(Modifier.fillMaxSize()) {
     Scaffold(
@@ -179,10 +173,10 @@ fun HomeScreen(
                             label = { Text("Menu") },
                             colors = colors,
                         )
-                        // Devices are grouped by type; the button opens the picker.
+                        // Devices are grouped by type, swiped between on the page itself.
                         NavigationBarItem(
-                            selected = route in HomeRoutes.DEVICES,
-                            onClick = { devicesOpen = true },
+                            selected = route == HomeRoutes.DEVICES,
+                            onClick = { navController.switchTab(HomeRoutes.DEVICES) },
                             icon = { Icon(Icons.Outlined.Kitchen, contentDescription = null) },
                             label = { Text("Urządzenia") },
                             colors = colors,
@@ -208,34 +202,38 @@ fun HomeScreen(
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = HomeRoutes.RECEIVERS,
+            startDestination = HomeRoutes.DEVICES,
             modifier = Modifier.padding(padding),
         ) {
-            composable(HomeRoutes.RECEIVERS) {
-                ReceiversScreen(
-                    onOpenChart = { objectId, sensorId, _ -> openChart(objectId, sensorId) },
-                    fallback = {
-                        OverviewScreen(
-                            onSensorClick = { sensor ->
-                                openChart(sensor.object_id, sensor.id)
+            composable(HomeRoutes.DEVICES) {
+                DevicesPager(
+                    page = devicesPage,
+                    onPage = { devicesPage = it },
+                    receivers = {
+                        ReceiversScreen(
+                            onOpenChart = { objectId, sensorId, _ -> openChart(objectId, sensorId) },
+                            fallback = {
+                                OverviewScreen(
+                                    onSensorClick = { sensor ->
+                                        openChart(sensor.object_id, sensor.id)
+                                    },
+                                    onAlarmClick = onAlarmClick,
+                                )
                             },
-                            onAlarmClick = onAlarmClick,
                         )
                     },
+                    aggregates = {
+                        AggregatesScreen(onSensorClick = { sensor ->
+                            openChart(sensor.object_id, sensor.id)
+                        })
+                    },
+                    meters = { MetersScreen() },
                 )
-            }
-            composable(HomeRoutes.AGGREGATES) {
-                AggregatesScreen(onSensorClick = { sensor ->
-                    openChart(sensor.object_id, sensor.id)
-                })
-            }
-            composable(HomeRoutes.METERS) {
-                MetersScreen()
             }
             composable(HomeRoutes.OBJECTS) {
                 ObjectsScreen(onObjectClick = {
                     viewModel.selectObject(it.id)
-                    navController.switchTab(devicesRoute)
+                    navController.switchTab(HomeRoutes.DEVICES)
                 })
             }
             composable(HomeRoutes.REPORTS) {
@@ -263,30 +261,6 @@ fun HomeScreen(
             SensorScreen(onClose = { chart = null }, viewModel = chartViewModel)
         }
     }
-    }
-
-    if (devicesOpen) {
-        ModalBottomSheet(onDismissRequest = { devicesOpen = false }, containerColor = FrigoSurface) {
-            Text(
-                "Urządzenia",
-                color = FrigoTextMuted,
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-            )
-            MenuItem(Icons.Outlined.Kitchen, "Odbiorniki") {
-                devicesOpen = false
-                navController.switchTab(HomeRoutes.RECEIVERS)
-            }
-            MenuItem(Icons.Outlined.Hvac, "Agregaty") {
-                devicesOpen = false
-                navController.switchTab(HomeRoutes.AGGREGATES)
-            }
-            MenuItem(Icons.Outlined.ElectricMeter, "Liczniki") {
-                devicesOpen = false
-                navController.switchTab(HomeRoutes.METERS)
-            }
-            Spacer(Modifier.height(24.dp))
-        }
     }
 
     if (menuOpen) {

@@ -215,13 +215,13 @@ private fun Nameplate(aggregate: AggregateResponse, onBack: (() -> Unit)?) {
                 }
             }
             FactDivider()
-            Fact("Moc chłodnicza", aggregate.cooling_capacity_kw?.let { formatAmount(it, "kW") }, Modifier.weight(1f))
+            Fact("Moc chłodnicza", aggregate.cooling_capacity_kw?.let { formatAmount(it, "kW") }, Modifier.weight(1.15f))
             FactDivider()
             Fact("Czynnik", aggregate.refrigerant, Modifier.weight(0.9f))
             FactDivider()
             Fact("Ilość czynnika", aggregate.refrigerant_charge_kg?.let { formatAmount(it, "kg") }, Modifier.weight(0.9f))
             FactDivider()
-            Fact("Data instalacji", aggregate.installed_on?.let(::formatDate), Modifier.weight(1.15f))
+            Fact("Data instalacji", aggregate.installed_on?.let(::formatDate), Modifier.weight(1f))
         }
     }
 }
@@ -241,6 +241,8 @@ private fun Fact(label: String, value: String?, modifier: Modifier = Modifier) {
             label.uppercase(),
             color = FrigoTextMuted,
             style = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 12.sp),
+            // Always two lines, so every value sits on the same line whatever its label.
+            minLines = 2,
             maxLines = 2,
         )
         Spacer(Modifier.height(4.dp))
@@ -254,9 +256,9 @@ private fun Fact(label: String, value: String?, modifier: Modifier = Modifier) {
     }
 }
 
-private val dateFormat = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+private val dateFormat = DateTimeFormatter.ofPattern("dd.MM.yy")
 
-/** "2021-06-15" → "15.06.2021"; anything unparsable is shown as sent. */
+/** "2021-06-15" → "15.06.21" (fits the nameplate row); anything unparsable is shown as sent. */
 internal fun formatDate(iso: String): String =
     runCatching { LocalDate.parse(iso).format(dateFormat) }.getOrDefault(iso)
 
