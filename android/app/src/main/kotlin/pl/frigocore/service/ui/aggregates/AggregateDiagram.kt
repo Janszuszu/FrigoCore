@@ -120,9 +120,8 @@ private fun reading(sensor: SensorResponse?): String =
     sensor?.let { Formatters.reading(it.current_temperature, it.unit) } ?: "—"
 
 /** The aggregate on one card: name and compressor model on top, the
- * refrigeration cycle as a picture — compressor with the discharge (red)
- * and suction (blue) lines, condenser bottom left, the liquid line (yellow)
- * across to the receivers, each with its reading — then the outdoor
+ * refrigeration cycle as a control-panel schematic ([CycleSchematic]) with
+ * the discharge, suction, compressor and condenser readings — then the outdoor
  * temperature, current and power, and the nameplate facts as rows.
  * Tapping a reading opens its chart; [onBack] returns to the tiles when
  * there are several aggregates. */
@@ -169,28 +168,7 @@ internal fun AggregatePage(
         }
         Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(1.dp).background(FrigoAccent.copy(alpha = 0.25f)))
 
-        BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(1f / 0.8f).padding(8.dp)) {
-            val w = maxWidth
-            val h = maxHeight
-            Canvas(Modifier.fillMaxSize()) { drawCycle() }
-            // Fan discs: flame on the condenser, snowflake on the receivers.
-            Icon(
-                Icons.Outlined.LocalFireDepartment, contentDescription = null, tint = FrigoMax,
-                modifier = Modifier.centeredAt(w * 0.2f, h * UNIT_Y, 30.dp),
-            )
-            Icon(
-                Icons.Outlined.AcUnit, contentDescription = null, tint = FrigoAccent,
-                modifier = Modifier.centeredAt(w * 0.8f, h * UNIT_Y, 30.dp),
-            )
-            Reading("TŁOCZENIE", reading(cycle.discharge), FrigoCritical, w * 0.27f, h * 0.02f) { onOpenChart(cycle.discharge) }
-            Reading("SSANIE", reading(cycle.suction), FrigoAccent, w * 0.73f, h * 0.02f) { onOpenChart(cycle.suction) }
-            Reading("SPRĘŻARKA", reading(cycle.compressor), FrigoCritical, w * 0.5f, h * 0.4f) {
-                cycle.compressor?.let(onOpenChart)
-            }
-            // The condenser's reading sits on the compressor's axis, under the liquid line.
-            Reading("SKRAPLACZ", reading(cycle.condenser), Liquid, w * 0.5f, h * (UNIT_Y + 0.05f)) { onOpenChart(cycle.condenser) }
-            Reading("ODBIORNIKI", null, FrigoText, w * 0.8f, h * (UNIT_Y + 0.15f)) {}
-        }
+        CycleSchematic(cycle, onOpenChart)
         ElectricRow(cycle, onOpenChart)
         Column(
             Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 12.dp),
@@ -324,193 +302,6 @@ private fun PulseIcon(color: Color) {
         }
         drawPath(trace, color, style = Stroke(2.2.dp.toPx(), join = StrokeJoin.Round, cap = StrokeCap.Round))
     }
-}
-
-/** Places a composable with its centre at ([x], [y]) inside the diagram box. */
-private fun Modifier.centeredAt(x: Dp, y: Dp, size: Dp): Modifier =
-    this.offset(x - size / 2, y - size / 2).size(size)
-
-/** A label over its value, centred on [x] with its top at [y]. */
-@Composable
-private fun Reading(label: String, value: String?, color: Color, x: Dp, y: Dp, onClick: () -> Unit) {
-    Layout(
-        content = {
-            Column(Modifier.quietClickable(onClick), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(label, color = if (value == null) FrigoText else FrigoTextMuted.copy(alpha = 0.95f), style = LabelStyle)
-                if (value != null) Text(value, color = color, style = ValueStyle)
-            }
-        },
-    ) { measurables, constraints ->
-        val p = measurables.first().measure(constraints.copy(minWidth = 0, minHeight = 0))
-        layout(constraints.maxWidth, constraints.maxHeight) {
-            p.place((x.roundToPx() - p.width / 2).coerceIn(0, (constraints.maxWidth - p.width).coerceAtLeast(0)), y.roundToPx())
-        }
-    }
-}
-
-/** Height of the coils' centre line (and the liquid line), as a share of the box. */
-private const val UNIT_Y = 0.66f
-
-private fun DrawScope.drawCycle() {
-    val w = size.width
-    val h = size.height
-    val pipe = 6.dp.toPx()
-    val radius = 22.dp.toPx()
-    val topY = h * 0.25f
-    val unitY = h * UNIT_Y
-    val unitTop = unitY - h * 0.12f
-    val leftX = w * 0.12f
-    val rightX = w * 0.88f
-    val compLeft = w * 0.42f
-    val compRight = w * 0.58f
-
-    fun line(color: Color, pts: List<Offset>) {
-        val path = Path().apply {
-            moveTo(pts[0].x, pts[0].y)
-            for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
-        }
-        val corners = PathEffect.cornerPathEffect(radius)
-        // A soft glow under the pipe.
-        drawPath(path, color.copy(alpha = 0.18f), style = Stroke(width = pipe * 2.6f, cap = StrokeCap.Round, join = StrokeJoin.Round, pathEffect = corners))
-        drawPath(path, color, style = Stroke(width = pipe, cap = StrokeCap.Round, join = StrokeJoin.Round, pathEffect = corners))
-    }
-    // Discharge: compressor → down into the condenser. Suction: receivers → compressor.
-    line(FrigoCritical, listOf(Offset(compLeft, topY), Offset(leftX, topY), Offset(leftX, unitTop)))
-    line(FrigoAccent, listOf(Offset(rightX, unitTop), Offset(rightX, topY), Offset(compRight, topY)))
-    // Liquid line across the bottom.
-    line(Liquid, listOf(Offset(w * 0.33f, unitY), Offset(w * 0.67f, unitY)))
-
-    val a = 9.dp.toPx()
-    arrow(Offset(w * 0.3f, topY - 14.dp.toPx()), Offset(-1f, 0f), FrigoCritical, a)
-    arrow(Offset(leftX - 14.dp.toPx(), h * 0.42f), Offset(0f, 1f), FrigoCritical, a)
-    arrow(Offset(w * 0.7f, topY - 14.dp.toPx()), Offset(-1f, 0f), FrigoAccent, a)
-    arrow(Offset(w * 0.5f, unitY - 14.dp.toPx()), Offset(1f, 0f), Liquid, a)
-    // Air through the coils: in from the left, chilled out to the right.
-    for (dy in listOf(-1, 0, 1)) {
-        arrow(Offset(w * 0.035f, unitY + dy * 16.dp.toPx()), Offset(1f, 0f), FrigoCritical, a * 0.8f)
-        arrow(Offset(w * 0.965f, unitY + dy * 16.dp.toPx()), Offset(1f, 0f), FrigoAccent, a * 0.8f)
-    }
-
-    coil(Offset(w * 0.2f, unitY), Size(w * 0.26f, h * 0.24f), Liquid)
-    coil(Offset(w * 0.8f, unitY), Size(w * 0.26f, h * 0.24f), FrigoAccent)
-    compressor(Offset(w * 0.5f, topY), w * 0.2f)
-}
-
-/** A short shaft with a filled head pointing along [dir]. */
-private fun DrawScope.arrow(at: Offset, dir: Offset, color: Color, len: Float) {
-    val tail = at - dir * len
-    drawLine(color, tail, at, strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
-    val n = Offset(-dir.y, dir.x)
-    val head = Path().apply {
-        moveTo(at.x + dir.x * len * 0.5f, at.y + dir.y * len * 0.5f)
-        lineTo(at.x + n.x * len * 0.45f, at.y + n.y * len * 0.45f)
-        lineTo(at.x - n.x * len * 0.45f, at.y - n.y * len * 0.45f)
-        close()
-    }
-    drawPath(head, color)
-}
-
-/** Light steel of the flat unit icons on the dark card. */
-private val Steel = Color(0xFFB4C1D4)
-/** Shadowed steel for seams and the darker parts. */
-private val SteelDark = Color(0xFF5F6F86)
-
-/** A finned coil in the flat icon style: a serpentine tube running back
- * and forth over a comb of fins, with a fan disc in the middle (its
- * icon — flame on the condenser, snowflake on the receivers — goes on top
- * in [color]). */
-private fun DrawScope.coil(center: Offset, s: Size, color: Color) {
-    val left = center.x - s.width / 2
-    val right = center.x + s.width / 2
-    val top = center.y - s.height / 2
-    val rows = 4
-    val gap = s.height / (rows - 1)
-    val r = gap / 2
-    val tube = 3.2.dp.toPx()
-
-    // Fins: a comb of thin uprights behind the tube.
-    val finTop = top - gap * 0.18f
-    val finBottom = top + s.height + gap * 0.18f
-    var x = left + r + 4.dp.toPx()
-    while (x < right - r - 2.dp.toPx()) {
-        drawLine(Steel.copy(alpha = 0.55f), Offset(x, finTop), Offset(x, finBottom), 1.6.dp.toPx())
-        x += 7.dp.toPx()
-    }
-
-    // The tube: in at the top left, back and forth with U-bends, out at the bottom right.
-    val path = Path().apply {
-        moveTo(left - r * 0.6f, top - r * 0.9f)
-        quadraticBezierTo(left - r * 0.6f, top, left + r * 0.4f, top)
-        for (i in 0 until rows) {
-            val y = top + i * gap
-            val goingRight = i % 2 == 0
-            val endX = if (goingRight) right - r else left + r
-            lineTo(endX, y)
-            if (i < rows - 1) {
-                // A U-bend down to the next row on this side.
-                val cx = endX
-                val rect = androidx.compose.ui.geometry.Rect(cx - r, y, cx + r, y + gap)
-                arcTo(rect, -90f, if (goingRight) 180f else -180f, false)
-            }
-        }
-        val lastY = top + (rows - 1) * gap
-        val outX = if ((rows - 1) % 2 == 0) right + r * 0.6f else left - r * 0.6f
-        quadraticBezierTo(outX, lastY, outX, lastY + r * 0.9f)
-    }
-    drawPath(path, Steel, style = Stroke(tube, cap = StrokeCap.Round, join = StrokeJoin.Round))
-
-    // Fan disc.
-    val disc = s.height * 0.4f
-    drawCircle(FrigoBackground, disc, center)
-    drawCircle(Steel, disc, center, style = Stroke(3.dp.toPx()))
-    drawCircle(color.copy(alpha = 0.12f), disc - 3.dp.toPx(), center)
-}
-
-/** A rotary compressor in the flat icon style: a tall rounded shell with
- * the terminal on top, the suction accumulator standing at its side joined
- * by two short pipes, all on a base plate. */
-private fun DrawScope.compressor(center: Offset, width: Float) {
-    val bodyW = width * 0.56f
-    val bodyH = width * 0.95f
-    val bodyLeft = center.x - width * 0.36f
-    val bodyTop = center.y - bodyH * 0.5f
-    val base = bodyTop + bodyH
-
-    // Base plate.
-    drawRoundRect(Steel, Offset(center.x - width * 0.5f, base + 2.dp.toPx()), Size(width, 4.dp.toPx()), CornerRadius(1.dp.toPx()))
-    // Feet.
-    drawRect(SteelDark, Offset(bodyLeft + bodyW * 0.15f, base - 1.dp.toPx()), Size(bodyW * 0.7f, 3.dp.toPx()))
-
-    // Terminal: a cap and a stem on the dome.
-    val stemX = bodyLeft + bodyW / 2
-    drawRect(Steel, Offset(stemX - 2.dp.toPx(), bodyTop - 7.dp.toPx()), Size(4.dp.toPx(), 8.dp.toPx()))
-    drawRoundRect(Steel, Offset(stemX - 6.dp.toPx(), bodyTop - 10.dp.toPx()), Size(12.dp.toPx(), 4.dp.toPx()), CornerRadius(1.dp.toPx()))
-
-    // Shell.
-    drawRoundRect(Steel, Offset(bodyLeft, bodyTop), Size(bodyW, bodyH), CornerRadius(bodyW * 0.22f))
-    // Seams.
-    drawLine(SteelDark, Offset(bodyLeft, bodyTop + bodyH * 0.18f), Offset(bodyLeft + bodyW, bodyTop + bodyH * 0.18f), 1.5.dp.toPx())
-    drawLine(SteelDark, Offset(bodyLeft, bodyTop + bodyH * 0.82f), Offset(bodyLeft + bodyW, bodyTop + bodyH * 0.82f), 1.5.dp.toPx())
-    drawLine(Color.White.copy(alpha = 0.35f), Offset(bodyLeft + bodyW * 0.2f, bodyTop + bodyH * 0.26f), Offset(bodyLeft + bodyW * 0.2f, bodyTop + bodyH * 0.74f), 2.5.dp.toPx(), cap = StrokeCap.Round)
-
-    // Accumulator: a slim capsule at the side with its own stem.
-    val accW = width * 0.2f
-    val accH = bodyH * 0.6f
-    val accLeft = bodyLeft + bodyW + width * 0.12f
-    val accTop = center.y - accH * 0.62f
-    drawRect(Steel, Offset(accLeft + accW / 2 - 1.5.dp.toPx(), accTop - 6.dp.toPx()), Size(3.dp.toPx(), 7.dp.toPx()))
-    drawRoundRect(Steel, Offset(accLeft + accW / 2 - 4.dp.toPx(), accTop - 8.dp.toPx()), Size(8.dp.toPx(), 3.dp.toPx()), CornerRadius(1.dp.toPx()))
-    drawRoundRect(Steel, Offset(accLeft, accTop), Size(accW, accH), CornerRadius(accW * 0.45f))
-    drawLine(SteelDark, Offset(accLeft, accTop + accH * 0.5f), Offset(accLeft + accW, accTop + accH * 0.5f), 1.5.dp.toPx())
-    // Pipes from the accumulator into the shell: one at the band, one low down into the base.
-    val pipe = 3.dp.toPx()
-    drawLine(Steel, Offset(bodyLeft + bodyW - 1.dp.toPx(), accTop + accH * 0.5f), Offset(accLeft + 1.dp.toPx(), accTop + accH * 0.5f), pipe)
-    val outX = accLeft + accW / 2
-    drawLine(Steel, Offset(outX, accTop + accH), Offset(outX, bodyTop + bodyH * 0.9f), pipe, cap = StrokeCap.Round)
-    drawLine(Steel, Offset(outX, bodyTop + bodyH * 0.9f), Offset(bodyLeft + bodyW - 1.dp.toPx(), bodyTop + bodyH * 0.9f), pipe, cap = StrokeCap.Round)
-
-    // Discharge stub on the left, where the red line leaves.
-    drawRect(FrigoCritical, Offset(bodyLeft - 6.dp.toPx(), center.y - 4.dp.toPx()), Size(7.dp.toPx(), 8.dp.toPx()))
 }
 
 /** Outdoor temperature, current and power side by side. */
