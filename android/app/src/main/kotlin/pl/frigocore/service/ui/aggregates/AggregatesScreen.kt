@@ -2,7 +2,10 @@ package pl.frigocore.service.ui.aggregates
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -35,6 +38,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,6 +52,7 @@ import pl.frigocore.service.ui.common.LoadingState
 import pl.frigocore.service.ui.common.MessageState
 import pl.frigocore.service.ui.common.PollWhileVisible
 import pl.frigocore.service.ui.overview.SensorCardView
+import pl.frigocore.service.ui.theme.Barlow
 import pl.frigocore.service.ui.theme.FrigoAccent
 import pl.frigocore.service.ui.theme.FrigoCritical
 import pl.frigocore.service.ui.theme.FrigoSurface
@@ -57,8 +63,10 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** Urządzenia → Agregaty. A single aggregate opens straight away; several
- * are offered first as full-width tiles, one under another. An aggregate shows its nameplate on top and
- * its sensors below as slim rows that unfold into the 24 h chart. */
+ * are offered first as full-width tiles, one under another. An aggregate
+ * shows its nameplate on top, the refrigeration-cycle diagram when it has
+ * the sensors for it (see [cycleSensors]), and its sensors below as slim
+ * rows that unfold into the 24 h chart. */
 @Composable
 fun AggregatesScreen(
     onSensorClick: (SensorResponse) -> Unit,
@@ -96,6 +104,13 @@ fun AggregatesScreen(
             item(key = "nameplate") {
                 Nameplate(selected.aggregate, onBack = if (single == null) ({ selectedId = null }) else null)
                 Spacer(Modifier.height(4.dp))
+            }
+            // The cycle diagram only when the aggregate has the sensors for it.
+            cycleSensors(selected.sensors.map { it.sensor })?.let { cycle ->
+                item(key = "diagram") {
+                    AggregateDiagram(cycle, onOpenChart = onSensorClick)
+                    Spacer(Modifier.height(4.dp))
+                }
             }
             if (selected.sensors.isEmpty()) {
                 item(key = "empty") {
@@ -160,60 +175,79 @@ private fun AggregateTile(card: AggregateCard, onClick: () -> Unit) {
     }
 }
 
-/** Name on top, then compressor and its cooling capacity, refrigerant and
- * its charge, and the installation date. [onBack] returns to the tiles when there are several. */
+/** The name large with the compressor model under it on the left, then
+ * cooling capacity, refrigerant, its charge and the installation date side
+ * by side. [onBack] returns to the tiles when there are several. */
 @Composable
 private fun Nameplate(aggregate: AggregateResponse, onBack: (() -> Unit)?) {
     Card(
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, FrigoAccent.copy(alpha = 0.35f)),
+        border = BorderStroke(1.dp, FrigoAccent.copy(alpha = 0.25f)),
         colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-            Box(Modifier.fillMaxWidth().heightIn(min = 40.dp), contentAlignment = Alignment.Center) {
-                if (onBack != null) {
-                    IconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Wszystkie agregaty", tint = FrigoAccent)
-                    }
+        Row(
+            Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(horizontal = 10.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onBack != null) {
+                IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Wszystkie agregaty", tint = FrigoAccent)
                 }
+            }
+            Column(Modifier.weight(1.3f).padding(start = 4.dp, end = 6.dp)) {
                 Text(
                     aggregate.name.uppercase(),
-                    color = FrigoAccent,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    textAlign = TextAlign.Center,
+                    color = FrigoText,
+                    style = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 30.sp),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 44.dp),
                 )
+                aggregate.compressor_model?.let {
+                    Text(
+                        it,
+                        color = ModelColor,
+                        style = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 20.sp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth()) {
-                Fact("Model sprężarki", aggregate.compressor_model, Modifier.weight(1f))
-                Fact("Moc chłodnicza", aggregate.cooling_capacity_kw?.let { formatAmount(it, "kW") }, Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth()) {
-                Fact("Czynnik", aggregate.refrigerant, Modifier.weight(1f))
-                Fact("Ilość czynnika", aggregate.refrigerant_charge_kg?.let { formatAmount(it, "kg") }, Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(8.dp))
-            Fact("Data instalacji", aggregate.installed_on?.let(::formatDate))
+            FactDivider()
+            Fact("Moc chłodnicza", aggregate.cooling_capacity_kw?.let { formatAmount(it, "kW") }, Modifier.weight(1f))
+            FactDivider()
+            Fact("Czynnik", aggregate.refrigerant, Modifier.weight(0.9f))
+            FactDivider()
+            Fact("Ilość czynnika", aggregate.refrigerant_charge_kg?.let { formatAmount(it, "kg") }, Modifier.weight(0.9f))
+            FactDivider()
+            Fact("Data instalacji", aggregate.installed_on?.let(::formatDate), Modifier.weight(1.15f))
         }
     }
 }
 
+/** Lavender for the compressor model under the name, as in the mockup. */
+private val ModelColor = Color(0xFF9DA8F5)
+
+@Composable
+private fun FactDivider() {
+    Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 2.dp).background(FrigoAccent.copy(alpha = 0.35f)))
+}
+
 @Composable
 private fun Fact(label: String, value: String?, modifier: Modifier = Modifier) {
-    Column(modifier.padding(end = 8.dp)) {
-        Text(label.uppercase(), color = FrigoTextMuted, fontSize = 11.sp, maxLines = 1)
+    Column(modifier.padding(horizontal = 5.dp), verticalArrangement = Arrangement.Center) {
+        Text(
+            label.uppercase(),
+            color = FrigoTextMuted,
+            style = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 12.sp),
+            maxLines = 2,
+        )
+        Spacer(Modifier.height(4.dp))
         Text(
             value ?: "—",
             color = FrigoText,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 2,
+            style = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, fontFeatureSettings = "tnum"),
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
