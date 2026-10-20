@@ -105,11 +105,12 @@ fun AggregatesScreen(
                 Nameplate(selected.aggregate, onBack = if (single == null) ({ selectedId = null }) else null)
                 Spacer(Modifier.height(4.dp))
             }
-            // The cycle diagram only when the aggregate has the sensors for it.
-            cycleSensors(selected.sensors.map { it.sensor })?.let { cycle ->
+            // With the sensors for it the cycle diagram shows everything (each
+            // reading opens its chart); otherwise the sensors as unfolding rows.
+            val cycle = cycleSensors(selected.sensors.map { it.sensor })
+            if (cycle != null) {
                 item(key = "diagram") {
                     AggregateDiagram(cycle, onOpenChart = onSensorClick)
-                    Spacer(Modifier.height(4.dp))
                 }
             }
             if (selected.sensors.isEmpty()) {
@@ -122,7 +123,7 @@ fun AggregatesScreen(
                     )
                 }
             }
-            items(selected.sensors, key = { it.sensor.id }) { card ->
+            if (cycle == null) items(selected.sensors, key = { it.sensor.id }) { card ->
                 val id = card.sensor.id
                 SensorCardView(
                     card,
@@ -196,7 +197,7 @@ private fun Nameplate(aggregate: AggregateResponse, onBack: (() -> Unit)?) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Wszystkie agregaty", tint = FrigoAccent)
                 }
             }
-            Column(Modifier.weight(1.3f).padding(start = 4.dp, end = 6.dp)) {
+            Column(Modifier.weight(1.05f).padding(start = 4.dp, end = 6.dp)) {
                 Text(
                     aggregate.name.uppercase(),
                     color = FrigoText,
@@ -217,11 +218,11 @@ private fun Nameplate(aggregate: AggregateResponse, onBack: (() -> Unit)?) {
             FactDivider()
             Fact("Moc chłodnicza", aggregate.cooling_capacity_kw?.let { formatAmount(it, "kW") }, Modifier.weight(1.15f))
             FactDivider()
-            Fact("Czynnik", aggregate.refrigerant, Modifier.weight(0.9f))
+            Fact("Czynnik", aggregate.refrigerant, Modifier.weight(0.95f))
             FactDivider()
             Fact("Ilość czynnika", aggregate.refrigerant_charge_kg?.let { formatAmount(it, "kg") }, Modifier.weight(0.9f))
             FactDivider()
-            Fact("Data instalacji", aggregate.installed_on?.let(::formatDate), Modifier.weight(1f))
+            Fact("Data instalacji", aggregate.installed_on?.let(::formatDate), Modifier.weight(1.2f))
         }
     }
 }
@@ -249,7 +250,7 @@ private fun Fact(label: String, value: String?, modifier: Modifier = Modifier) {
         Text(
             value ?: "—",
             color = FrigoText,
-            style = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, fontFeatureSettings = "tnum"),
+            style = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, fontFeatureSettings = "tnum"),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
