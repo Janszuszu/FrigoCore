@@ -155,7 +155,14 @@ private fun AlarmBanner(alarm: AlarmResponse, onClick: () -> Unit) {
 /** A slim row — name and current reading — that a tap unfolds into the
  * 24 h chart and MIN / ŚREDNIA / MAX. Also used on the aggregate screen. */
 @Composable
-internal fun SensorCardView(card: SensorCard, expanded: Boolean, onToggle: () -> Unit, onOpenChart: () -> Unit) {
+internal fun SensorCardView(
+    card: SensorCard,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onOpenChart: () -> Unit,
+    /** The name in this colour instead of the trend's (the aggregate screen keeps names white). */
+    nameColor: Color? = null,
+) {
     // The name, the current reading and the chart share one colour: the 24 h
     // trend, or the alarm / offline state when that applies.
     val trendColor = when (card.status) {
@@ -173,7 +180,7 @@ internal fun SensorCardView(card: SensorCard, expanded: Boolean, onToggle: () ->
         Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
             Row(Modifier.heightIn(min = 34.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    CardTitle(card.sensor.name, card.status, trendColor)
+                    CardTitle(card.sensor.name, card.status, nameColor ?: trendColor)
                     if (card.status == SensorStatus.OFFLINE) {
                         Text(
                             "Ostatni odczyt: ${Formatters.ago(card.sensor.last_message_at)}",

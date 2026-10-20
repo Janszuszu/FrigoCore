@@ -129,6 +129,7 @@ fun AggregatesScreen(
                     expanded = id in expanded,
                     onToggle = { expanded = if (id in expanded) expanded - id else expanded + id },
                     onOpenChart = { onSensorClick(card.sensor) },
+                    nameColor = FrigoText,
                 )
             }
         }
