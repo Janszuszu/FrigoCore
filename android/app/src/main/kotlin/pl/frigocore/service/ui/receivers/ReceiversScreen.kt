@@ -1,6 +1,10 @@
 package pl.frigocore.service.ui.receivers
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.background
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -162,7 +166,8 @@ internal fun stopwatch(seconds: Long?): String {
 
 /** The chamber on top — name on the left, state icon in the middle,
  * temperature on the right, the 24 h chart and the 24 h min / average / max;
- * then the evaporator the same way; the cycle stopwatches at the very bottom,
+ * then the evaporator heading, folded — tapping it unfolds its chart and stats
+ * in place of the chamber's; the cycle stopwatches at the very bottom,
  * once for the whole receiver. Everything takes the
  * state colour (blue cooling, green idle, orange defrost, red alarm). Tapping
  * a chart opens it full screen. */
@@ -181,31 +186,50 @@ private fun ReceiverPage(
         colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
         modifier = modifier,
     ) {
+        // Only one of chamber / evaporator shows its chart and stats at a
+        // time; the chamber's by default. Tapping a heading unfolds that one.
+        val hasEvaporator = receiver.evaporator_sensor_id != null
+        var evaporatorOpen by rememberSaveable(receiver.id) { mutableStateOf(false) }
+        val showEvaporator = hasEvaporator && evaporatorOpen
+        val chamberWeight by animateFloatAsState(if (showEvaporator) 0f else 1f, label = "chamber")
+        val evaporatorWeight by animateFloatAsState(if (showEvaporator) 1f else 0f, label = "evaporator")
         Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)) {
-            SectionHead(receiver.name, receiver.chamber_temperature, look.color) { StateIcon(look) }
-            Spacer(Modifier.height(6.dp))
-            CardChart(
-                card.chamber,
+            SectionHead(
+                receiver.name,
+                receiver.chamber_temperature,
                 look.color,
-                Modifier.fillMaxWidth().weight(1f).quietClickable {
-                    receiver.chamber_sensor_id?.let { onOpenChart(it, receiver.name) }
-                },
-            )
-            Spacer(Modifier.height(10.dp))
-            StatsRow(card.stats)
-            if (receiver.evaporator_sensor_id != null) {
-                HorizontalDivider(Modifier.padding(vertical = 12.dp), color = look.color.copy(alpha = 0.35f))
-                SectionHead("Parownik", receiver.evaporator_temperature, look.color)
-                Spacer(Modifier.height(6.dp))
+                Modifier.quietClickable { evaporatorOpen = false },
+            ) { StateIcon(look) }
+            Unfolding(chamberWeight) {
                 CardChart(
-                    card.evaporator,
+                    card.chamber,
                     look.color,
                     Modifier.fillMaxWidth().weight(1f).quietClickable {
-                        receiver.evaporator_sensor_id?.let { onOpenChart(it, "${receiver.name} — parownik") }
+                        receiver.chamber_sensor_id?.let { onOpenChart(it, receiver.name) }
                     },
                 )
                 Spacer(Modifier.height(10.dp))
-                StatsRow(card.evaporatorStats)
+                StatsRow(card.stats)
+            }
+            if (hasEvaporator) {
+                HorizontalDivider(Modifier.padding(vertical = 12.dp), color = look.color.copy(alpha = 0.35f))
+                SectionHead(
+                    "Parownik",
+                    receiver.evaporator_temperature,
+                    look.color,
+                    Modifier.quietClickable { evaporatorOpen = !evaporatorOpen },
+                )
+                Unfolding(evaporatorWeight) {
+                    CardChart(
+                        card.evaporator,
+                        look.color,
+                        Modifier.fillMaxWidth().weight(1f).quietClickable {
+                            receiver.evaporator_sensor_id?.let { onOpenChart(it, "${receiver.name} — parownik") }
+                        },
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    StatsRow(card.evaporatorStats)
+                }
             }
             // A faint line sets the stopwatches apart from the readings above.
             HorizontalDivider(Modifier.padding(top = 12.dp), thickness = 0.5.dp, color = FrigoTextMuted.copy(alpha = 0.3f))
@@ -214,15 +238,32 @@ private fun ReceiverPage(
     }
 }
 
-/** Name on the left, current temperature on the right and, when given,
- * [badge] exactly in the middle — both sides take equal width. */
+/** A section's chart and stats, given [weight] of the free height; folds
+ * away entirely at 0 (the weight animates between 0 and 1). */
 @Composable
-private fun SectionHead(name: String, temperature: Double?, color: Color, badge: (@Composable () -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+private fun ColumnScope.Unfolding(weight: Float, content: @Composable ColumnScope.() -> Unit) {
+    if (weight <= 0.001f) return
+    Column(Modifier.fillMaxWidth().weight(weight).clipToBounds()) {
+        Spacer(Modifier.height(6.dp))
+        content()
+    }
+}
+
+/** Name in white on the left, current temperature on the right and, when
+ * given, [badge] exactly in the middle — both sides take equal width. */
+@Composable
+private fun SectionHead(
+    name: String,
+    temperature: Double?,
+    color: Color,
+    modifier: Modifier = Modifier,
+    badge: (@Composable () -> Unit)? = null,
+) {
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             name.uppercase(),
-            color = color,
-            fontSize = 17.sp,
+            color = FrigoText,
+            fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
