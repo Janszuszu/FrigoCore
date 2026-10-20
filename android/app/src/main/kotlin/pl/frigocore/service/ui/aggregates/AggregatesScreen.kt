@@ -99,8 +99,8 @@ fun AggregatesScreen(
                 AggregateTile(card) { selectedId = card.aggregate.id }
             }
         }
-        // With the diagram the nameplate and the diagram make the whole page,
-        // centred on the screen (scrolling on a short one).
+        // With the diagram the whole aggregate is one card, centred on the
+        // screen (scrolling on a short one).
         cycleSensors(selected.sensors.map { it.sensor }) != null -> BoxWithConstraints(Modifier.fillMaxSize()) {
             val height = maxHeight
             Column(
@@ -111,8 +111,12 @@ fun AggregatesScreen(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
             ) {
-                Nameplate(selected.aggregate, onBack = if (single == null) ({ selectedId = null }) else null)
-                AggregateDiagram(cycleSensors(selected.sensors.map { it.sensor })!!, onOpenChart = onSensorClick)
+                AggregatePage(
+                    selected.aggregate,
+                    cycleSensors(selected.sensors.map { it.sensor })!!,
+                    onBack = if (single == null) ({ selectedId = null }) else null,
+                    onOpenChart = onSensorClick,
+                )
             }
         }
         else -> LazyColumn(
