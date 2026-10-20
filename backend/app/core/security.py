@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -41,7 +42,42 @@ def create_access_token(user: User) -> str:
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
+REFRESH_TYPE = "refresh"
+
+
+def password_stamp(user: User) -> str:
+    """A short fingerprint of the password hash: a refresh token carries it,
+    so changing the password signs every phone out."""
+    return hashlib.sha256(user.hashed_password.encode("utf-8")).hexdigest()[:16]
+
+
+def create_refresh_token(user: User) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    payload = {
+        "sub": str(user.id),
+        "typ": REFRESH_TYPE,
+        "pwd": password_stamp(user),
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
+
+
 def decode_access_token(token: str) -> dict[str, Any] | None:
+    payload = _decode(token)
+    # A refresh token is only good for getting a new pair, never as a bearer.
+    if payload is None or payload.get("typ") == REFRESH_TYPE:
+        return None
+    return payload
+
+
+def decode_refresh_token(token: str) -> dict[str, Any] | None:
+    payload = _decode(token)
+    if payload is None or payload.get("typ") != REFRESH_TYPE:
+        return None
+    return payload
+
+
+def _decode(token: str) -> dict[str, Any] | None:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:

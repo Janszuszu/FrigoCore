@@ -23,7 +23,7 @@ class AuthRepository @Inject constructor(
         val result = safeApiCall { api.login(LoginRequest(username, password)) }
         return when (result) {
             is ApiResult.Success -> {
-                sessionStore.save(result.data.access_token, result.data.user)
+                sessionStore.save(result.data.access_token, result.data.refresh_token, result.data.user)
                 ApiResult.Success(result.data.user)
             }
             is ApiResult.Error -> result

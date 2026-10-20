@@ -516,7 +516,13 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    # Traded at /auth/refresh for a new pair; the web app ignores it.
+    refresh_token: str | None = None
     user: UserResponse
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=1)
 
 
 # ---------------------------------------------------------------------------

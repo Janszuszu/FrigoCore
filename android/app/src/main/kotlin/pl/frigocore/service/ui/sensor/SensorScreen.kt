@@ -4,7 +4,6 @@ import pl.frigocore.service.ui.theme.TabularNumbers
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.pm.ActivityInfo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -72,7 +71,7 @@ import pl.frigocore.service.ui.theme.FrigoTextMuted
 fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
     PollWhileVisible(intervalMillis = 60_000) { viewModel.refresh() }
-    PortraitWithoutBars()
+    WithoutSystemBars()
 
     Landscape(Modifier.fillMaxSize().background(FrigoBackground)) {
     Column(
@@ -267,18 +266,16 @@ private fun RangePicker(selected: HistoryRange, onSelect: (HistoryRange) -> Unit
     }
 }
 
-/** Portrait held and system bars hidden while the chart is on screen, so
- * tipping the phone does not rotate the app under the turned chart. */
+/** System bars hidden while the chart is on screen (the app itself is held
+ * in portrait by the manifest). */
 @Composable
-private fun PortraitWithoutBars() {
+private fun WithoutSystemBars() {
     val activity = LocalContext.current.findActivity() ?: return
     DisposableEffect(activity) {
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         val insets = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         insets.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         insets.hide(WindowInsetsCompat.Type.systemBars())
         onDispose {
-            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             insets.show(WindowInsetsCompat.Type.systemBars())
         }
     }

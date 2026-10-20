@@ -15,7 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, get_visible_object_ids, require_admin
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    hash_password,
+    password_stamp,
+    verify_password,
+)
 from app.database import get_db
 from app.enums import (
     AlarmEventType,
@@ -40,6 +47,7 @@ from app.models.sensor import Sensor
 from app.models.user import User
 from app.sensor_kinds import kind_info
 from app.schemas import (
+    RefreshRequest,
     EnergyDayResponse,
     AlarmAssignmentResponse,
     AlarmConfigCreate,
@@ -132,8 +140,30 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Login
     )
     if user is None or not user.is_active or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Nieprawidłowa nazwa użytkownika lub hasło")
-    token = create_access_token(user)
-    return LoginResponse(access_token=token, user=_user_response(user))
+    return _token_pair(user)
+
+
+@auth_router.post("/refresh", response_model=LoginResponse)
+async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> LoginResponse:
+    """Trades a refresh token for a new access + refresh pair, so a phone in
+    regular use never has to log in again. Refused once the account is
+    deactivated or its password changed."""
+    rejected = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesja wygasła, zaloguj się ponownie")
+    payload = decode_refresh_token(body.refresh_token)
+    if payload is None:
+        raise rejected
+    user = await db.get(User, payload["sub"], options=[selectinload(User.objects)])
+    if user is None or not user.is_active or payload.get("pwd") != password_stamp(user):
+        raise rejected
+    return _token_pair(user)
+
+
+def _token_pair(user: User) -> LoginResponse:
+    return LoginResponse(
+        access_token=create_access_token(user),
+        refresh_token=create_refresh_token(user),
+        user=_user_response(user),
+    )
 
 
 @auth_router.get("/me", response_model=UserResponse)

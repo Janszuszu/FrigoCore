@@ -44,10 +44,13 @@ class Settings(BaseSettings):
 
     # Security
     SECRET_KEY: str = "change-this-to-a-random-secret-key"
-    # A single long-lived access token, no refresh-token flow — this is an
-    # internal ops dashboard for a handful of accounts, not a public
-    # multi-tenant SaaS, so re-logging in every 30 minutes would just be friction.
+    # A long-lived access token — an internal ops dashboard for a handful of
+    # accounts, so re-logging in every 30 minutes would just be friction.
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
+    # The phone app also gets a refresh token at login and trades it for a
+    # fresh pair whenever the access token runs out, so it stays signed in
+    # for as long as it is used at least once in this many days.
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 180
 
     # CORS — comma-separated list of allowed browser origins.
     # In production the SPA is served from the same origin as the API

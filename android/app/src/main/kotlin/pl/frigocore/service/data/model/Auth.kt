@@ -12,7 +12,14 @@ data class LoginRequest(
 data class LoginResponse(
     val access_token: String,
     val token_type: String = "bearer",
+    /** Traded at auth/refresh for a new pair when the access token runs out. */
+    val refresh_token: String? = null,
     val user: UserResponse,
+)
+
+@Serializable
+data class RefreshRequest(
+    val refresh_token: String,
 )
 
 @Serializable

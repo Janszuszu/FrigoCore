@@ -49,13 +49,13 @@ class AuthRepositoryTest {
     @Test
     fun `successful login saves the session`() = runTest {
         coEvery { api.login(any()) } returns Response.success(
-            LoginResponse(access_token = "token-abc", user = user()),
+            LoginResponse(access_token = "token-abc", refresh_token = "refresh-abc", user = user()),
         )
 
         val result = repository.login("tech1", "correct-password")
 
         assertThat(result).isInstanceOf(ApiResult.Success::class.java)
-        verify { sessionStore.save("token-abc", user()) }
+        verify { sessionStore.save("token-abc", "refresh-abc", user()) }
     }
 
     @Test
@@ -70,7 +70,7 @@ class AuthRepositoryTest {
 
         assertThat(result).isInstanceOf(ApiResult.Error::class.java)
         assertThat((result as ApiResult.Error).httpCode).isEqualTo(401)
-        verify(exactly = 0) { sessionStore.save(any(), any()) }
+        verify(exactly = 0) { sessionStore.save(any(), any(), any()) }
     }
 
     @Test
@@ -80,7 +80,7 @@ class AuthRepositoryTest {
         val result = repository.login("tech1", "correct-password")
 
         assertThat(result).isInstanceOf(ApiResult.Error::class.java)
-        verify(exactly = 0) { sessionStore.save(any(), any()) }
+        verify(exactly = 0) { sessionStore.save(any(), any(), any()) }
     }
 
     @Test
