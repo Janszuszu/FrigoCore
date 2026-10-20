@@ -21,6 +21,7 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import pl.frigocore.service.ui.sensor.SensorViewModel
+import pl.frigocore.service.ui.reports.ReportsScreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.Apartment
+import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.ElectricMeter
 import androidx.compose.material.icons.outlined.Kitchen
 import androidx.compose.material.icons.outlined.Hvac
@@ -130,6 +132,7 @@ private object HomeRoutes {
     val DEVICES = setOf(RECEIVERS, AGGREGATES, METERS)
     const val OBJECTS = "objects"
     const val ALARMS = "alarms"
+    const val REPORTS = "reports"
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -185,6 +188,13 @@ fun HomeScreen(
                             colors = colors,
                         )
                         NavigationBarItem(
+                            selected = route == HomeRoutes.REPORTS,
+                            onClick = { navController.switchTab(HomeRoutes.REPORTS) },
+                            icon = { Icon(Icons.Outlined.Assessment, contentDescription = null) },
+                            label = { Text("Raport") },
+                            colors = colors,
+                        )
+                        NavigationBarItem(
                             selected = route == HomeRoutes.ALARMS,
                             onClick = { navController.switchTab(HomeRoutes.ALARMS) },
                             icon = { Icon(Icons.Outlined.NotificationsNone, contentDescription = null) },
@@ -227,6 +237,9 @@ fun HomeScreen(
                     viewModel.selectObject(it.id)
                     navController.switchTab(devicesRoute)
                 })
+            }
+            composable(HomeRoutes.REPORTS) {
+                ReportsScreen()
             }
             composable(HomeRoutes.ALARMS) {
                 DashboardScreen(isTechnician = viewModel.isTechnician, onAlarmClick = onAlarmClick)

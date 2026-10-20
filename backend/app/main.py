@@ -25,6 +25,7 @@ from app.services.escalation_engine import EscalationEngine
 from app.services.notification_engine import drain_voice_calls
 from app.services.demo_feed import DemoFeed
 from app.services.voip_settings import VoipKeepalive
+from app.services.daily_reports import DailyReports
 from app.api.websocket import manager as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ alarm_engine = AlarmEngine(async_session_factory)
 escalation_engine = EscalationEngine(async_session_factory)
 mqtt_engine = MQTTEngine(settings, async_session_factory)
 voip_keepalive = VoipKeepalive(async_session_factory)
+daily_reports = DailyReports(async_session_factory)
 demo_feed = DemoFeed(async_session_factory)
 
 
@@ -129,9 +131,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await escalation_engine.start()
     await voip_keepalive.start()
     await demo_feed.start()
+    await daily_reports.start()
     logger.info("FrigoCore backend is ready")
     yield
     # Shutdown
+    await daily_reports.stop()
     await demo_feed.stop()
     await voip_keepalive.stop()
     await drain_voice_calls(timeout=15)
@@ -176,6 +180,7 @@ from app.api.routes import (
 from app.api.aggregates import aggregates_router
 from app.api.meters import meters_router
 from app.api.receivers import receivers_router
+from app.api.reports import reports_router
 from app.api.voip_settings import voip_router
 from app.api.websocket import ws_router
 
@@ -200,6 +205,7 @@ app.include_router(sensors_router, prefix="/api/v1/objects", tags=["Sensors"])
 app.include_router(receivers_router, prefix="/api/v1/objects", tags=["Receivers"])
 app.include_router(aggregates_router, prefix="/api/v1/objects", tags=["Aggregates"])
 app.include_router(meters_router, prefix="/api/v1/objects", tags=["Meters"])
+app.include_router(reports_router, prefix="/api/v1/objects", tags=["Reports"])
 app.include_router(alarm_configs_router, prefix="/api/v1/sensors", tags=["Alarm Configs"])
 app.include_router(alarms_router, prefix="/api/v1/alarms", tags=["Alarms"])
 app.include_router(measurements_router, prefix="/api/v1/sensors", tags=["Measurements"])

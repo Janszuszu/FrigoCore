@@ -14,6 +14,7 @@ import pl.frigocore.service.data.model.ReceiverResponse
 import pl.frigocore.service.data.model.AggregateResponse
 import pl.frigocore.service.data.model.MeterResponse
 import pl.frigocore.service.data.model.MeterTotalResponse
+import pl.frigocore.service.data.model.ObjectDayReportResponse
 import pl.frigocore.service.data.model.SensorResponse
 import pl.frigocore.service.data.model.UserResponse
 import retrofit2.Response
@@ -57,6 +58,13 @@ interface FrigoCoreApi {
 
     @GET("objects/{objectId}/meters/total")
     suspend fun metersTotal(@Path("objectId") objectId: String): Response<MeterTotalResponse>
+
+    /** [day] as YYYY-MM-DD; null = the newest reported day. */
+    @GET("objects/{objectId}/reports/receivers")
+    suspend fun receiverReports(
+        @Path("objectId") objectId: String,
+        @Query("day") day: String?,
+    ): Response<ObjectDayReportResponse>
 
     @GET("objects/{objectId}/sensors/{sensorId}")
     suspend fun getSensor(

@@ -609,3 +609,49 @@ class ObjectVoiceNumbers(BaseModel):
     object_id: UUID
     object_name: str
     numbers: list[VoiceNumberResponse]
+
+# ---------------------------------------------------------------------------
+# Receiver day reports (Raport)
+# ---------------------------------------------------------------------------
+
+class DefrostEntry(BaseModel):
+    start: datetime
+    end: datetime
+    peak: float | None = None
+    recovery_seconds: int | None = None
+
+
+class OffPeriodEntry(BaseModel):
+    start: datetime
+    end: datetime
+    peak: float | None = None
+
+
+class ReceiverDayReportResponse(BaseModel):
+    """One receiver's analysed day: cooling and idle totals, the share of
+    the time the compressor ran, and each defrost."""
+
+    receiver_id: UUID
+    name: str
+    day: date
+    cooling_count: int
+    cooling_seconds: int
+    idle_count: int
+    idle_seconds: int
+    duty_percent: float | None
+    defrost_count: int
+    covered_seconds: int
+    min_temp: float | None
+    avg_temp: float | None
+    max_temp: float | None
+    defrosts: list[DefrostEntry]
+    off_periods: list[OffPeriodEntry]
+
+
+class ObjectDayReportResponse(BaseModel):
+    """The report of one day for all of an object's receivers, plus the
+    days that have a report (newest first) to page between."""
+
+    day: date | None
+    days: list[date]
+    receivers: list[ReceiverDayReportResponse]

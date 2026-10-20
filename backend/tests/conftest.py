@@ -31,6 +31,7 @@ from app.api import routes as r
 from app.api.aggregates import aggregates_router
 from app.api.meters import meters_router
 from app.api.receivers import receivers_router
+from app.api.reports import reports_router
 from app.api.voip_settings import voip_router
 from app.core.security import create_access_token, hash_password
 from app.database import Base, async_session_factory, engine, get_db, init_db
@@ -50,6 +51,7 @@ def build_test_app() -> FastAPI:
     app.include_router(receivers_router, prefix="/api/v1/objects")
     app.include_router(aggregates_router, prefix="/api/v1/objects")
     app.include_router(meters_router, prefix="/api/v1/objects")
+    app.include_router(reports_router, prefix="/api/v1/objects")
     app.include_router(r.alarm_configs_router, prefix="/api/v1/sensors")
     app.include_router(r.alarms_router, prefix="/api/v1/alarms")
     app.include_router(r.measurements_router, prefix="/api/v1/sensors")

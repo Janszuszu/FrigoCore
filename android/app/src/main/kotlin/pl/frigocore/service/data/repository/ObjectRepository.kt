@@ -6,6 +6,7 @@ import pl.frigocore.service.data.model.AlarmLimitsResponse
 import pl.frigocore.service.data.model.MeasurementResponse
 import pl.frigocore.service.data.model.MeterResponse
 import pl.frigocore.service.data.model.MeterTotalResponse
+import pl.frigocore.service.data.model.ObjectDayReportResponse
 import pl.frigocore.service.data.model.ObjectResponse
 import pl.frigocore.service.data.model.ReceiverResponse
 import pl.frigocore.service.data.model.SensorResponse
@@ -41,6 +42,9 @@ class ObjectRepository @Inject constructor(
 
     suspend fun metersTotal(objectId: String): ApiResult<MeterTotalResponse> =
         safeApiCall { api.metersTotal(objectId) }
+
+    suspend fun receiverReports(objectId: String, day: String?): ApiResult<ObjectDayReportResponse> =
+        safeApiCall { api.receiverReports(objectId, day) }
 
     suspend fun getSensor(objectId: String, sensorId: String): ApiResult<SensorResponse> =
         safeApiCall { api.getSensor(objectId, sensorId) }

@@ -15,6 +15,7 @@ from app.models.notification_endpoint import NotificationEndpoint
 from app.models.notification_profile import NotificationProfile
 from app.models.object import Object
 from app.models.receiver import Receiver
+from app.models.receiver_day_report import ReceiverDayReport
 from app.models.sensor import Sensor
 from app.models.user import User
 
@@ -36,6 +37,7 @@ __all__ = [
     "NotificationProfile",
     "Object",
     "Receiver",
+    "ReceiverDayReport",
     "Sensor",
     "TimestampMixin",
     "UUIDMixin",
