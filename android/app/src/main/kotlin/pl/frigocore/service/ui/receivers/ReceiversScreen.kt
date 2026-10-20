@@ -156,6 +156,18 @@ private fun stateLook(state: String): StateLook = when (state) {
 
 private val AlarmLook = StateLook("Alarm", Icons.Outlined.WarningAmber, FrigoCritical)
 
+/** Mint green of the chart while the receiver is in range. */
+private val Mint = Color(0xFF34E0A1)
+
+/** The chart's colour: mint in range (cooling or idle), orange defrost, red
+ * alarm, grey when the state is unknown. The rest of the card keeps its own. */
+private fun chartColor(alarm: Boolean, state: String): Color = when {
+    alarm -> FrigoCritical
+    state == ReceiverState.DEFROST -> FrigoMax
+    state == ReceiverState.COOLING || state == ReceiverState.IDLE -> Mint
+    else -> FrigoTextMuted
+}
+
 private val NameStyle = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 24.sp, letterSpacing = 0.5.sp)
 private val TempStyle = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 38.sp, fontFeatureSettings = "tnum")
 private val LabelStyle = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Normal, fontSize = 13.sp, letterSpacing = 1.sp)
@@ -201,7 +213,7 @@ private fun ReceiverCardView(
             }
             ReceiverChart(
                 card.chamber,
-                look.color,
+                chartColor(card.alarm, receiver.state),
                 Modifier
                     .fillMaxWidth()
                     .weight(1f)
