@@ -44,3 +44,15 @@ class CycleSensorsTest {
         assertNull(cycleSensors(listOf(sensor("Tłoczenie"), sensor("Ssanie"), sensor("Skraplacz"))))
     }
 }
+
+class AirArrowGlowTest {
+    @Test
+    fun `the light runs down the three arrows and wraps round`() {
+        org.junit.Assert.assertEquals(1f, arrowGlow(0, 0f), 1e-6f)
+        org.junit.Assert.assertEquals(0f, arrowGlow(1, 0f), 1e-6f)
+        org.junit.Assert.assertEquals(0.5f, arrowGlow(1, 0.5f), 1e-6f)
+        org.junit.Assert.assertEquals(1f, arrowGlow(2, 2f), 1e-6f)
+        // Just before it wraps the top arrow starts lighting again.
+        org.junit.Assert.assertEquals(0.5f, arrowGlow(0, 2.5f), 1e-6f)
+    }
+}

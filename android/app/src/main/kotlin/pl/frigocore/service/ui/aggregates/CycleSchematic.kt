@@ -1,6 +1,14 @@
 package pl.frigocore.service.ui.aggregates
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -72,9 +80,10 @@ private val LoopPath = svg(
         "H104 Q86,538 86,554 V576 Q86,600 110,600 H610 Q634,600 634,576 V554 Q634,538 616,538 H474 A23,23 0 0 1 474,492 H616 " +
         "A23,23 0 0 0 616,446 H474 A23,23 0 0 1 474,400 H616 Q634,400 634,384 V172 Q634,128 590,128 H480",
 )
-private val HotPath = svg("M290,128 H130 Q86,128 86,172 V384 Q86,400 104,400 H246 A23,23 0 0 1 246,446 H104 A23,23 0 0 0 104,492 H246 A23,23 0 0 1 246,538")
-private val LiquidPath = svg("M246,538 H104 Q86,538 86,554 V576 Q86,600 110,600 H610 Q634,600 634,576 V554 Q634,538 616,538 H474")
-private val SuctionPath = svg("M474,538 A23,23 0 0 1 474,492 H616 A23,23 0 0 0 616,446 H474 A23,23 0 0 1 474,400 H616 Q634,400 634,384 V172 Q634,128 590,128 H480")
+private val HotPath = svg("M290,128 H130 Q86,128 86,172 V384 Q86,400 104,400 H246 A23,23 0 0 1 246,446 H104 A23,23 0 0 0 104,492 H246")
+// The liquid line takes in the coils' last U-bends as well.
+private val LiquidPath = svg("M246,492 A23,23 0 0 1 246,538 H104 Q86,538 86,554 V576 Q86,600 110,600 H610 Q634,600 634,576 V554 Q634,538 616,538 H474 A23,23 0 0 1 474,492")
+private val SuctionPath = svg("M474,492 H616 A23,23 0 0 0 616,446 H474 A23,23 0 0 1 474,400 H616 Q634,400 634,384 V172 Q634,128 590,128 H480")
 private val HotChevrons = svg("M196,121 l-8,7 l8,7 M79,262 l7,8 l7,-8")
 private val LiquidChevrons = svg("M354,593 l8,7 l-8,7")
 private val SuctionChevrons = svg("M627,278 l7,-8 l7,8 M532,121 l-8,7 l8,7")
@@ -85,10 +94,10 @@ private val Snowflake = svg(
     "M545,444 V496 M522,457 L568,483 M522,483 L568,457 M538,450 L545,456 L552,450 M538,490 L545,484 L552,490 " +
         "M526,466 L534,465 L530,457 M564,474 L556,475 L560,483 M526,474 L534,475 L530,483 M564,466 L556,465 L560,457",
 )
-private val AirArrows = svg(
-    "M40,446 h20 m-6,-5 l6,5 l-6,5 M40,470 h20 m-6,-5 l6,5 l-6,5 M40,494 h20 m-6,-5 l6,5 l-6,5 " +
-        "M660,446 h20 m-6,-5 l6,5 l-6,5 M660,470 h20 m-6,-5 l6,5 l-6,5 M660,494 h20 m-6,-5 l6,5 l-6,5",
-)
+/** Air blown out of the condenser (to the left) and out of the evaporator
+ * (to the right), one arrow per path, top to bottom. */
+private val CondenserAir = listOf(446, 470, 494).map { y -> svg("M60,$y h-20 m6,-5 l-6,5 l6,5") }
+private val EvaporatorAir = listOf(446, 470, 494).map { y -> svg("M660,$y h20 m-6,-5 l6,5 l-6,5") }
 private val CompressorShell = svg("M315,118 Q315,90 365,88 Q415,90 415,118 V250 Q415,272 365,274 Q315,272 315,250 Z")
 private val CompressorLines = svg(
     "M343,92 V62 M387,92 V62 M336,62 H350 M380,62 H394 M315,122 Q365,140 415,122 M315,123 H302 M315,133 H302 " +
@@ -112,7 +121,23 @@ private val CompressorParts = listOf(
 private fun DrawScope.stroke(path: Path, color: Color, width: Float) =
     drawPath(path, color, style = Stroke(width, cap = StrokeCap.Round, join = StrokeJoin.Round))
 
-/** Everything but the readings, in the mockup's 720 x 640 units. */
+/** How lit air arrow [i] of 3 is at [phase] (0..3, cycling): a light runs
+ * down the stack, one arrow after another. */
+internal fun arrowGlow(i: Int, phase: Float): Float {
+    val d = kotlin.math.abs(((phase - i) % 3f + 4.5f) % 3f - 1.5f)
+    return (1f - d).coerceIn(0f, 1f)
+}
+
+/** The air arrows, each between grey and its side's colour as the light passes. */
+private fun DrawScope.drawAir(phase: Float) {
+    for (i in 0..2) {
+        val g = arrowGlow(i, phase)
+        stroke(CondenserAir[i], lerp(Air, HotGas, g), 2.5f + g)
+        stroke(EvaporatorAir[i], lerp(Air, Suction, g), 2.5f + g)
+    }
+}
+
+/** Everything but the readings and the air, in the mockup's 720 x 640 units. */
 private fun DrawScope.drawSchematic() {
     // Faint engineering grid.
     var g = 0f
@@ -138,7 +163,6 @@ private fun DrawScope.drawSchematic() {
     }
     stroke(HeatWaves, HotGas, 3f)
     stroke(Snowflake, Suction, 3f)
-    stroke(AirArrows, Air, 2.5f)
 
     // Compressor: line art with a soft lift under it.
     drawPath(CompressorShell, Plate)
@@ -159,9 +183,19 @@ private fun DrawScope.drawSchematic() {
 internal fun CycleSchematic(cycle: CycleSensors, onOpenChart: (SensorResponse) -> Unit) {
     BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(W / H).padding(4.dp)) {
         val unit = maxWidth / W
+        // The air arrows light up one after another, round and round.
+        val phase by rememberInfiniteTransition(label = "air").animateFloat(
+            initialValue = 0f,
+            targetValue = 3f,
+            animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart),
+            label = "airPhase",
+        )
         Canvas(Modifier.fillMaxSize()) {
             val k = size.width / W
-            scale(k, k, pivot = Offset.Zero) { drawSchematic() }
+            scale(k, k, pivot = Offset.Zero) {
+                drawSchematic()
+                drawAir(phase)
+            }
         }
         Tag(cycle.discharge, HotGas, HotGas, 140f, 44f, 116f, unit, onOpenChart)
         Tag(cycle.suction, Suction, Suction, 470f, 44f, 104f, unit, onOpenChart)
