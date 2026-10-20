@@ -176,8 +176,14 @@ internal fun AggregatePage(
         ) {
             FactRow({ Icon(Icons.Outlined.AcUnit, null, tint = FrigoAccent, modifier = Modifier.size(30.dp)) },
                 "MOC CHŁODNICZA", aggregate.cooling_capacity_kw?.let { formatAmount(it, "kW") })
-            FactRow({ CylinderIcon(FrigoAccent) }, "CZYNNIK", aggregate.refrigerant)
-            FactRow({ WeightIcon(FrigoAccent) }, "WAGA CZYNNIKA", aggregate.refrigerant_charge_kg?.let { formatAmount(it, "kg") })
+            // Refrigerant and its charge on one row: "R449A / 3,6 kg".
+            FactRow(
+                { CylinderIcon(FrigoAccent) },
+                "CZYNNIK",
+                listOfNotNull(aggregate.refrigerant, aggregate.refrigerant_charge_kg?.let { formatAmount(it, "kg") })
+                    .joinToString(" / ")
+                    .ifEmpty { null },
+            )
             FactRow({ Icon(Icons.Outlined.CalendarMonth, null, tint = FrigoAccent, modifier = Modifier.size(30.dp)) },
                 "DATA INSTALACJI", aggregate.installed_on?.let(::longDate))
         }
@@ -232,32 +238,6 @@ private fun CylinderIcon(color: Color) {
         drawLine(color, Offset(s * 0.38f, s * 0.04f), Offset(s * 0.62f, s * 0.04f), 2.dp.toPx())
         drawLine(color, Offset(s * 0.22f, s * 0.55f), Offset(s * 0.78f, s * 0.55f), 1.5.dp.toPx())
         drawCircle(color, s * 0.05f, Offset(s * 0.5f, s * 0.72f))
-    }
-}
-
-/** Weight: a bell-shaped block with a ring on top and "kg" on it. */
-@Composable
-private fun WeightIcon(color: Color) {
-    Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val s = size.width
-            val stroke = Stroke(2.dp.toPx(), join = StrokeJoin.Round)
-            drawCircle(color, s * 0.1f, Offset(s * 0.5f, s * 0.14f), style = stroke)
-            val body = Path().apply {
-                moveTo(s * 0.3f, s * 0.26f)
-                lineTo(s * 0.7f, s * 0.26f)
-                lineTo(s * 0.9f, s * 0.94f)
-                lineTo(s * 0.1f, s * 0.94f)
-                close()
-            }
-            drawPath(body, color, style = stroke)
-        }
-        Text(
-            "kg",
-            color = color,
-            style = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp),
-            modifier = Modifier.padding(top = 9.dp),
-        )
     }
 }
 
