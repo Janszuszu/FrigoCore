@@ -71,7 +71,7 @@ import java.util.Locale
 
 /** Urządzenia → Liczniki. A single meter opens straight away; several are
  * offered first as full-width tiles, with all of them added up on top. A
- * meter shows its live readings, the use today / this week / this month and
+ * meter shows the use today / this week / this month with its counter and
  * a bar per day for the week or the month. */
 @Composable
 fun MetersScreen(viewModel: MetersViewModel = hiltViewModel()) {
@@ -101,8 +101,7 @@ fun MetersScreen(viewModel: MetersViewModel = hiltViewModel()) {
             contentPadding = PaddingValues(top = 10.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item(key = "head") { MeterHead(selected, onBack = if (single == null) ({ selectedId = null }) else null) }
-            item(key = "periods") { Periods(selected) }
+            item(key = "periods") { Periods(selected, onBack = if (single == null) ({ selectedId = null }) else null) }
             item(key = "chart") { UsageChartCard(selected) }
         }
     }
@@ -145,11 +144,27 @@ private fun MeterTile(card: MeterCard, onClick: () -> Unit) {
     }
 }
 
-/** Name, and the live power / current / voltage the meter reports. */
 @Composable
-private fun MeterHead(card: MeterCard, onBack: (() -> Unit)?) {
+private fun Figure(label: String, value: String, modifier: Modifier = Modifier, big: Boolean = false) {
+    Column(modifier.padding(vertical = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, color = FrigoTextMuted, fontSize = 11.sp, letterSpacing = 0.5.sp, maxLines = 1)
+        Text(
+            value,
+            color = FrigoText,
+            fontSize = if (big) 22.sp else 18.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            style = TabularNumbers,
+        )
+    }
+}
+
+/** One card: the meter's name, then today, this week, this month and the
+ * counter itself. [onBack] returns to the tiles when there are several. */
+@Composable
+private fun Periods(card: MeterCard, onBack: (() -> Unit)?) {
     FrigoCard {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
             Box(Modifier.fillMaxWidth().heightIn(min = 40.dp), contentAlignment = Alignment.Center) {
                 if (onBack != null) {
                     IconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
@@ -167,44 +182,7 @@ private fun MeterHead(card: MeterCard, onBack: (() -> Unit)?) {
                     modifier = Modifier.padding(horizontal = 44.dp),
                 )
             }
-            val live = listOfNotNull(
-                card.powerW?.let { (if (card.isTotal) "MOC ŁĄCZNA" else "MOC") to Formatters.reading(it, "W") },
-                card.currentA?.let { "PRĄD" to Formatters.reading(it, "A") },
-                card.voltageV?.let { "NAPIĘCIE" to Formatters.reading(it, "V") },
-            )
-            if (live.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-                    live.forEachIndexed { i, (label, value) ->
-                        if (i > 0) StatDivider()
-                        Figure(label, value, Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Figure(label: String, value: String, modifier: Modifier = Modifier, big: Boolean = false) {
-    Column(modifier.padding(vertical = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, color = FrigoTextMuted, fontSize = 11.sp, letterSpacing = 0.5.sp, maxLines = 1)
-        Text(
-            value,
-            color = FrigoText,
-            fontSize = if (big) 22.sp else 18.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            style = TabularNumbers,
-        )
-    }
-}
-
-/** Today, this week, this month and the counter itself. */
-@Composable
-private fun Periods(card: MeterCard) {
-    FrigoCard {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 12.dp)) {
+            Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                 Figure("DZIŚ", kwh(card.consumption.today_kwh), Modifier.weight(1f), big = true)
                 StatDivider()

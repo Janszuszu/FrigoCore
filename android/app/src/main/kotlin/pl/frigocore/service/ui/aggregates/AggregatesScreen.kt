@@ -4,6 +4,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Box
@@ -96,6 +99,22 @@ fun AggregatesScreen(
                 AggregateTile(card) { selectedId = card.aggregate.id }
             }
         }
+        // With the diagram the nameplate and the diagram make the whole page,
+        // centred on the screen (scrolling on a short one).
+        cycleSensors(selected.sensors.map { it.sensor }) != null -> BoxWithConstraints(Modifier.fillMaxSize()) {
+            val height = maxHeight
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = height)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
+            ) {
+                Nameplate(selected.aggregate, onBack = if (single == null) ({ selectedId = null }) else null)
+                AggregateDiagram(cycleSensors(selected.sensors.map { it.sensor })!!, onOpenChart = onSensorClick)
+            }
+        }
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
             contentPadding = PaddingValues(top = 10.dp, bottom = 12.dp),
@@ -104,14 +123,6 @@ fun AggregatesScreen(
             item(key = "nameplate") {
                 Nameplate(selected.aggregate, onBack = if (single == null) ({ selectedId = null }) else null)
                 Spacer(Modifier.height(4.dp))
-            }
-            // With the sensors for it the cycle diagram shows everything (each
-            // reading opens its chart); otherwise the sensors as unfolding rows.
-            val cycle = cycleSensors(selected.sensors.map { it.sensor })
-            if (cycle != null) {
-                item(key = "diagram") {
-                    AggregateDiagram(cycle, onOpenChart = onSensorClick)
-                }
             }
             if (selected.sensors.isEmpty()) {
                 item(key = "empty") {
@@ -123,7 +134,7 @@ fun AggregatesScreen(
                     )
                 }
             }
-            if (cycle == null) items(selected.sensors, key = { it.sensor.id }) { card ->
+            items(selected.sensors, key = { it.sensor.id }) { card ->
                 val id = card.sensor.id
                 SensorCardView(
                     card,
@@ -197,11 +208,18 @@ private fun Nameplate(aggregate: AggregateResponse, onBack: (() -> Unit)?) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Wszystkie agregaty", tint = FrigoAccent)
                 }
             }
-            Column(Modifier.weight(1.05f).padding(start = 4.dp, end = 6.dp)) {
+            Column(Modifier.weight(1.2f).padding(start = 4.dp, end = 4.dp)) {
+                // Short names large, longer ones smaller, so a word never breaks.
+                val name = aggregate.name.uppercase()
+                val size = when {
+                    name.length <= 5 -> 28.sp
+                    name.length <= 8 -> 22.sp
+                    else -> 18.sp
+                }
                 Text(
-                    aggregate.name.uppercase(),
+                    name,
                     color = FrigoText,
-                    style = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 30.sp),
+                    style = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = size, lineHeight = size),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -222,7 +240,7 @@ private fun Nameplate(aggregate: AggregateResponse, onBack: (() -> Unit)?) {
             FactDivider()
             Fact("Ilość czynnika", aggregate.refrigerant_charge_kg?.let { formatAmount(it, "kg") }, Modifier.weight(0.9f))
             FactDivider()
-            Fact("Data instalacji", aggregate.installed_on?.let(::formatDate), Modifier.weight(1.2f))
+            Fact("Data instalacji", aggregate.installed_on?.let(::formatDate), Modifier.weight(1.1f))
         }
     }
 }
