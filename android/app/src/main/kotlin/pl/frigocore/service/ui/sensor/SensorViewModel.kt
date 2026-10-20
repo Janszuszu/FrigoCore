@@ -31,9 +31,14 @@ data class ChartPoint(val time: Instant, val value: Double)
 
 /** The page of a paged range [offset] pages from the current one (0 = the
  * page holding [now], -1 = the one before): a whole clock hour for 1H, a
- * 00-06 / 06-12 / 12-18 / 18-24 block for 6H, a calendar day for 24H.
- * Null for ranges that are not paged (7D). */
+ * 00-06 / 06-12 / 12-18 / 18-24 block for 6H. 24H opens on the last 24 hours
+ * up to the end of the current hour; one page back is yesterday 00-24, then
+ * the calendar days before it. Null for ranges that are not paged (7D). */
 internal fun pageWindow(range: HistoryRange, offset: Int, now: LocalDateTime, zone: ZoneId): Pair<Instant, Instant>? {
+    if (range == HistoryRange.H24 && offset == 0) {
+        val end = now.truncatedTo(ChronoUnit.HOURS).plusHours(1).atZone(zone).toInstant()
+        return end.minusSeconds(24 * 3600) to end
+    }
     val current = when (range) {
         HistoryRange.H1 -> now.truncatedTo(ChronoUnit.HOURS)
         HistoryRange.H6 -> now.toLocalDate().atTime(now.hour / 6 * 6, 0)
@@ -86,8 +91,17 @@ class SensorViewModel @Inject constructor(
     private val objectRepository: ObjectRepository,
 ) : ViewModel() {
 
-    private val objectId: String = checkNotNull(savedStateHandle["objectId"])
-    private val sensorId: String = checkNotNull(savedStateHandle["sensorId"])
+    private var objectId: String = savedStateHandle["objectId"] ?: ""
+    private var sensorId: String = savedStateHandle["sensorId"] ?: ""
+
+    /** Points this chart at a sensor; the full-screen overlay has no nav arguments. */
+    fun open(objectId: String, sensorId: String) {
+        if (objectId == this.objectId && sensorId == this.sensorId) return
+        this.objectId = objectId
+        this.sensorId = sensorId
+        _uiState.value = SensorUiState()
+        refresh()
+    }
 
     private val _uiState = MutableStateFlow(SensorUiState())
     val uiState: StateFlow<SensorUiState> = _uiState.asStateFlow()
@@ -127,6 +141,9 @@ class SensorViewModel @Inject constructor(
     }
 
     fun refresh() {
+        if (sensorId.isEmpty()) return
+        val objectId = objectId
+        val sensorId = sensorId
         val range = _uiState.value.range
         val pageOffset = _uiState.value.pageOffset
         val customStart = _uiState.value.customStart
@@ -144,7 +161,7 @@ class SensorViewModel @Inject constructor(
             val historyResult = history.await()
             // A range, page or slide change while this request was in flight makes it stale.
             val now = _uiState.value
-            if (now.range != range || now.pageOffset != pageOffset || now.customStart != customStart) return@launch
+            if (sensorId != this@SensorViewModel.sensorId || now.range != range || now.pageOffset != pageOffset || now.customStart != customStart) return@launch
             _uiState.value = _uiState.value.copy(
                 sensor = (sensorResult as? ApiResult.Success)?.data ?: _uiState.value.sensor,
                 limits = (limitsResult as? ApiResult.Success)?.data ?: _uiState.value.limits,

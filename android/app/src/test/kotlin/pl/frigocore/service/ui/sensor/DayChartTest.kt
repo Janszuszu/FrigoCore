@@ -13,10 +13,21 @@ class DayChartTest {
     private val now = LocalDateTime.of(2026, 10, 19, 14, 37)
 
     @Test
-    fun `24H page is the calendar day`() {
+    fun `24H opens on the last 24 hours up to the end of this hour`() {
         val (start, end) = pageWindow(HistoryRange.H24, 0, now, warsaw)!!
-        assertEquals(Instant.parse("2026-10-18T22:00:00Z"), start)
-        assertEquals(Instant.parse("2026-10-19T22:00:00Z"), end)
+        assertEquals(Instant.parse("2026-10-18T13:00:00Z"), start)
+        assertEquals(Instant.parse("2026-10-19T13:00:00Z"), end)
+        assertEquals(
+            listOf("15:00", "18:00", "21:00", "00:00", "03:00", "06:00", "09:00", "12:00", "15:00"),
+            axisTicks(HistoryRange.H24, start to end, warsaw).map { it.second },
+        )
+    }
+
+    @Test
+    fun `24H one page back is yesterday 00-24`() {
+        val (start, end) = pageWindow(HistoryRange.H24, -1, now, warsaw)!!
+        assertEquals(Instant.parse("2026-10-17T22:00:00Z"), start)
+        assertEquals(Instant.parse("2026-10-18T22:00:00Z"), end)
     }
 
     @Test
@@ -61,7 +72,7 @@ class DayChartTest {
     fun `time ticks sit on round clock times`() {
         assertEquals(
             listOf("00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "24:00"),
-            axisTicks(HistoryRange.H24, pageWindow(HistoryRange.H24, 0, now, warsaw)!!, warsaw).map { it.second },
+            axisTicks(HistoryRange.H24, pageWindow(HistoryRange.H24, -1, now, warsaw)!!, warsaw).map { it.second },
         )
         assertEquals(
             listOf("14:00", "14:15", "14:30", "14:45", "15:00"),
@@ -78,7 +89,7 @@ class DayChartTest {
         val day = pageWindow(HistoryRange.H24, 0, now, warsaw)!!
         // Back two hours is free.
         assertEquals(day.first.minusSeconds(7200), slideWindow(day, -7_200_000L, day.second).first)
-        // Forward is capped at the current day's end.
+        // Forward is capped at the end of the current hour.
         assertEquals(day, slideWindow(day, 3_600_000L, day.second))
     }
 

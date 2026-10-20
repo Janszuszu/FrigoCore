@@ -1,7 +1,26 @@
 package pl.frigocore.service.ui.home
 
 import pl.frigocore.service.ui.theme.TabularNumbers
-import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.hilt.navigation.HiltViewModelFactory
+import androidx.lifecycle.HasDefaultViewModelProviderFactory
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.CreationExtras
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import pl.frigocore.service.ui.sensor.SensorViewModel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -12,7 +31,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
@@ -55,12 +73,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -114,13 +130,9 @@ private object HomeRoutes {
     val DEVICES = setOf(RECEIVERS, AGGREGATES, METERS)
     const val OBJECTS = "objects"
     const val ALARMS = "alarms"
-    const val SENSOR = "sensor/{objectId}/{sensorId}?name={name}"
-
-    fun sensorRoute(objectId: String, sensorId: String, name: String) =
-        "sensor/$objectId/$sensorId?name=${Uri.encode(name)}"
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     onAlarmClick: (String) -> Unit,
@@ -130,24 +142,25 @@ fun HomeScreen(
     val navController: NavHostController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
-    // The chart is full-screen: no header, no bottom bar.
-    val chrome = route != HomeRoutes.SENSOR
+    // The full-screen chart slides over everything: "objectId/sensorId", null when shut.
+    var chart by rememberSaveable { mutableStateOf<String?>(null) }
+    val openChart = { objectId: String, sensorId: String -> chart = "$objectId/$sensorId" }
     var menuOpen by remember { mutableStateOf(false) }
     var devicesOpen by remember { mutableStateOf(false) }
     // Picking another object returns to the device list that was open.
     var devicesRoute by rememberSaveable { mutableStateOf(HomeRoutes.RECEIVERS) }
     LaunchedEffect(route) { if (route in HomeRoutes.DEVICES) devicesRoute = route!! }
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = FrigoBackground,
-        topBar = {
-            if (chrome) FrigoHeader()
-        },
+        topBar = { FrigoHeader() },
         bottomBar = {
-            if (chrome) {
+            run {
                 Column {
                     HorizontalDivider(color = FrigoOutline)
-                    NavigationBar(containerColor = FrigoBackground) {
+                    // Hidden bars behind the chart must not shift the screen under it.
+                    NavigationBar(containerColor = FrigoBackground, windowInsets = WindowInsets.navigationBarsIgnoringVisibility) {
                         val colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = FrigoAccent,
                             selectedTextColor = FrigoAccent,
@@ -190,13 +203,11 @@ fun HomeScreen(
         ) {
             composable(HomeRoutes.RECEIVERS) {
                 ReceiversScreen(
-                    onOpenChart = { objectId, sensorId, name ->
-                        navController.navigate(HomeRoutes.sensorRoute(objectId, sensorId, name))
-                    },
+                    onOpenChart = { objectId, sensorId, _ -> openChart(objectId, sensorId) },
                     fallback = {
                         OverviewScreen(
                             onSensorClick = { sensor ->
-                                navController.navigate(HomeRoutes.sensorRoute(sensor.object_id, sensor.id, sensor.name))
+                                openChart(sensor.object_id, sensor.id)
                             },
                             onAlarmClick = onAlarmClick,
                         )
@@ -205,7 +216,7 @@ fun HomeScreen(
             }
             composable(HomeRoutes.AGGREGATES) {
                 AggregatesScreen(onSensorClick = { sensor ->
-                    navController.navigate(HomeRoutes.sensorRoute(sensor.object_id, sensor.id, sensor.name))
+                    openChart(sensor.object_id, sensor.id)
                 })
             }
             composable(HomeRoutes.METERS) {
@@ -220,17 +231,25 @@ fun HomeScreen(
             composable(HomeRoutes.ALARMS) {
                 DashboardScreen(isTechnician = viewModel.isTechnician, onAlarmClick = onAlarmClick)
             }
-            composable(
-                HomeRoutes.SENSOR,
-                arguments = listOf(
-                    navArgument("objectId") { type = NavType.StringType },
-                    navArgument("sensorId") { type = NavType.StringType },
-                    navArgument("name") { type = NavType.StringType; defaultValue = "" },
-                ),
-            ) {
-                SensorScreen(onClose = { navController.popBackStack() })
-            }
         }
+    }
+
+    BackHandler(enabled = chart != null) { chart = null }
+    // Keeps the last sensor on screen while the chart slides back out.
+    var shown by remember { mutableStateOf(chart) }
+    if (chart != null) shown = chart
+    AnimatedVisibility(
+        visible = chart != null,
+        enter = slideInHorizontally { -it },
+        exit = slideOutHorizontally { -it },
+    ) {
+        val (objectId, sensorId) = shown.orEmpty().split("/", limit = 2).let { it.first() to it.getOrElse(1) { "" } }
+        ChartViewModels {
+            val chartViewModel: SensorViewModel = hiltViewModel()
+            LaunchedEffect(objectId, sensorId) { chartViewModel.open(objectId, sensorId) }
+            SensorScreen(onClose = { chart = null }, viewModel = chartViewModel)
+        }
+    }
     }
 
     if (devicesOpen) {
@@ -298,6 +317,7 @@ private fun MenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
 private val clockFormat = DateTimeFormatter.ofPattern("HH:mm:ss")
 
 /** Logo on the left, live clock on the right. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FrigoHeader() {
     var now by remember { mutableStateOf(Instant.now()) }
@@ -308,7 +328,7 @@ private fun FrigoHeader() {
         }
     }
     val local = now.atZone(ZoneId.systemDefault())
-    Column(Modifier.background(FrigoBackground).windowInsetsPadding(WindowInsets.statusBars)) {
+    Column(Modifier.background(FrigoBackground).windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -338,4 +358,23 @@ private fun NavHostController.switchTab(route: String) {
         launchSingleTop = true
         restoreState = true
     }
+}
+
+/** A view-model scope of its own for the chart overlay, cleared when the
+ * chart has slid away, so every opening starts on the current 24 hours. */
+@Composable
+private fun ChartViewModels(content: @Composable () -> Unit) {
+    val parent = checkNotNull(LocalViewModelStoreOwner.current)
+    val context = LocalContext.current
+    val owner = remember(parent) {
+        object : ViewModelStoreOwner, HasDefaultViewModelProviderFactory {
+            override val viewModelStore = ViewModelStore()
+            override val defaultViewModelProviderFactory: ViewModelProvider.Factory =
+                HiltViewModelFactory(context, (parent as HasDefaultViewModelProviderFactory).defaultViewModelProviderFactory)
+            override val defaultViewModelCreationExtras: CreationExtras
+                get() = (parent as HasDefaultViewModelProviderFactory).defaultViewModelCreationExtras
+        }
+    }
+    DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
+    CompositionLocalProvider(LocalViewModelStoreOwner provides owner, content = content)
 }

@@ -26,8 +26,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -43,6 +41,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,13 +65,16 @@ import pl.frigocore.service.ui.theme.FrigoText
 import pl.frigocore.service.ui.theme.FrigoTextMuted
 
 /** Full-screen landscape chart: name and day over the plot with the page
- * switcher and range picker, MIN / ŚREDNIA / MAX with their times under it. */
+ * switcher and range picker, MIN / ŚREDNIA / MAX with their times under it.
+ * The activity stays in portrait — the chart is laid out landscape and
+ * turned a quarter, so opening it slides in instead of rotating the screen. */
 @Composable
 fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
     PollWhileVisible(intervalMillis = 60_000) { viewModel.refresh() }
-    FullScreenLandscape()
+    PortraitWithoutBars()
 
+    Landscape(Modifier.fillMaxSize().background(FrigoBackground)) {
     Column(
         Modifier
             .fillMaxSize()
@@ -116,6 +119,21 @@ fun SensorScreen(onClose: () -> Unit, viewModel: SensorViewModel = hiltViewModel
             StatsFooter(uiState)
         }
     }
+    }
+}
+
+/** Lays [content] out on a canvas with width and height swapped and turns it
+ * a quarter clockwise — landscape for a phone tipped onto its left side. */
+@Composable
+private fun Landscape(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Layout(content, modifier) { measurables, constraints ->
+        val w = constraints.maxWidth
+        val h = constraints.maxHeight
+        val placeable = measurables.first().measure(Constraints.fixed(h, w))
+        layout(w, h) {
+            placeable.placeWithLayer((w - h) / 2, (h - w) / 2) { rotationZ = 90f }
+        }
+    }
 }
 
 /** "Komora - mroźnia 1 (czujnik główny)" → "Komora - mroźnia 1" over
@@ -147,7 +165,7 @@ private fun Header(
         Icon(Icons.Outlined.CalendarMonth, contentDescription = null, tint = FrigoTextMuted, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(8.dp))
         // 1H and 6H pages also say which hours they cover: "Poniedziałek, 19.10.2026 · 12:00–18:00".
-        val day = dayHeading(window?.first ?: java.time.Instant.now())
+        val day = dayHeading(window?.second?.minusMillis(1)?.coerceAtMost(java.time.Instant.now()) ?: java.time.Instant.now())
         val hours = window?.takeIf { uiState.range == HistoryRange.H1 || uiState.range == HistoryRange.H6 }
             ?.let { " · ${windowHours(it)}" }
         Text(day + hours.orEmpty(), color = FrigoTextMuted, fontSize = 16.sp, maxLines = 1, style = TabularNumbers)
@@ -209,10 +227,32 @@ private val headingFormat = java.time.format.DateTimeFormatter.ofPattern("EEEE, 
 private fun dayHeading(instant: java.time.Instant): String =
     instant.atZone(java.time.ZoneId.systemDefault()).format(headingFormat).replaceFirstChar { it.uppercase() }
 
+/** The range button; tapped, it opens into the four ranges side by side in
+ * its place (a drop-down popup would not turn with the landscape chart). */
 @Composable
 private fun RangePicker(selected: HistoryRange, onSelect: (HistoryRange) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Box {
+    if (expanded) {
+        Row(
+            Modifier.border(1.dp, FrigoOutline, RoundedCornerShape(12.dp)).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HistoryRange.entries.forEach { range ->
+                Text(
+                    range.label,
+                    color = if (range == selected) FrigoAccent else FrigoText,
+                    fontSize = 18.sp,
+                    fontWeight = if (range == selected) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier
+                        .clickable {
+                            expanded = false
+                            onSelect(range)
+                        }
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                )
+            }
+        }
+    } else {
         Row(
             Modifier
                 .border(1.dp, FrigoOutline, RoundedCornerShape(12.dp))
@@ -224,36 +264,22 @@ private fun RangePicker(selected: HistoryRange, onSelect: (HistoryRange) -> Unit
             Spacer(Modifier.width(20.dp))
             Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Zakres", tint = FrigoAccent)
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            HistoryRange.entries.forEach { range ->
-                DropdownMenuItem(
-                    text = { Text(range.label, fontWeight = if (range == selected) FontWeight.Bold else FontWeight.Normal) },
-                    onClick = {
-                        expanded = false
-                        onSelect(range)
-                    },
-                )
-            }
-        }
     }
 }
 
-/** Landscape + hidden system bars while the chart is on screen; restored on
- * leaving. Not restored across the rotation-induced recreate itself, or the
- * new activity would start in portrait and bounce back and forth. */
+/** Portrait held and system bars hidden while the chart is on screen, so
+ * tipping the phone does not rotate the app under the turned chart. */
 @Composable
-private fun FullScreenLandscape() {
+private fun PortraitWithoutBars() {
     val activity = LocalContext.current.findActivity() ?: return
     DisposableEffect(activity) {
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         val insets = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         insets.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         insets.hide(WindowInsetsCompat.Type.systemBars())
         onDispose {
-            if (!activity.isChangingConfigurations) {
-                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                insets.show(WindowInsetsCompat.Type.systemBars())
-            }
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            insets.show(WindowInsetsCompat.Type.systemBars())
         }
     }
 }
