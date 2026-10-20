@@ -32,7 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.outlined.AcUnit
 import androidx.compose.material.icons.outlined.HomeWork
-import androidx.compose.material.icons.outlined.WbSunny
+import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -173,9 +173,9 @@ internal fun AggregatePage(
             val w = maxWidth
             val h = maxHeight
             Canvas(Modifier.fillMaxSize()) { drawCycle() }
-            // Fan discs: sun on the condenser, snowflake on the receivers.
+            // Fan discs: flame on the condenser, snowflake on the receivers.
             Icon(
-                Icons.Outlined.WbSunny, contentDescription = null, tint = Liquid,
+                Icons.Outlined.LocalFireDepartment, contentDescription = null, tint = FrigoMax,
                 modifier = Modifier.centeredAt(w * 0.2f, h * UNIT_Y, 30.dp),
             )
             Icon(
@@ -184,7 +184,7 @@ internal fun AggregatePage(
             )
             Reading("TŁOCZENIE", reading(cycle.discharge), FrigoCritical, w * 0.27f, h * 0.02f) { onOpenChart(cycle.discharge) }
             Reading("SSANIE", reading(cycle.suction), FrigoAccent, w * 0.73f, h * 0.02f) { onOpenChart(cycle.suction) }
-            Reading("SPRĘŻARKA", reading(cycle.compressor), FrigoCritical, w * 0.5f, h * 0.38f) {
+            Reading("SPRĘŻARKA", reading(cycle.compressor), FrigoCritical, w * 0.5f, h * 0.4f) {
                 cycle.compressor?.let(onOpenChart)
             }
             // The condenser's reading sits on the compressor's axis, under the liquid line.
@@ -351,9 +351,6 @@ private fun Reading(label: String, value: String?, color: Color, x: Dp, y: Dp, o
 /** Height of the coils' centre line (and the liquid line), as a share of the box. */
 private const val UNIT_Y = 0.66f
 
-/** Neon magenta of the compressor. */
-private val Neon = Color(0xFFFF2E97)
-
 private fun DrawScope.drawCycle() {
     val w = size.width
     val h = size.height
@@ -396,36 +393,7 @@ private fun DrawScope.drawCycle() {
 
     coil(Offset(w * 0.2f, unitY), Size(w * 0.26f, h * 0.24f), Liquid)
     coil(Offset(w * 0.8f, unitY), Size(w * 0.26f, h * 0.24f), FrigoAccent)
-    compressor(Offset(w * 0.5f, topY), w * 0.17f)
-}
-
-/** A neon tube: a wide faint glow, a narrower brighter one, the line and a white-hot core. */
-private fun DrawScope.neon(path: Path, color: Color, width: Float) {
-    drawPath(path, color.copy(alpha = 0.10f), style = Stroke(width * 5f, join = StrokeJoin.Miter))
-    drawPath(path, color.copy(alpha = 0.25f), style = Stroke(width * 2.6f, join = StrokeJoin.Miter))
-    drawPath(path, color, style = Stroke(width, join = StrokeJoin.Miter))
-    drawPath(path, Color.White.copy(alpha = 0.55f), style = Stroke(width * 0.35f, join = StrokeJoin.Miter))
-}
-
-/** A box with the top-left and bottom-right corners cut off — the cyberpunk panel. */
-private fun chamfered(left: Float, top: Float, width: Float, height: Float, cut: Float) = Path().apply {
-    moveTo(left + cut, top)
-    lineTo(left + width, top)
-    lineTo(left + width, top + height - cut)
-    lineTo(left + width - cut, top + height)
-    lineTo(left, top + height)
-    lineTo(left, top + cut)
-    close()
-}
-
-private fun hexagon(center: Offset, r: Float) = Path().apply {
-    for (i in 0 until 6) {
-        val angle = Math.toRadians(60.0 * i - 30.0)
-        val x = center.x + r * Math.cos(angle).toFloat()
-        val y = center.y + r * Math.sin(angle).toFloat()
-        if (i == 0) moveTo(x, y) else lineTo(x, y)
-    }
-    close()
+    compressor(Offset(w * 0.5f, topY), w * 0.2f)
 }
 
 /** A short shaft with a filled head pointing along [dir]. */
@@ -442,88 +410,107 @@ private fun DrawScope.arrow(at: Offset, dir: Offset, color: Color, len: Float) {
     drawPath(head, color)
 }
 
-/** A coil as a neon panel: chamfered frame, fins as scan lines, corner
- * brackets, status ticks and a hexagonal fan ring (its icon goes on top). */
+/** Light steel of the flat unit icons on the dark card. */
+private val Steel = Color(0xFFB4C1D4)
+/** Shadowed steel for seams and the darker parts. */
+private val SteelDark = Color(0xFF5F6F86)
+
+/** A finned coil in the flat icon style: a serpentine tube running back
+ * and forth over a comb of fins, with a fan disc in the middle (its
+ * icon — flame on the condenser, snowflake on the receivers — goes on top
+ * in [color]). */
 private fun DrawScope.coil(center: Offset, s: Size, color: Color) {
     val left = center.x - s.width / 2
+    val right = center.x + s.width / 2
     val top = center.y - s.height / 2
-    val frame = chamfered(left, top, s.width, s.height, s.width * 0.14f)
-    drawPath(frame, FrigoBackground.copy(alpha = 0.92f))
-    val fins = 8
-    for (i in 1 until fins) {
-        val y = top + s.height * i / fins
-        drawLine(color.copy(alpha = 0.22f), Offset(left + 5.dp.toPx(), y), Offset(left + s.width - 5.dp.toPx(), y), 1.dp.toPx())
+    val rows = 4
+    val gap = s.height / (rows - 1)
+    val r = gap / 2
+    val tube = 3.2.dp.toPx()
+
+    // Fins: a comb of thin uprights behind the tube.
+    val finTop = top - gap * 0.18f
+    val finBottom = top + s.height + gap * 0.18f
+    var x = left + r + 4.dp.toPx()
+    while (x < right - r - 2.dp.toPx()) {
+        drawLine(Steel.copy(alpha = 0.55f), Offset(x, finTop), Offset(x, finBottom), 1.6.dp.toPx())
+        x += 7.dp.toPx()
     }
-    neon(frame, color, 1.6.dp.toPx())
-    // Brackets off the two square corners.
-    val b = 7.dp.toPx()
-    val bw = 2.dp.toPx()
-    val tr = Offset(left + s.width + 4.dp.toPx(), top - 4.dp.toPx())
-    drawLine(color, tr, tr + Offset(-b, 0f), bw)
-    drawLine(color, tr, tr + Offset(0f, b), bw)
-    val bl = Offset(left - 4.dp.toPx(), top + s.height + 4.dp.toPx())
-    drawLine(color, bl, bl + Offset(b, 0f), bw)
-    drawLine(color, bl, bl + Offset(0f, -b), bw)
-    // Status ticks along the bottom edge.
-    for (i in 0..2) {
-        val x = left + s.width * 0.08f + i * 6.dp.toPx()
-        drawLine(color.copy(alpha = 0.8f), Offset(x, top + s.height - 6.dp.toPx()), Offset(x + 3.dp.toPx(), top + s.height - 6.dp.toPx()), 2.dp.toPx())
+
+    // The tube: in at the top left, back and forth with U-bends, out at the bottom right.
+    val path = Path().apply {
+        moveTo(left - r * 0.6f, top - r * 0.9f)
+        quadraticBezierTo(left - r * 0.6f, top, left + r * 0.4f, top)
+        for (i in 0 until rows) {
+            val y = top + i * gap
+            val goingRight = i % 2 == 0
+            val endX = if (goingRight) right - r else left + r
+            lineTo(endX, y)
+            if (i < rows - 1) {
+                // A U-bend down to the next row on this side.
+                val cx = endX
+                val rect = androidx.compose.ui.geometry.Rect(cx - r, y, cx + r, y + gap)
+                arcTo(rect, -90f, if (goingRight) 180f else -180f, false)
+            }
+        }
+        val lastY = top + (rows - 1) * gap
+        val outX = if ((rows - 1) % 2 == 0) right + r * 0.6f else left - r * 0.6f
+        quadraticBezierTo(outX, lastY, outX, lastY + r * 0.9f)
     }
-    // Fan: a dark disc inside a neon hexagon.
-    val r = s.height * 0.38f
-    drawCircle(FrigoBackground, r * 0.95f, center)
-    drawCircle(color.copy(alpha = 0.10f), r * 0.95f, center)
-    neon(hexagon(center, r), color, 1.4.dp.toPx())
+    drawPath(path, Steel, style = Stroke(tube, cap = StrokeCap.Round, join = StrokeJoin.Round))
+
+    // Fan disc.
+    val disc = s.height * 0.4f
+    drawCircle(FrigoBackground, disc, center)
+    drawCircle(Steel, disc, center, style = Stroke(3.dp.toPx()))
+    drawCircle(color.copy(alpha = 0.12f), disc - 3.dp.toPx(), center)
 }
 
-/** Hermetic compressor as a neon unit: a chamfered magenta shell under a
- * cut dome, scan lines, a glowing cyan core and a terminal box. */
+/** A rotary compressor in the flat icon style: a tall rounded shell with
+ * the terminal on top, the suction accumulator standing at its side joined
+ * by two short pipes, all on a base plate. */
 private fun DrawScope.compressor(center: Offset, width: Float) {
-    val bodyH = width * 0.9f
-    val top = center.y - bodyH * 0.55f
-    val left = center.x - width / 2
-    val domeH = width * 0.26f
+    val bodyW = width * 0.56f
+    val bodyH = width * 0.95f
+    val bodyLeft = center.x - width * 0.36f
+    val bodyTop = center.y - bodyH * 0.5f
+    val base = bodyTop + bodyH
 
-    val base = Path().apply {
-        moveTo(left - 6.dp.toPx(), top + bodyH + 5.dp.toPx())
-        lineTo(left + width + 6.dp.toPx(), top + bodyH + 5.dp.toPx())
-    }
-    neon(base, Neon, 1.6.dp.toPx())
+    // Base plate.
+    drawRoundRect(Steel, Offset(center.x - width * 0.5f, base + 2.dp.toPx()), Size(width, 4.dp.toPx()), CornerRadius(1.dp.toPx()))
+    // Feet.
+    drawRect(SteelDark, Offset(bodyLeft + bodyW * 0.15f, base - 1.dp.toPx()), Size(bodyW * 0.7f, 3.dp.toPx()))
 
-    val dome = Path().apply {
-        moveTo(left + width * 0.12f, top + domeH)
-        lineTo(left + width * 0.26f, top)
-        lineTo(left + width * 0.74f, top)
-        lineTo(left + width * 0.88f, top + domeH)
-        close()
-    }
-    drawPath(dome, FrigoBackground)
-    neon(dome, Neon, 1.4.dp.toPx())
+    // Terminal: a cap and a stem on the dome.
+    val stemX = bodyLeft + bodyW / 2
+    drawRect(Steel, Offset(stemX - 2.dp.toPx(), bodyTop - 7.dp.toPx()), Size(4.dp.toPx(), 8.dp.toPx()))
+    drawRoundRect(Steel, Offset(stemX - 6.dp.toPx(), bodyTop - 10.dp.toPx()), Size(12.dp.toPx(), 4.dp.toPx()), CornerRadius(1.dp.toPx()))
 
-    val shell = chamfered(left, top + domeH, width, bodyH - domeH, width * 0.16f)
-    drawPath(shell, FrigoBackground)
-    for (i in 1..5) {
-        val y = top + domeH + (bodyH - domeH) * i / 6
-        drawLine(Neon.copy(alpha = 0.18f), Offset(left + 4.dp.toPx(), y), Offset(left + width - 4.dp.toPx(), y), 1.dp.toPx())
-    }
-    neon(shell, Neon, 1.8.dp.toPx())
+    // Shell.
+    drawRoundRect(Steel, Offset(bodyLeft, bodyTop), Size(bodyW, bodyH), CornerRadius(bodyW * 0.22f))
+    // Seams.
+    drawLine(SteelDark, Offset(bodyLeft, bodyTop + bodyH * 0.18f), Offset(bodyLeft + bodyW, bodyTop + bodyH * 0.18f), 1.5.dp.toPx())
+    drawLine(SteelDark, Offset(bodyLeft, bodyTop + bodyH * 0.82f), Offset(bodyLeft + bodyW, bodyTop + bodyH * 0.82f), 1.5.dp.toPx())
+    drawLine(Color.White.copy(alpha = 0.35f), Offset(bodyLeft + bodyW * 0.2f, bodyTop + bodyH * 0.26f), Offset(bodyLeft + bodyW * 0.2f, bodyTop + bodyH * 0.74f), 2.5.dp.toPx(), cap = StrokeCap.Round)
 
-    // Glowing core.
-    val core = Offset(center.x - width * 0.06f, top + domeH + (bodyH - domeH) * 0.5f)
-    val cr = width * 0.14f
-    drawCircle(FrigoAccent.copy(alpha = 0.15f), cr * 2.2f, core)
-    drawCircle(FrigoAccent.copy(alpha = 0.35f), cr * 1.4f, core)
-    drawCircle(FrigoAccent, cr, core, style = Stroke(1.6.dp.toPx()))
-    drawCircle(Color.White.copy(alpha = 0.8f), cr * 0.35f, core)
+    // Accumulator: a slim capsule at the side with its own stem.
+    val accW = width * 0.2f
+    val accH = bodyH * 0.6f
+    val accLeft = bodyLeft + bodyW + width * 0.12f
+    val accTop = center.y - accH * 0.62f
+    drawRect(Steel, Offset(accLeft + accW / 2 - 1.5.dp.toPx(), accTop - 6.dp.toPx()), Size(3.dp.toPx(), 7.dp.toPx()))
+    drawRoundRect(Steel, Offset(accLeft + accW / 2 - 4.dp.toPx(), accTop - 8.dp.toPx()), Size(8.dp.toPx(), 3.dp.toPx()), CornerRadius(1.dp.toPx()))
+    drawRoundRect(Steel, Offset(accLeft, accTop), Size(accW, accH), CornerRadius(accW * 0.45f))
+    drawLine(SteelDark, Offset(accLeft, accTop + accH * 0.5f), Offset(accLeft + accW, accTop + accH * 0.5f), 1.5.dp.toPx())
+    // Pipes from the accumulator into the shell: one at the band, one low down into the base.
+    val pipe = 3.dp.toPx()
+    drawLine(Steel, Offset(bodyLeft + bodyW - 1.dp.toPx(), accTop + accH * 0.5f), Offset(accLeft + 1.dp.toPx(), accTop + accH * 0.5f), pipe)
+    val outX = accLeft + accW / 2
+    drawLine(Steel, Offset(outX, accTop + accH), Offset(outX, bodyTop + bodyH * 0.9f), pipe, cap = StrokeCap.Round)
+    drawLine(Steel, Offset(outX, bodyTop + bodyH * 0.9f), Offset(bodyLeft + bodyW - 1.dp.toPx(), bodyTop + bodyH * 0.9f), pipe, cap = StrokeCap.Round)
 
-    // Terminal box on the suction side.
-    val bw = width * 0.3f
-    val bh = bodyH * 0.38f
-    val box = chamfered(left + width * 0.86f, center.y - bh / 2, bw, bh, bw * 0.3f)
-    drawPath(box, FrigoBackground)
-    neon(box, FrigoAccent, 1.2.dp.toPx())
-    // Discharge stub on the left.
-    drawRect(FrigoCritical, Offset(left - 7.dp.toPx(), center.y - 5.dp.toPx()), Size(7.dp.toPx(), 10.dp.toPx()))
+    // Discharge stub on the left, where the red line leaves.
+    drawRect(FrigoCritical, Offset(bodyLeft - 6.dp.toPx(), center.y - 4.dp.toPx()), Size(7.dp.toPx(), 8.dp.toPx()))
 }
 
 /** Outdoor temperature, current and power side by side. */
