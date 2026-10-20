@@ -117,8 +117,9 @@ class ReceiversViewModel @Inject constructor(
                 )
             }
 
-            // Both the chamber and the evaporator get a 24 h chart.
-            val sensorIds = receivers.flatMap { listOfNotNull(it.chamber_sensor_id, it.evaporator_sensor_id) }.toSet()
+            // The chamber gets a 24 h chart; the evaporator shows its reading
+            // and opens its own chart full screen.
+            val sensorIds = receivers.mapNotNull { it.chamber_sensor_id }.toSet()
             val now = Instant.now()
             if (historyObjectId != objectId || !history.keys.containsAll(sensorIds) ||
                 Duration.between(historyFetchedAt, now).toMinutes() >= 5

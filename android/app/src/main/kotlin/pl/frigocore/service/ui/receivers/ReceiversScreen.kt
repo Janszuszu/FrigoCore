@@ -1,51 +1,52 @@
 package pl.frigocore.service.ui.receivers
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.foundation.background
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.runtime.key
-import androidx.compose.ui.draw.clip
-import pl.frigocore.service.ui.overview.TempStats
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.AcUnit
-import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,20 +58,26 @@ import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.common.LoadingState
 import pl.frigocore.service.ui.common.PollWhileVisible
 import pl.frigocore.service.ui.common.quietClickable
-import pl.frigocore.service.ui.overview.CardChart
-import pl.frigocore.service.ui.overview.Stat
-import pl.frigocore.service.ui.overview.StatDivider
+import pl.frigocore.service.ui.sensor.ChartPoint
+import pl.frigocore.service.ui.theme.Barlow
 import pl.frigocore.service.ui.theme.FrigoAccent
 import pl.frigocore.service.ui.theme.FrigoCritical
 import pl.frigocore.service.ui.theme.FrigoMax
+import pl.frigocore.service.ui.theme.FrigoOutline
 import pl.frigocore.service.ui.theme.FrigoSurface
 import pl.frigocore.service.ui.theme.FrigoText
 import pl.frigocore.service.ui.theme.FrigoTextMuted
-import pl.frigocore.service.ui.theme.TabularNumbers
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 
-/** Urządzenia → Odbiorniki: one receiver per page, the next one a swipe
- * away, with dots for where you are. Each page is the chamber on top and
- * its evaporator below. */
+/** Receivers on one page. */
+private const val PER_PAGE = 3
+
+/** Urządzenia → Odbiorniki: three receivers to a page, more a swipe away
+ * with dots for where you are. Each card is the chamber — name, state,
+ * temperature, its 24 h chart and MIN / ŚREDNIA / MAX — plus the
+ * evaporator's reading. Tapping the chart opens the chamber full screen,
+ * tapping PAROWNIK the evaporator. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ReceiversScreen(
@@ -80,29 +87,40 @@ fun ReceiversScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     PollWhileVisible { viewModel.refresh() }
+
     when {
         uiState.isLoading && uiState.cards.isEmpty() -> LoadingState()
         // Nothing configured for this object yet — keep showing its sensors.
         uiState.cards.isEmpty() -> fallback()
-        // Another object starts again on its first receiver.
+        // Another object starts again on its first page.
         else -> key(uiState.objectId) {
-            val pagerState = rememberPagerState { uiState.cards.size }
+            val pages = uiState.cards.chunked(PER_PAGE)
+            val pagerState = rememberPagerState { pages.size }
             Column(Modifier.fillMaxSize()) {
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 12.dp),
                     pageSpacing = 12.dp,
-                    key = { uiState.cards.getOrNull(it)?.receiver?.id ?: it },
                 ) { page ->
-                    val card = uiState.cards.getOrNull(page) ?: return@HorizontalPager
-                    ReceiverPage(
-                        card,
-                        onOpenChart = { sensorId, name -> onOpenChart(card.receiver.object_id, sensorId, name) },
-                        modifier = Modifier.fillMaxSize().padding(vertical = 10.dp),
-                    )
+                    val group = pages.getOrNull(page) ?: return@HorizontalPager
+                    Column(
+                        Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        group.forEach { card ->
+                            ReceiverCardView(
+                                card,
+                                onOpenChart = { sensorId, name -> onOpenChart(card.receiver.object_id, sensorId, name) },
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                            )
+                        }
+                        // A short last page keeps the cards the size they are on the others.
+                        if (pages.size > 1 && group.size < PER_PAGE) {
+                            Spacer(Modifier.weight((PER_PAGE - group.size).toFloat()))
+                        }
+                    }
                 }
-                if (uiState.cards.size > 1) PageDots(uiState.cards.size, pagerState.currentPage)
+                if (pages.size > 1) PageDots(pages.size, pagerState.currentPage)
             }
         }
     }
@@ -138,14 +156,17 @@ private fun stateLook(state: String): StateLook = when (state) {
 
 private val AlarmLook = StateLook("Alarm", Icons.Outlined.WarningAmber, FrigoCritical)
 
-/** The chamber on top — name on the left, state icon in the middle,
- * temperature on the right, the 24 h chart and the 24 h min / average / max;
- * then the evaporator heading, folded — tapping it unfolds its chart and stats
- * in place of the chamber's. Everything takes the state colour (blue in
- * range, orange defrost, red alarm). Tapping
- * a chart opens it full screen. */
+private val NameStyle = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 24.sp, letterSpacing = 0.5.sp)
+private val TempStyle = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 38.sp, fontFeatureSettings = "tnum")
+private val LabelStyle = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Normal, fontSize = 13.sp, letterSpacing = 1.sp)
+private val ValueStyle = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, fontFeatureSettings = "tnum")
+
+/** Name in white on the left, the state icon exactly in the middle, the
+ * temperature on the right; the chart; MIN / ŚREDNIA / MAX and PAROWNIK.
+ * Readings, chart and border take the state colour (blue in range, orange
+ * defrost, red alarm). */
 @Composable
-private fun ReceiverPage(
+private fun ReceiverCardView(
     card: ReceiverCard,
     onOpenChart: (sensorId: String, name: String) -> Unit,
     modifier: Modifier = Modifier,
@@ -158,115 +179,113 @@ private fun ReceiverPage(
         colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
         modifier = modifier,
     ) {
-        // Only one of chamber / evaporator shows its chart and stats at a
-        // time; the chamber's by default. Tapping a heading unfolds that one.
-        val hasEvaporator = receiver.evaporator_sensor_id != null
-        var evaporatorOpen by rememberSaveable(receiver.id) { mutableStateOf(false) }
-        val showEvaporator = hasEvaporator && evaporatorOpen
-        val chamberWeight by animateFloatAsState(if (showEvaporator) 0f else 1f, label = "chamber")
-        val evaporatorWeight by animateFloatAsState(if (showEvaporator) 1f else 0f, label = "evaporator")
-        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)) {
-            SectionHead(
-                receiver.name,
-                receiver.chamber_temperature,
-                look.color,
-                Modifier.quietClickable { evaporatorOpen = false },
-            ) { StateIcon(look) }
-            Unfolding(chamberWeight) {
-                CardChart(
-                    card.chamber,
-                    look.color,
-                    Modifier.fillMaxWidth().weight(1f).quietClickable {
-                        receiver.chamber_sensor_id?.let { onOpenChart(it, receiver.name) }
-                    },
+        Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    receiver.name.uppercase(),
+                    color = FrigoText,
+                    style = NameStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.height(10.dp))
-                StatsRow(card.stats)
+                Icon(look.icon, contentDescription = look.label, tint = look.color, modifier = Modifier.padding(horizontal = 8.dp).size(30.dp))
+                Text(
+                    Formatters.temperature(receiver.chamber_temperature),
+                    color = look.color,
+                    style = TempStyle,
+                    maxLines = 1,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(1f),
+                )
             }
-            if (hasEvaporator) {
-                HorizontalDivider(Modifier.padding(vertical = 12.dp), color = look.color.copy(alpha = 0.35f))
-                SectionHead(
-                    "Parownik",
-                    receiver.evaporator_temperature,
-                    look.color,
-                    Modifier.quietClickable { evaporatorOpen = !evaporatorOpen },
-                )
-                Unfolding(evaporatorWeight) {
-                    CardChart(
-                        card.evaporator,
+            ReceiverChart(
+                card.chamber,
+                look.color,
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(vertical = 6.dp)
+                    .quietClickable { receiver.chamber_sensor_id?.let { onOpenChart(it, receiver.name) } },
+            )
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                StatCell("MIN", card.stats?.min, look.color, Modifier.weight(1f))
+                CellDivider()
+                StatCell("ŚREDNIA", card.stats?.avg, look.color, Modifier.weight(1f))
+                CellDivider()
+                StatCell("MAX", card.stats?.max, look.color, Modifier.weight(1f))
+                val evaporatorId = receiver.evaporator_sensor_id
+                if (evaporatorId != null) {
+                    CellDivider()
+                    StatCell(
+                        "PAROWNIK",
+                        receiver.evaporator_temperature,
                         look.color,
-                        Modifier.fillMaxWidth().weight(1f).quietClickable {
-                            receiver.evaporator_sensor_id?.let { onOpenChart(it, "${receiver.name} — parownik") }
-                        },
+                        Modifier.weight(1f).quietClickable { onOpenChart(evaporatorId, "${receiver.name} — parownik") },
                     )
-                    Spacer(Modifier.height(10.dp))
-                    StatsRow(card.evaporatorStats)
                 }
             }
         }
     }
 }
 
-/** A section's chart and stats, given [weight] of the free height; folds
- * away entirely at 0 (the weight animates between 0 and 1). */
 @Composable
-private fun ColumnScope.Unfolding(weight: Float, content: @Composable ColumnScope.() -> Unit) {
-    if (weight <= 0.001f) return
-    Column(Modifier.fillMaxWidth().weight(weight).clipToBounds()) {
-        Spacer(Modifier.height(6.dp))
-        content()
+private fun StatCell(label: String, value: Double?, color: Color, modifier: Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, color = FrigoTextMuted, style = LabelStyle, maxLines = 1)
+        Text(Formatters.temperature(value), color = color, style = ValueStyle, maxLines = 1)
     }
 }
 
-/** Name in white on the left, current temperature on the right and, when
- * given, [badge] exactly in the middle — both sides take equal width. */
 @Composable
-private fun SectionHead(
-    name: String,
-    temperature: Double?,
-    color: Color,
-    modifier: Modifier = Modifier,
-    badge: (@Composable () -> Unit)? = null,
-) {
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            name.uppercase(),
-            color = FrigoText,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (badge != null) {
-            Box(Modifier.padding(horizontal = 8.dp)) { badge() }
+private fun CellDivider() {
+    Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 4.dp).background(FrigoAccent.copy(alpha = 0.35f)))
+}
+
+/** The last 24 hours as a smooth line over a fading fill, scaled to the
+ * day's own range; faint dashed lines quarter the day, no labels. */
+@Composable
+private fun ReceiverChart(points: List<ChartPoint>, color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val dash = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 4.dp.toPx()))
+        for (i in 1..3) {
+            val x = size.width * i / 4f
+            drawLine(FrigoOutline, Offset(x, 0f), Offset(x, size.height), 1f, pathEffect = dash)
         }
-        Text(
-            Formatters.temperature(temperature),
-            color = color,
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            style = TabularNumbers,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
+        drawLine(FrigoOutline, Offset(0f, 0f), Offset(size.width, 0f), 1f)
+        drawLine(FrigoTextMuted.copy(alpha = 0.6f), Offset(0f, size.height), Offset(size.width, size.height), 1f)
 
-@Composable
-private fun StatsRow(stats: TempStats?) {
-    Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-        Stat("MIN", stats?.min, "°C", Modifier.weight(1f))
-        StatDivider()
-        Stat("ŚREDNIA", stats?.avg, "°C", Modifier.weight(1f))
-        StatDivider()
-        Stat("MAX", stats?.max, "°C", Modifier.weight(1f))
-    }
-}
+        val now = Instant.now()
+        val start = now.minus(24, ChronoUnit.HOURS).toEpochMilli()
+        val span = (now.toEpochMilli() - start).toFloat()
+        val visible = points.filter { it.time.toEpochMilli() >= start }
+        if (visible.size < 2) return@Canvas
+        val lo = visible.minOf { it.value }
+        val hi = visible.maxOf { it.value }
+        val range = (hi - lo).coerceAtLeast(1.0)
+        // Headroom over the peak, and the lowest reading a little above the floor.
+        val top = 4.dp.toPx()
+        val bottom = size.height * 0.82f
+        fun x(p: ChartPoint) = ((p.time.toEpochMilli() - start) / span).coerceIn(0f, 1f) * size.width
+        fun y(p: ChartPoint) = bottom - ((p.value - lo) / range).toFloat() * (bottom - top)
 
-/** The state as a bare icon in its colour — no frame, no label. */
-@Composable
-private fun StateIcon(look: StateLook) {
-    Icon(look.icon, contentDescription = look.label, tint = look.color, modifier = Modifier.size(26.dp))
+        // Smooth: a quadratic curve through the midpoints between readings.
+        val line = Path().apply {
+            moveTo(x(visible[0]), y(visible[0]))
+            for (i in 1 until visible.size) {
+                val px = x(visible[i - 1])
+                val py = y(visible[i - 1])
+                quadraticBezierTo(px, py, (px + x(visible[i])) / 2, (py + y(visible[i])) / 2)
+            }
+            lineTo(x(visible.last()), y(visible.last()))
+        }
+        val fill = Path().apply {
+            addPath(line)
+            lineTo(x(visible.last()), size.height)
+            lineTo(x(visible.first()), size.height)
+            close()
+        }
+        drawPath(fill, Brush.verticalGradient(listOf(color.copy(alpha = 0.42f), color.copy(alpha = 0.02f)), top, size.height))
+        drawPath(line, color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
 }

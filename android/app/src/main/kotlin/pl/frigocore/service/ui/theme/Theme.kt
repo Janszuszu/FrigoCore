@@ -1,5 +1,9 @@
 package pl.frigocore.service.ui.theme
 
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import pl.frigocore.service.R
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -19,6 +23,15 @@ val FrigoTextMuted = Color(0xFF8A9BB2)
 /** Equal-width digits, so a ticking clock or a changing reading doesn't
  * make its neighbours shuffle left and right. */
 val TabularNumbers = TextStyle(fontFeatureSettings = "tnum")
+
+/** Barlow Semi Condensed (OFL, android/licenses/barlow-OFL.txt): the
+ * receiver cards' names, readings and stats. */
+val Barlow = FontFamily(
+    Font(R.font.barlow_semi_condensed_regular, FontWeight.Normal),
+    Font(R.font.barlow_semi_condensed_medium, FontWeight.Medium),
+    Font(R.font.barlow_semi_condensed_semibold, FontWeight.SemiBold),
+    Font(R.font.barlow_semi_condensed_bold, FontWeight.Bold),
+)
 
 val FrigoCritical = Color(0xFFEF4444)
 val FrigoWarning = Color(0xFFF59E0B)
