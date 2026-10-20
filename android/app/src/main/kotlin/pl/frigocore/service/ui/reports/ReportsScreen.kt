@@ -126,6 +126,57 @@ internal fun cycles(n: Int): String = when {
 
 private const val DAY_SECONDS = 24 * 3600L
 
+/** Card heading: the name, and under it how much of the day the readings
+ * cover when they don't cover (nearly) all of it — every total is smaller then. */
+@Composable
+private fun CardHead(name: String, coveredSeconds: Long, icon: (@Composable () -> Unit)? = null) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (icon != null) {
+            icon()
+            Spacer(Modifier.width(8.dp))
+        }
+        Column {
+            Text(
+                name.uppercase(),
+                color = FrigoText,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (coveredSeconds in 1 until DAY_SECONDS * 95 / 100) {
+                Text("dane z ${duration(coveredSeconds)} doby", color = FrigoTextMuted, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+/** One figure per line: the label on the left, the value on the right. */
+@Composable
+private fun ReportRow(label: String, value: String, color: Color = FrigoText, strong: Boolean = false) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = if (strong) FrigoText else FrigoTextMuted, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        Text(
+            value,
+            color = color,
+            fontSize = if (strong) 19.sp else 16.sp,
+            fontWeight = if (strong) FontWeight.Bold else FontWeight.SemiBold,
+            maxLines = 1,
+            style = TabularNumbers,
+        )
+    }
+}
+
+@Composable
+private fun Section(color: Color) {
+    HorizontalDivider(Modifier.padding(vertical = 6.dp), color = color.copy(alpha = 0.2f))
+}
+
+private fun percent(value: Double?): String = value?.let { "${Math.round(it)} %" } ?: "—"
+
 @Composable
 private fun ReceiverReportCard(report: ReceiverDayReportResponse) {
     Card(
@@ -134,51 +185,23 @@ private fun ReceiverReportCard(report: ReceiverDayReportResponse) {
         colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    report.name.uppercase(),
-                    color = FrigoText,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                // Hours without readings make every total smaller — say so.
-                if (report.covered_seconds < DAY_SECONDS * 95 / 100) {
-                    Text("dane: ${duration(report.covered_seconds)}", color = FrigoTextMuted, fontSize = 13.sp)
-                }
-            }
+            CardHead(report.name, report.covered_seconds)
             if (report.covered_seconds == 0L) {
                 Text("Brak odczytów tego dnia", color = FrigoTextMuted, fontSize = 15.sp, modifier = Modifier.padding(top = 8.dp))
                 return@Column
             }
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.height(IntrinsicSize.Min)) {
-                Phase("PRACA", report.cooling_seconds, report.cooling_count, FrigoAccent, Modifier.weight(1f))
-                StatDivider()
-                Phase("POSTÓJ", report.idle_seconds, report.idle_count, IdleBlue, Modifier.weight(1f))
-                StatDivider()
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("UDZIAŁ PRACY", color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp, maxLines = 1)
-                    Text(
-                        report.duty_percent?.let { "${Math.round(it)} %" } ?: "—",
-                        color = FrigoText,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        style = TabularNumbers,
-                    )
-                }
-            }
-            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = FrigoAccent.copy(alpha = 0.2f))
-            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-                Stat("MIN", report.min_temp, "°C", Modifier.weight(1f))
-                StatDivider()
-                Stat("ŚREDNIA", report.avg_temp, "°C", Modifier.weight(1f))
-                StatDivider()
-                Stat("MAX", report.max_temp, "°C", Modifier.weight(1f))
-            }
-            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = FrigoAccent.copy(alpha = 0.2f))
+            Section(FrigoAccent)
+            ReportRow("Praca", duration(report.cooling_seconds), FrigoAccent, strong = true)
+            ReportRow("Cykle pracy", "${report.cooling_count}")
+            ReportRow("Średni czas pracy", average(report.cooling_seconds, report.cooling_count))
+            ReportRow("Postój", duration(report.idle_seconds), IdleBlue, strong = true)
+            ReportRow("Średni postój", average(report.idle_seconds, report.idle_count))
+            ReportRow("Udział pracy", percent(report.duty_percent), strong = true)
+            Section(FrigoAccent)
+            ReportRow("Temperatura min.", Formatters.temperature(report.min_temp), FrigoAccent)
+            ReportRow("Temperatura średnia", Formatters.temperature(report.avg_temp), FrigoAccent)
+            ReportRow("Temperatura maks.", Formatters.temperature(report.max_temp), FrigoAccent)
+            Section(FrigoAccent)
             Defrosts(report)
             report.off_periods.forEach { off ->
                 val from = Formatters.parseInstant(off.start)?.let { Formatters.time(it, ReportZone) } ?: "—"
@@ -197,9 +220,9 @@ private fun ReceiverReportCard(report: ReceiverDayReportResponse) {
     }
 }
 
-/** An aggregate's day from its power draw: running and resting time with
- * the starts and average lengths, the duty share, and — from a power
- * sensor — the energy used and the average power while running. */
+/** An aggregate's day from its power draw, one figure per line: running
+ * and resting time with the starts and run lengths, the duty share, and —
+ * from a power sensor — the energy used and the average power while running. */
 @Composable
 private fun AggregateReportCard(report: AggregateDayReportResponse) {
     Card(
@@ -208,74 +231,28 @@ private fun AggregateReportCard(report: AggregateDayReportResponse) {
         colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Hvac, contentDescription = null, tint = FrigoMax, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "AGREGAT ${report.name.uppercase()}",
-                    color = FrigoText,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (report.covered_seconds < DAY_SECONDS * 95 / 100) {
-                    Text("dane: ${duration(report.covered_seconds)}", color = FrigoTextMuted, fontSize = 13.sp)
-                }
+            CardHead("Agregat ${report.name}", report.covered_seconds) {
+                Icon(Icons.Outlined.Hvac, contentDescription = null, tint = FrigoMax, modifier = Modifier.size(24.dp))
             }
             if (report.covered_seconds == 0L) {
                 Text("Brak odczytów tego dnia", color = FrigoTextMuted, fontSize = 15.sp, modifier = Modifier.padding(top = 8.dp))
                 return@Column
             }
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.height(IntrinsicSize.Min)) {
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("PRACA", color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp, maxLines = 1)
-                    Text(duration(report.running_seconds), color = FrigoMax, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, style = TabularNumbers)
-                    Text(starts(report.starts), color = FrigoTextMuted, fontSize = 12.sp, maxLines = 1)
-                    Text("śr. ${report.avg_run_seconds?.let { average(it, 1) } ?: "—"}", color = FrigoTextMuted, fontSize = 12.sp, maxLines = 1, style = TabularNumbers)
-                }
-                StatDivider()
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("POSTÓJ", color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp, maxLines = 1)
-                    Text(duration(report.idle_seconds), color = IdleBlue, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, style = TabularNumbers)
-                    Text("śr. ${report.avg_idle_seconds?.let { average(it, 1) } ?: "—"}", color = FrigoTextMuted, fontSize = 12.sp, maxLines = 1, style = TabularNumbers)
-                }
-                StatDivider()
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("UDZIAŁ PRACY", color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp, maxLines = 1)
-                    Text(
-                        report.duty_percent?.let { "${Math.round(it)} %" } ?: "—",
-                        color = FrigoText,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        style = TabularNumbers,
-                    )
-                    report.max_run_seconds?.let {
-                        Text("najdł. ${average(it, 1)}", color = FrigoTextMuted, fontSize = 12.sp, maxLines = 1, style = TabularNumbers)
-                    }
-                }
-            }
-            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = FrigoMax.copy(alpha = 0.2f))
-            Row(Modifier.height(IntrinsicSize.Min)) {
-                val power = report.source == "power"
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("ENERGIA", color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp)
-                    Text(
-                        report.energy_kwh?.let { Formatters.reading(it, "kWh") } ?: "—",
-                        color = FrigoText, fontSize = 19.sp, fontWeight = FontWeight.Bold, style = TabularNumbers,
-                    )
-                }
-                StatDivider()
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(if (power) "ŚR. MOC W PRACY" else "ŚR. PRĄD W PRACY", color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp)
-                    Text(
-                        Formatters.reading(report.avg_running_value, if (power) "W" else "A"),
-                        color = FrigoText, fontSize = 19.sp, fontWeight = FontWeight.Bold, style = TabularNumbers,
-                    )
-                }
-            }
+            val power = report.source == "power"
+            Section(FrigoMax)
+            ReportRow("Praca", duration(report.running_seconds), FrigoMax, strong = true)
+            ReportRow("Załączenia", "${report.starts}")
+            ReportRow("Średni czas pracy", report.avg_run_seconds?.let { average(it, 1) } ?: "—")
+            ReportRow("Najdłuższa praca", report.max_run_seconds?.let { average(it, 1) } ?: "—")
+            ReportRow("Postój", duration(report.idle_seconds), IdleBlue, strong = true)
+            ReportRow("Średni postój", report.avg_idle_seconds?.let { average(it, 1) } ?: "—")
+            ReportRow("Udział pracy", percent(report.duty_percent), strong = true)
+            Section(FrigoMax)
+            ReportRow("Energia", report.energy_kwh?.let { Formatters.reading(it, "kWh") } ?: "—", strong = true)
+            ReportRow(
+                if (power) "Średnia moc w pracy" else "Średni prąd w pracy",
+                Formatters.reading(report.avg_running_value, if (power) "W" else "A"),
+            )
         }
     }
 }
@@ -289,16 +266,6 @@ internal fun starts(n: Int): String = when {
 
 /** Pale ice blue for idle, as on the receiver page. */
 private val IdleBlue = Color(0xFF9ADCF7)
-
-@Composable
-private fun Phase(label: String, seconds: Long, count: Int, color: Color, modifier: Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp, maxLines = 1)
-        Text(duration(seconds), color = color, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, style = TabularNumbers)
-        Text(cycles(count), color = FrigoTextMuted, fontSize = 12.sp, maxLines = 1)
-        Text("śr. ${average(seconds, count)}", color = FrigoTextMuted, fontSize = 12.sp, maxLines = 1, style = TabularNumbers)
-    }
-}
 
 /** Each defrost on its own line: start, length, peak and recovery. */
 @Composable
