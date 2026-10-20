@@ -1,7 +1,9 @@
-"""FrigoCore — Nightly receiver day reports.
+"""FrigoCore — Nightly receiver and aggregate day reports.
 
 Just after local midnight every active receiver's finished day is run
-through app/services/daily_cycles.py and stored as a ReceiverDayReport.
+through app/services/daily_cycles.py and stored as a ReceiverDayReport;
+every aggregate with a power (or current) sensor gets its day read from
+that trace by app/services/power_cycles.py, stored as an AggregateDayReport.
 Days missed while the backend was down are caught up on start (up to
 BACKFILL_DAYS back); a day already stored is never recomputed.
 """
@@ -16,11 +18,14 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.models.aggregate import Aggregate
+from app.models.aggregate_day_report import AggregateDayReport
 from app.models.measurement import Measurement
 from app.models.receiver import Receiver
 from app.models.receiver_day_report import ReceiverDayReport
 from app.services.daily_cycles import MAX_GAP, DayAnalysis, analyze_day
 from app.services.energy import ENERGY_TIMEZONE, local_today
+from app.services.power_cycles import analyze_power
 from app.services.receiver_state import Point
 
 logger = logging.getLogger(__name__)
@@ -98,6 +103,44 @@ async def build_report(db: AsyncSession, receiver: Receiver, day: date) -> Recei
     return to_report(receiver.id, day, analysis)
 
 
+def power_sensor(aggregate: Aggregate):
+    """The trace an aggregate's day is read from: its power sensor, else its
+    current sensor; None when it has neither."""
+    sensors = [link.sensor for link in aggregate.sensor_links if link.sensor is not None]
+    for kind in ("power", "current"):
+        found = next((s for s in sensors if s.kind == kind), None)
+        if found is not None:
+            return found
+    return None
+
+
+async def build_aggregate_report(db: AsyncSession, aggregate: Aggregate, day: date) -> AggregateDayReport | None:
+    sensor = power_sensor(aggregate)
+    if sensor is None:
+        return None
+    start, end = day_bounds(day)
+    readings = await _readings(db, sensor.id, start, end)
+    a = await asyncio.to_thread(analyze_power, readings, start, end, sensor.kind == "power")
+    return AggregateDayReport(
+        aggregate_id=aggregate.id,
+        day=day,
+        source=sensor.kind,
+        running_seconds=a.running_seconds,
+        idle_seconds=a.idle_seconds,
+        starts=a.starts,
+        avg_run_seconds=a.avg_run_seconds,
+        max_run_seconds=a.max_run_seconds,
+        avg_idle_seconds=a.avg_idle_seconds,
+        duty_percent=a.duty_percent,
+        covered_seconds=a.covered_seconds,
+        energy_kwh=a.energy_kwh,
+        avg_running_value=a.avg_running_power,
+        avg_start_peak=a.avg_start_peak,
+        threshold=a.threshold,
+        runs=[[r.running, _iso(r.start), _iso(r.end), r.complete] for r in a.runs],
+    )
+
+
 async def run_pending(db: AsyncSession, today: date | None = None) -> int:
     """Stores every missing report of the last BACKFILL_DAYS finished days.
     Returns how many were written."""
@@ -121,6 +164,26 @@ async def run_pending(db: AsyncSession, today: date | None = None) -> int:
             if created is not None and day_bounds(day)[1] <= created:
                 continue
             db.add(await build_report(db, receiver, day))
+            await db.commit()
+            written += 1
+
+    aggregates = (await db.scalars(select(Aggregate).where(Aggregate.is_active.is_(True)))).all()
+    done_aggregates = {
+        (aid, d) for aid, d in (await db.execute(
+            select(AggregateDayReport.aggregate_id, AggregateDayReport.day).where(AggregateDayReport.day >= days[0])
+        )).all()
+    }
+    for aggregate in aggregates:
+        created = _aware(aggregate.created_at) if aggregate.created_at else None
+        for day in days:
+            if (aggregate.id, day) in done_aggregates:
+                continue
+            if created is not None and day_bounds(day)[1] <= created:
+                continue
+            report = await build_aggregate_report(db, aggregate, day)
+            if report is None:
+                break  # no power or current sensor — nothing to report on any day
+            db.add(report)
             await db.commit()
             written += 1
     return written

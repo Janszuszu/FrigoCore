@@ -648,10 +648,32 @@ class ReceiverDayReportResponse(BaseModel):
     off_periods: list[OffPeriodEntry]
 
 
+class AggregateDayReportResponse(BaseModel):
+    """One aggregate's day read from its power (or current) draw: time
+    running and resting, starts, average lengths, duty share, energy."""
+
+    aggregate_id: UUID
+    name: str
+    day: date
+    source: str
+    running_seconds: int
+    idle_seconds: int
+    starts: int
+    avg_run_seconds: int | None
+    max_run_seconds: int | None
+    avg_idle_seconds: int | None
+    duty_percent: float | None
+    covered_seconds: int
+    energy_kwh: float | None
+    avg_running_value: float | None
+
+
 class ObjectDayReportResponse(BaseModel):
-    """The report of one day for all of an object's receivers, plus the
-    days that have a report (newest first) to page between."""
+    """The report of one day for all of an object's receivers and
+    aggregates, plus the days that have a report (newest first) to page
+    between."""
 
     day: date | None
     days: list[date]
     receivers: list[ReceiverDayReportResponse]
+    aggregates: list[AggregateDayReportResponse] = []

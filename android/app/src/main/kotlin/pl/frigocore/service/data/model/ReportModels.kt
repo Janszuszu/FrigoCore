@@ -10,6 +10,27 @@ data class ObjectDayReportResponse(
     /** Days that have a report, newest first. */
     val days: List<String> = emptyList(),
     val receivers: List<ReceiverDayReportResponse> = emptyList(),
+    val aggregates: List<AggregateDayReportResponse> = emptyList(),
+)
+
+/** An aggregate's day read from its power (or current) draw. */
+@Serializable
+data class AggregateDayReportResponse(
+    val aggregate_id: String,
+    val name: String,
+    val day: String,
+    /** "power" (W) or "current" (A). */
+    val source: String = "power",
+    val running_seconds: Long = 0,
+    val idle_seconds: Long = 0,
+    val starts: Int = 0,
+    val avg_run_seconds: Long? = null,
+    val max_run_seconds: Long? = null,
+    val avg_idle_seconds: Long? = null,
+    val duty_percent: Double? = null,
+    val covered_seconds: Long = 0,
+    val energy_kwh: Double? = null,
+    val avg_running_value: Double? = null,
 )
 
 @Serializable

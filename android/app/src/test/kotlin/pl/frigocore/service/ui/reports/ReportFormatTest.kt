@@ -32,6 +32,14 @@ class ReportFormatTest {
     }
 
     @Test
+    fun `starts take the Polish plural`() {
+        assertEquals("1 załączenie", starts(1))
+        assertEquals("33 załączenia", starts(33))
+        assertEquals("12 załączeń", starts(12))
+        assertEquals("59 załączeń", starts(59))
+    }
+
+    @Test
     fun `day arrows step through the reported days`() {
         val days = listOf(LocalDate.of(2026, 10, 20), LocalDate.of(2026, 10, 19), LocalDate.of(2026, 10, 18))
         val newest = ReportsUiState(isLoading = false, day = days[0], days = days)

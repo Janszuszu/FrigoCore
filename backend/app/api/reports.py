@@ -1,6 +1,6 @@
 """FrigoCore — Reports (Raport) API.
 
-Reads the receiver day reports written every night by
+Reads the receiver and aggregate day reports written every night by
 app/services/daily_reports.py. Anyone who can see the object can read them.
 """
 
@@ -16,11 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.api.routes import _check_object_visible
 from app.database import get_db
+from app.models.aggregate import Aggregate
+from app.models.aggregate_day_report import AggregateDayReport
 from app.models.object import Object
 from app.models.receiver import Receiver
 from app.models.receiver_day_report import ReceiverDayReport
 from app.models.user import User
-from app.schemas import ObjectDayReportResponse, ReceiverDayReportResponse
+from app.schemas import AggregateDayReportResponse, ObjectDayReportResponse, ReceiverDayReportResponse
 
 reports_router = APIRouter()
 
@@ -39,14 +41,19 @@ async def receiver_day_reports(
     if await db.get(Object, object_id) is None:
         raise HTTPException(status_code=404, detail="Object not found")
 
-    days = list((await db.scalars(
+    receiver_days = set((await db.scalars(
         select(ReceiverDayReport.day)
         .join(Receiver, Receiver.id == ReceiverDayReport.receiver_id)
         .where(Receiver.object_id == object_id)
         .distinct()
-        .order_by(ReceiverDayReport.day.desc())
-        .limit(MAX_DAYS)
     )).all())
+    aggregate_days = set((await db.scalars(
+        select(AggregateDayReport.day)
+        .join(Aggregate, Aggregate.id == AggregateDayReport.aggregate_id)
+        .where(Aggregate.object_id == object_id)
+        .distinct()
+    )).all())
+    days = sorted(receiver_days | aggregate_days, reverse=True)[:MAX_DAYS]
     shown = day or (days[0] if days else None)
     if shown is None:
         return ObjectDayReportResponse(day=None, days=[], receivers=[])
@@ -57,9 +64,34 @@ async def receiver_day_reports(
         .where(Receiver.object_id == object_id, ReceiverDayReport.day == shown)
         .order_by(Receiver.display_order, Receiver.name)
     )).all()
+    aggregate_rows = (await db.execute(
+        select(AggregateDayReport, Aggregate.name)
+        .join(Aggregate, Aggregate.id == AggregateDayReport.aggregate_id)
+        .where(Aggregate.object_id == object_id, AggregateDayReport.day == shown)
+        .order_by(Aggregate.display_order, Aggregate.name)
+    )).all()
     return ObjectDayReportResponse(
         day=shown,
         days=days,
+        aggregates=[
+            AggregateDayReportResponse(
+                aggregate_id=a.aggregate_id,
+                name=name,
+                day=a.day,
+                source=a.source,
+                running_seconds=a.running_seconds,
+                idle_seconds=a.idle_seconds,
+                starts=a.starts,
+                avg_run_seconds=a.avg_run_seconds,
+                max_run_seconds=a.max_run_seconds,
+                avg_idle_seconds=a.avg_idle_seconds,
+                duty_percent=a.duty_percent,
+                covered_seconds=a.covered_seconds,
+                energy_kwh=a.energy_kwh,
+                avg_running_value=a.avg_running_value,
+            )
+            for a, name in aggregate_rows
+        ],
         receivers=[
             ReceiverDayReportResponse(
                 receiver_id=r.receiver_id,

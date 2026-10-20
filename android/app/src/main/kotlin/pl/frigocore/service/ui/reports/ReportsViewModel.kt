@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import pl.frigocore.service.data.local.SelectedObjectStore
+import pl.frigocore.service.data.model.AggregateDayReportResponse
 import pl.frigocore.service.data.model.ReceiverDayReportResponse
 import pl.frigocore.service.data.repository.ApiResult
 import pl.frigocore.service.data.repository.ObjectRepository
@@ -24,6 +25,7 @@ data class ReportsUiState(
     /** Days with a report, newest first. */
     val days: List<LocalDate> = emptyList(),
     val receivers: List<ReceiverDayReportResponse> = emptyList(),
+    val aggregates: List<AggregateDayReportResponse> = emptyList(),
     val error: String? = null,
 ) {
     private val index: Int get() = days.indexOf(day)
@@ -78,7 +80,7 @@ class ReportsViewModel @Inject constructor(
     fun refresh() = load(_uiState.value.day)
 
     fun showDay(day: LocalDate) {
-        _uiState.value = _uiState.value.copy(isLoading = true, day = day, receivers = emptyList())
+        _uiState.value = _uiState.value.copy(isLoading = true, day = day, receivers = emptyList(), aggregates = emptyList())
         load(day)
     }
 
@@ -106,6 +108,7 @@ class ReportsViewModel @Inject constructor(
                     day = result.data.day?.let(LocalDate::parse),
                     days = result.data.days.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() },
                     receivers = result.data.receivers,
+                    aggregates = result.data.aggregates,
                 )
             }
         }

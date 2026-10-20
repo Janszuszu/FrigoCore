@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Hvac
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.Card
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import pl.frigocore.service.data.model.AggregateDayReportResponse
 import pl.frigocore.service.data.model.ReceiverDayReportResponse
 import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.common.LoadingState
@@ -72,15 +74,17 @@ fun ReportsScreen(viewModel: ReportsViewModel = hiltViewModel()) {
     Column(Modifier.fillMaxSize()) {
         DayPicker(uiState, viewModel::showDay)
         when {
-            uiState.isLoading && uiState.receivers.isEmpty() -> LoadingState()
-            uiState.error != null && uiState.receivers.isEmpty() -> MessageState(uiState.error!!, onRetry = viewModel::refresh)
+            uiState.isLoading && uiState.receivers.isEmpty() && uiState.aggregates.isEmpty() -> LoadingState()
+            uiState.error != null && uiState.receivers.isEmpty() && uiState.aggregates.isEmpty() ->
+                MessageState(uiState.error!!, onRetry = viewModel::refresh)
             uiState.day == null -> MessageState("Brak raportów. Pierwszy raport powstanie po północy, z całego minionego dnia.")
-            uiState.receivers.isEmpty() -> MessageState("Brak raportu z tego dnia.")
+            uiState.receivers.isEmpty() && uiState.aggregates.isEmpty() -> MessageState("Brak raportu z tego dnia.")
             else -> LazyColumn(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(uiState.receivers, key = { it.receiver_id }) { ReceiverReportCard(it) }
+                items(uiState.aggregates, key = { it.aggregate_id }) { AggregateReportCard(it) }
             }
         }
     }
@@ -191,6 +195,96 @@ private fun ReceiverReportCard(report: ReceiverDayReportResponse) {
             }
         }
     }
+}
+
+/** An aggregate's day from its power draw: running and resting time with
+ * the starts and average lengths, the duty share, and — from a power
+ * sensor — the energy used and the average power while running. */
+@Composable
+private fun AggregateReportCard(report: AggregateDayReportResponse) {
+    Card(
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, FrigoMax.copy(alpha = 0.4f)),
+        colors = CardDefaults.cardColors(containerColor = FrigoSurface, contentColor = FrigoText),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Hvac, contentDescription = null, tint = FrigoMax, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "AGREGAT ${report.name.uppercase()}",
+                    color = FrigoText,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (report.covered_seconds < DAY_SECONDS * 95 / 100) {
+                    Text("dane: ${duration(report.covered_seconds)}", color = FrigoTextMuted, fontSize = 13.sp)
+                }
+            }
+            if (report.covered_seconds == 0L) {
+                Text("Brak odczytów tego dnia", color = FrigoTextMuted, fontSize = 15.sp, modifier = Modifier.padding(top = 8.dp))
+                return@Column
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.height(IntrinsicSize.Min)) {
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("PRACA", color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp, maxLines = 1)
+                    Text(duration(report.running_seconds), color = FrigoMax, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, style = TabularNumbers)
+                    Text(starts(report.starts), color = FrigoTextMuted, fontSize = 12.sp, maxLines = 1)
+                    Text("śr. ${report.avg_run_seconds?.let { average(it, 1) } ?: "—"}", color = FrigoTextMuted, fontSize = 12.sp, maxLines = 1, style = TabularNumbers)
+                }
+                StatDivider()
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("POSTÓJ", color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp, maxLines = 1)
+                    Text(duration(report.idle_seconds), color = IdleBlue, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, style = TabularNumbers)
+                    Text("śr. ${report.avg_idle_seconds?.let { average(it, 1) } ?: "—"}", color = FrigoTextMuted, fontSize = 12.sp, maxLines = 1, style = TabularNumbers)
+                }
+                StatDivider()
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("UDZIAŁ PRACY", color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp, maxLines = 1)
+                    Text(
+                        report.duty_percent?.let { "${Math.round(it)} %" } ?: "—",
+                        color = FrigoText,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        style = TabularNumbers,
+                    )
+                    report.max_run_seconds?.let {
+                        Text("najdł. ${average(it, 1)}", color = FrigoTextMuted, fontSize = 12.sp, maxLines = 1, style = TabularNumbers)
+                    }
+                }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = FrigoMax.copy(alpha = 0.2f))
+            Row(Modifier.height(IntrinsicSize.Min)) {
+                val power = report.source == "power"
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("ENERGIA", color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp)
+                    Text(
+                        report.energy_kwh?.let { Formatters.reading(it, "kWh") } ?: "—",
+                        color = FrigoText, fontSize = 19.sp, fontWeight = FontWeight.Bold, style = TabularNumbers,
+                    )
+                }
+                StatDivider()
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(if (power) "ŚR. MOC W PRACY" else "ŚR. PRĄD W PRACY", color = FrigoTextMuted, fontSize = 12.sp, letterSpacing = 0.5.sp)
+                    Text(
+                        Formatters.reading(report.avg_running_value, if (power) "W" else "A"),
+                        color = FrigoText, fontSize = 19.sp, fontWeight = FontWeight.Bold, style = TabularNumbers,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** "1 załączenie", "3 załączenia", "12 załączeń". */
+internal fun starts(n: Int): String = when {
+    n == 1 -> "1 załączenie"
+    n % 10 in 2..4 && n % 100 !in 12..14 -> "$n załączenia"
+    else -> "$n załączeń"
 }
 
 /** Pale ice blue for idle, as on the receiver page. */
