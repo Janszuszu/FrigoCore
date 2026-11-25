@@ -45,7 +45,7 @@ async def test_register_same_token_updates_in_place(client, make_user):
 
 @pytest.mark.asyncio
 async def test_multiple_devices_per_user(client, db_session, make_user):
-    jan = await make_user(UserRole.SERWISANT)
+    jan = await make_user(UserRole.SERWISANT, with_phone=False)
     await client.post(
         "/api/v1/devices/register", json={"fcm_token": "phone-1", "platform": "android"}, headers=auth_headers(jan)
     )

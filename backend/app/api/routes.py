@@ -761,32 +761,46 @@ async def accept_alarm(
     if alarm.status != AlarmStatus.TRIGGERED:
         raise HTTPException(status_code=400, detail="Only TRIGGERED alarms can be accepted")
 
+    is_admin = user.role == UserRole.ADMIN
     assignment = await _current_pending_assignment(db, alarm_id)
-    if assignment is None:
-        raise HTTPException(status_code=409, detail="No active assignment for this alarm")
-    if not _user_matches_assignment(user, assignment):
-        raise HTTPException(status_code=403, detail="This alarm is not currently assigned to you")
+    if assignment is None and not is_admin:
+        raise HTTPException(status_code=409, detail="Alarm nie ma teraz aktywnego przydziału")
+    if assignment is not None and not is_admin and not _user_matches_assignment(user, assignment):
+        raise HTTPException(status_code=403, detail="Ten alarm jest teraz przydzielony komuś innemu")
 
     now = datetime.now(timezone.utc)
+    if assignment is not None:
+        # Admin may take over whoever's turn it is; the atomic flip still
+        # decides a race with the assigned technician.
+        if not await _claim_assignment(db, alarm, assignment, user, now):
+            raise HTTPException(status_code=409, detail="Alarm został już przyjęty przez kogoś innego")
+
+    alarm.status = AlarmStatus.ACKNOWLEDGED
+    alarm.acknowledged_at = now
+    await record_event(db, alarm.id, AlarmEventType.ALARM_ACKNOWLEDGED, actor_user_id=user.id)
+    await _mark_en_route(db, alarm, user, now)
+    await db.commit()
+    await db.refresh(alarm)
+    return alarm
+
+
+async def _claim_assignment(
+    db: AsyncSession, alarm: Alarm, assignment: AlarmAssignment, user: User, now: datetime
+) -> bool:
+    """PENDING -> ACCEPTED for `user` in one guarded UPDATE; False when
+    someone else resolved it first."""
     result = await db.execute(
         update(AlarmAssignment)
         .where(AlarmAssignment.id == assignment.id, AlarmAssignment.outcome == AssignmentOutcome.PENDING)
         .values(outcome=AssignmentOutcome.ACCEPTED, responded_at=now, target_user_id=user.id)
     )
     if result.rowcount == 0:
-        raise HTTPException(status_code=409, detail="This assignment was already resolved by someone else")
-
-    alarm.status = AlarmStatus.ACKNOWLEDGED
-    alarm.acknowledged_at = now
+        return False
     await record_event(
         db, alarm.id, AlarmEventType.ASSIGNMENT_ACCEPTED, actor_user_id=user.id,
         metadata={"assignment_id": str(assignment.id), "tier": assignment.tier},
     )
-    await record_event(db, alarm.id, AlarmEventType.ALARM_ACKNOWLEDGED, actor_user_id=user.id)
-    await _mark_en_route(db, alarm, user, now)
-    await db.commit()
-    await db.refresh(alarm)
-    return alarm
+    return True
 
 
 async def _mark_en_route(db: AsyncSession, alarm: Alarm, user: User, now: datetime) -> None:
@@ -939,12 +953,12 @@ async def acknowledge_alarm(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Alarm:
-    """Legacy dashboard acknowledge — kept working for the existing web
-    frontend, which acknowledges alarms directly without going through the
-    technician-dispatch/assignment flow. When a pending assignment for this
-    same user happens to exist, it is resolved as accepted too so the audit
-    trail and assignment state stay consistent with the new /accept flow;
-    otherwise this behaves exactly as it always has.
+    """Web dashboard acknowledge, which bypasses the technician-dispatch
+    flow. Since the one-button flow an accepted alarm means "serwis w
+    trakcie realizacji", so this goes on to EN_ROUTE exactly like /accept:
+    owners are told and a test alarm closes itself a minute later. A pending
+    assignment of this user (or any, for an admin) is resolved as accepted
+    so the audit trail matches /accept.
     """
     alarm = await db.get(Alarm, alarm_id)
     if alarm is None:
@@ -955,21 +969,13 @@ async def acknowledge_alarm(
 
     now = datetime.now(timezone.utc)
     assignment = await _current_pending_assignment(db, alarm_id)
-    if assignment is not None and _user_matches_assignment(user, assignment):
-        result = await db.execute(
-            update(AlarmAssignment)
-            .where(AlarmAssignment.id == assignment.id, AlarmAssignment.outcome == AssignmentOutcome.PENDING)
-            .values(outcome=AssignmentOutcome.ACCEPTED, responded_at=now, target_user_id=user.id)
-        )
-        if result.rowcount:
-            await record_event(
-                db, alarm.id, AlarmEventType.ASSIGNMENT_ACCEPTED, actor_user_id=user.id,
-                metadata={"assignment_id": str(assignment.id), "tier": assignment.tier},
-            )
+    if assignment is not None and (user.role == UserRole.ADMIN or _user_matches_assignment(user, assignment)):
+        await _claim_assignment(db, alarm, assignment, user, now)
 
     alarm.status = AlarmStatus.ACKNOWLEDGED
     alarm.acknowledged_at = now
     await record_event(db, alarm.id, AlarmEventType.ALARM_ACKNOWLEDGED, actor_user_id=user.id)
+    await _mark_en_route(db, alarm, user, now)
     await db.commit()
     await db.refresh(alarm)
     return alarm
@@ -984,7 +990,7 @@ async def archive_alarm(
     if alarm is None:
         raise HTTPException(status_code=404, detail="Alarm not found")
     _check_object_visible(alarm.object_id, user)
-    if alarm.status not in (AlarmStatus.ACKNOWLEDGED, AlarmStatus.RESOLVED):
+    if alarm.status not in (AlarmStatus.ACKNOWLEDGED, AlarmStatus.EN_ROUTE, AlarmStatus.RESOLVED):
         raise HTTPException(status_code=400, detail="Only completed alarms can be archived")
     alarm.status = AlarmStatus.ARCHIVED
     # An ACKNOWLEDGED alarm was never resolved; without an end time the chart

@@ -115,8 +115,14 @@ async def dispatch_tier(
     session: AsyncSession,
     alarm: Alarm,
     tier: EscalationTier,
+    has_next_tier: bool = False,
 ) -> AlarmAssignment:
     """Create the AlarmAssignment for one tier, push to targets, log events.
+
+    A tier whose target has no logged-in phone cannot be reached, so when a
+    later tier exists the assignment expires at once and the EscalationEngine
+    moves on in its next cycle instead of waiting out the whole timeout. The
+    last tier keeps its timeout: someone may still log in and answer.
 
     Relies on the DB-level partial unique index (one PENDING assignment per
     alarm) to guarantee this never races into two live assignments — if two
@@ -124,7 +130,9 @@ async def dispatch_tier(
     raises IntegrityError, which the caller must treat as "already dispatched".
     """
     now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(seconds=tier.timeout_seconds)
+    device_tokens, _ = await _device_tokens_for_tier(session, tier)
+    unreachable = not device_tokens and has_next_tier
+    expires_at = now if unreachable else now + timedelta(seconds=tier.timeout_seconds)
 
     assignment = AlarmAssignment(
         alarm_id=alarm.id,
@@ -152,7 +160,10 @@ async def dispatch_tier(
         },
     )
 
-    device_tokens, _ = await _device_tokens_for_tier(session, tier)
+    if unreachable:
+        logger.info(
+            "Tier %d of alarm %s has no logged-in phone — escalating without waiting", tier.tier_order, alarm.id
+        )
     obj = await session.get(Object, alarm.object_id)
     try:
         await NotificationEngine.send_service_alarm_dispatch(alarm, obj, assignment, device_tokens)
@@ -217,7 +228,11 @@ async def start_dispatch(session: AsyncSession, alarm: Alarm) -> Optional[AlarmA
         )
         return None
     first_tier = policy.tiers[0]
-    return await dispatch_tier(session, alarm, first_tier)
+    return await dispatch_tier(session, alarm, first_tier, has_next_tier=_has_tier_after(policy, first_tier))
+
+
+def _has_tier_after(policy: EscalationPolicy, tier: EscalationTier) -> bool:
+    return any(t.tier_order == tier.tier_order + 1 for t in policy.tiers)
 
 
 async def escalate(
@@ -253,4 +268,4 @@ async def escalate(
         message=f"Escalating from tier {previous_tier_order} to tier {next_tier.tier_order} ({reason})",
         metadata={"previous_tier": previous_tier_order, "next_tier": next_tier.tier_order, "reason": reason},
     )
-    return await dispatch_tier(session, alarm, next_tier)
+    return await dispatch_tier(session, alarm, next_tier, has_next_tier=_has_tier_after(policy, next_tier))

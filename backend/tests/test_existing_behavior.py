@@ -88,7 +88,9 @@ async def test_legacy_acknowledge_and_archive_still_work(client, db_session, mak
 
     resp = await client.post(f"/api/v1/alarms/{alarm.id}/acknowledge", headers=auth_headers(serwisant))
     assert resp.status_code == 200, resp.text
-    assert resp.json()["status"] == AlarmStatus.ACKNOWLEDGED.value
+    # One-button flow: an accepted alarm is "serwis w trakcie realizacji".
+    assert resp.json()["status"] == AlarmStatus.EN_ROUTE.value
+    assert resp.json()["acknowledged_at"] is not None
 
     resp = await client.post(f"/api/v1/alarms/{alarm.id}/archive", headers=auth_headers(serwisant))
     assert resp.status_code == 200, resp.text

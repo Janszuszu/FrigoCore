@@ -35,7 +35,8 @@ from app.api.reports import reports_router
 from app.api.voip_settings import voip_router
 from app.core.security import create_access_token, hash_password
 from app.database import Base, async_session_factory, engine, get_db, init_db
-from app.enums import UserRole
+from app.enums import DevicePlatform, UserRole
+from app.models.device_token import DeviceToken
 from app.models.user import User
 
 
@@ -99,7 +100,11 @@ async def client():
 def make_user(db_session):
     counter = {"n": 0}
 
-    async def _make(role: UserRole = UserRole.USER, is_active: bool = True) -> User:
+    async def _make(role: UserRole = UserRole.USER, is_active: bool = True, with_phone: bool | None = None) -> User:
+        """Staff (serwisant/admin) get a logged-in phone by default: a tier
+        whose target has none is skipped at once (dispatch_service), which is
+        not what most dispatch tests are about. Pass with_phone=False for
+        a technician with no phone."""
         counter["n"] += 1
         user = User(
             username=f"{role.value}_{counter['n']}",
@@ -111,6 +116,13 @@ def make_user(db_session):
         db_session.add(user)
         await db_session.commit()
         await db_session.refresh(user)
+        if with_phone is None:
+            with_phone = role != UserRole.USER
+        if with_phone:
+            db_session.add(DeviceToken(
+                user_id=user.id, fcm_token=f"phone-{user.username}", platform=DevicePlatform.ANDROID, is_active=True
+            ))
+            await db_session.commit()
         return user
 
     return _make
@@ -118,3 +130,16 @@ def make_user(db_session):
 
 def auth_headers(user: User) -> dict:
     return {"Authorization": f"Bearer {create_access_token(user)}"}
+
+
+@pytest.fixture(autouse=True)
+def _fake_fcm(request, monkeypatch):
+    """Staff test users have a phone (make_user), so dispatch really pushes.
+    No Firebase here: pretend every send works. test_fcm_notifications tests
+    the Firebase layer itself and keeps the real one."""
+    if request.module.__name__.endswith("test_fcm_notifications"):
+        return
+    from app.services import firebase_client
+
+    monkeypatch.setattr(firebase_client, "get_firebase_app", lambda: None)
+    monkeypatch.setattr(firebase_client, "send_to_token", lambda token, data: firebase_client.FcmSendResult.SENT)
