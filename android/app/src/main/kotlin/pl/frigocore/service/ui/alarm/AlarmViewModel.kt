@@ -15,7 +15,10 @@ import pl.frigocore.service.data.repository.ApiResult
 import pl.frigocore.service.fcm.AlarmNotificationHelper
 import javax.inject.Inject
 
-enum class AlarmActionInFlight { NONE, ACCEPT, DECLINE, EN_ROUTE, RESOLVE }
+/** One action only: "PRZYJĄŁEM". The backend moves the alarm straight to
+ * EN_ROUTE ("serwis w trakcie realizacji") and closes it by itself once the
+ * reading is back to normal. */
+enum class AlarmActionInFlight { NONE, ACCEPT }
 
 data class AlarmUiState(
     val alarmId: String = "",
@@ -64,7 +67,6 @@ class AlarmViewModel @Inject constructor(
         loadDetail()
         when (pendingAction) {
             PendingAction.ACCEPT -> accept()
-            PendingAction.DECLINE -> decline()
             null -> Unit
         }
     }
@@ -82,12 +84,6 @@ class AlarmViewModel @Inject constructor(
     }
 
     fun accept() = runAction(AlarmActionInFlight.ACCEPT) { alarmRepository.acceptAlarm(it) }
-
-    fun decline() = runAction(AlarmActionInFlight.DECLINE) { alarmRepository.declineAlarm(it) }
-
-    fun markEnRoute() = runAction(AlarmActionInFlight.EN_ROUTE) { alarmRepository.markEnRoute(it) }
-
-    fun resolve() = runAction(AlarmActionInFlight.RESOLVE) { alarmRepository.resolveAlarm(it) }
 
     fun dismissError() {
         _uiState.value = _uiState.value.copy(actionError = null)
@@ -109,15 +105,8 @@ class AlarmViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(actionInFlight = AlarmActionInFlight.NONE, alarm = result.data)
                     // The insistent alarm sound/vibration is tied to the tray
                     // notification (FLAG_INSISTENT) — it must stop the moment
-                    // the technician takes ANY confirmed action, not just on
-                    // decline or final resolve, or PRZYJMUJĘ would leave it
-                    // looping for the rest of the job.
-                    if (action == AlarmActionInFlight.ACCEPT ||
-                        action == AlarmActionInFlight.DECLINE ||
-                        result.data.status == AlarmStatus.RESOLVED
-                    ) {
-                        alarmNotificationHelper.clearAlarm(alarmId)
-                    }
+                    // the technician accepts.
+                    alarmNotificationHelper.clearAlarm(alarmId)
                 }
                 is ApiResult.Error -> {
                     _uiState.value = _uiState.value.copy(
@@ -130,4 +119,4 @@ class AlarmViewModel @Inject constructor(
     }
 }
 
-enum class PendingAction { ACCEPT, DECLINE }
+enum class PendingAction { ACCEPT }

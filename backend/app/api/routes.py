@@ -84,6 +84,7 @@ from app.schemas import (
     UserResponse,
     UserUpdate,
 )
+from app.services.alarm_engine import OPEN_STATUSES, raise_test_alarm
 from app.services.energy import daily_usage, local_today
 from app.services.dispatch_service import escalate, notify_object_owners, record_event
 from app.services.notification_engine import (
@@ -275,6 +276,31 @@ async def delete_object(
     await db.delete(obj)
     await db.commit()
     return {"status": "deleted"}
+
+
+@objects_router.post("/{object_id}/test-alarm", response_model=AlarmResponse, status_code=status.HTTP_201_CREATED)
+async def raise_object_test_alarm(
+    object_id: UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> Alarm:
+    """"Test alarm" from the object's settings: a real TRIGGERED alarm that
+    reaches the technicians, the owners and the object's channels, and
+    closes itself a minute after it is accepted."""
+    obj = await db.get(Object, object_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Object not found")
+    open_test = await db.scalar(
+        select(Alarm).where(
+            Alarm.object_id == object_id,
+            Alarm.alarm_type == AlarmType.TEST,
+            Alarm.status.in_(OPEN_STATUSES),
+        )
+    )
+    if open_test is not None:
+        raise HTTPException(status_code=409, detail="Alarm testowy dla tego obiektu już trwa")
+    alarm = await raise_test_alarm(db, object_id)
+    await db.commit()
+    await db.refresh(alarm)
+    return alarm
 
 
 # ===================================================================
@@ -717,7 +743,11 @@ def _user_matches_assignment(user: User, assignment: AlarmAssignment) -> bool:
 async def accept_alarm(
     alarm_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
 ) -> Alarm:
-    """Current assigned technician accepts responsibility -> ACKNOWLEDGED.
+    """Current assigned technician accepts the alarm with the one
+    "PRZYJĄŁEM" button -> straight to EN_ROUTE ("serwis w trakcie
+    realizacji"), and the object's owners are told at once. There is no
+    separate "on the way" step any more; the alarm closes by itself when
+    the reading is back to normal (AlarmEngine auto-resolve).
 
     Race-safe: the assignment outcome flip is a single atomic UPDATE guarded
     by `outcome = 'pending'`. If two technicians (e.g. a role-tier assignment
@@ -753,9 +783,32 @@ async def accept_alarm(
         metadata={"assignment_id": str(assignment.id), "tier": assignment.tier},
     )
     await record_event(db, alarm.id, AlarmEventType.ALARM_ACKNOWLEDGED, actor_user_id=user.id)
+    await _mark_en_route(db, alarm, user, now)
     await db.commit()
     await db.refresh(alarm)
     return alarm
+
+
+async def _mark_en_route(db: AsyncSession, alarm: Alarm, user: User, now: datetime) -> None:
+    """ACKNOWLEDGED -> EN_ROUTE: the client-facing "serwis w trakcie
+    realizacji" notice goes to the object's notification channels and the
+    owners' phones. Notification failures never block the transition."""
+    alarm.status = AlarmStatus.EN_ROUTE
+    alarm.en_route_at = now
+    await record_event(db, alarm.id, AlarmEventType.ALARM_EN_ROUTE, actor_user_id=user.id)
+
+    obj = await db.get(Object, alarm.object_id)
+    await db.refresh(obj, attribute_names=["notification_profile"])
+    endpoints: list[NotificationEndpoint] = []
+    if obj.notification_profile is not None:
+        await db.refresh(obj.notification_profile, attribute_names=["endpoints"])
+        endpoints = obj.notification_profile.endpoints
+    try:
+        await NotificationEngine.send_service_on_the_way(alarm, endpoints)
+    except Exception:
+        pass  # Notification failure must not block the state transition
+    await record_event(db, alarm.id, AlarmEventType.CLIENT_NOTIFIED, message="Serwis w trakcie realizacji")
+    await notify_object_owners(db, alarm, CLIENT_ALARM_EVENT_EN_ROUTE)
 
 
 @alarms_router.post("/{alarm_id}/decline", response_model=AlarmResponse)
@@ -806,9 +859,9 @@ async def decline_alarm(
 async def alarm_en_route(
     alarm_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
 ) -> Alarm:
-    """Current acknowledged technician confirms they are travelling to the
-    site -> EN_ROUTE. This is the ONLY transition that triggers the
-    client-facing "service is on the way" notification."""
+    """ACKNOWLEDGED -> EN_ROUTE. Kept for app builds from before the
+    one-button flow (1.9.4 and older): /accept now goes to EN_ROUTE itself,
+    so only an alarm acknowledged some other way still lands here."""
     alarm = await db.get(Alarm, alarm_id)
     if alarm is None:
         raise HTTPException(status_code=404, detail="Alarm not found")
@@ -820,24 +873,7 @@ async def alarm_en_route(
     if accepted is None or (accepted.target_user_id != user.id and user.role != UserRole.ADMIN):
         raise HTTPException(status_code=403, detail="Only the accepting technician can mark EN_ROUTE")
 
-    now = datetime.now(timezone.utc)
-    alarm.status = AlarmStatus.EN_ROUTE
-    alarm.en_route_at = now
-    await record_event(db, alarm.id, AlarmEventType.ALARM_EN_ROUTE, actor_user_id=user.id)
-
-    obj = await db.get(Object, alarm.object_id)
-    await db.refresh(obj, attribute_names=["notification_profile"])
-    endpoints: list[NotificationEndpoint] = []
-    if obj.notification_profile is not None:
-        await db.refresh(obj.notification_profile, attribute_names=["endpoints"])
-        endpoints = obj.notification_profile.endpoints
-    try:
-        await NotificationEngine.send_service_on_the_way(alarm, endpoints)
-    except Exception:
-        pass  # Notification failure must not block the state transition
-    await record_event(db, alarm.id, AlarmEventType.CLIENT_NOTIFIED, message="Service is on the way")
-    await notify_object_owners(db, alarm, CLIENT_ALARM_EVENT_EN_ROUTE)
-
+    await _mark_en_route(db, alarm, user, datetime.now(timezone.utc))
     await db.commit()
     await db.refresh(alarm)
     return alarm

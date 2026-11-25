@@ -18,6 +18,9 @@ class AlarmType(str, Enum):
     HIGH_TEMPERATURE = "high_temperature"
     LOW_TEMPERATURE = "low_temperature"
     OFFLINE = "offline"
+    # Raised by hand from the object's settings to check the whole chain
+    # (technicians, owners, notification channels). No sensor; closes itself.
+    TEST = "test"
 
 
 class AlarmStatus(str, Enum):

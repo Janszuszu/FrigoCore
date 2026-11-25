@@ -19,7 +19,7 @@ import pl.frigocore.service.fcm.AlarmNotificationHelper
 
 /** Critical alarm handling end to end: seeding from the FCM payload,
  * fetching the authoritative status, and only ever reflecting a confirmed
- * backend response for accept/decline/en-route (never an optimistic one). */
+ * backend response for the one accept action (never an optimistic one). */
 class AlarmViewModelTest {
 
     @get:Rule
@@ -105,16 +105,16 @@ class AlarmViewModelTest {
     }
 
     @Test
-    fun `accept only reflects ACKNOWLEDGED after the backend confirms it`() = runTest {
+    fun `accept only reflects EN_ROUTE after the backend confirms it`() = runTest {
         coEvery { alarmRepository.getAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.TRIGGERED))
-        coEvery { alarmRepository.acceptAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.ACKNOWLEDGED))
+        coEvery { alarmRepository.acceptAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.EN_ROUTE))
         viewModel.initialize(payload, pendingAction = null)
         advanceUntilIdle()
 
         viewModel.accept()
         advanceUntilIdle()
 
-        assertThat(viewModel.uiState.value.effectiveStatus).isEqualTo(AlarmStatus.ACKNOWLEDGED)
+        assertThat(viewModel.uiState.value.effectiveStatus).isEqualTo(AlarmStatus.EN_ROUTE)
         assertThat(viewModel.uiState.value.actionError).isNull()
         assertThat(viewModel.uiState.value.actionInFlight).isEqualTo(AlarmActionInFlight.NONE)
     }
@@ -146,19 +146,6 @@ class AlarmViewModelTest {
     }
 
     @Test
-    fun `en-route only fires after acceptance and reflects the confirmed status`() = runTest {
-        coEvery { alarmRepository.getAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.ACKNOWLEDGED))
-        coEvery { alarmRepository.markEnRoute("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.EN_ROUTE))
-        viewModel.initialize(payload, pendingAction = null)
-        advanceUntilIdle()
-
-        viewModel.markEnRoute()
-        advanceUntilIdle()
-
-        assertThat(viewModel.uiState.value.effectiveStatus).isEqualTo(AlarmStatus.EN_ROUTE)
-    }
-
-    @Test
     fun `accept stops the insistent alarm sound by clearing the notification`() = runTest {
         coEvery { alarmRepository.getAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.TRIGGERED))
         coEvery { alarmRepository.acceptAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.ACKNOWLEDGED))
@@ -172,19 +159,6 @@ class AlarmViewModelTest {
     }
 
     @Test
-    fun `decline stops the insistent alarm sound by clearing the notification`() = runTest {
-        coEvery { alarmRepository.getAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.TRIGGERED))
-        coEvery { alarmRepository.declineAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.ARCHIVED))
-        viewModel.initialize(payload, pendingAction = null)
-        advanceUntilIdle()
-
-        viewModel.decline()
-        advanceUntilIdle()
-
-        io.mockk.verify { notificationHelper.clearAlarm("alarm-1") }
-    }
-
-    @Test
     fun `a second action while one is in flight is ignored`() = runTest {
         coEvery { alarmRepository.getAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.TRIGGERED))
         coEvery { alarmRepository.acceptAlarm("alarm-1") } returns ApiResult.Success(alarm(AlarmStatus.ACKNOWLEDGED))
@@ -192,7 +166,7 @@ class AlarmViewModelTest {
         advanceUntilIdle()
 
         viewModel.accept()
-        viewModel.decline() // should be a no-op — an action is already in flight
+        viewModel.accept() // should be a no-op — an action is already in flight
 
         advanceUntilIdle()
         assertThat(viewModel.uiState.value.effectiveStatus).isEqualTo(AlarmStatus.ACKNOWLEDGED)

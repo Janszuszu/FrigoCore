@@ -111,8 +111,7 @@ async def test_en_route_and_resolve_notify_owner(client, db_session, make_user):
     with patch(
         "app.services.dispatch_service.NotificationEngine.send_owner_alarm_push", new_callable=AsyncMock
     ) as push:
-        await client.post(f"/api/v1/alarms/{alarm.id}/accept", headers=auth_headers(tech))
-        assert (await client.post(f"/api/v1/alarms/{alarm.id}/en-route", headers=auth_headers(tech))).status_code == 200
+        assert (await client.post(f"/api/v1/alarms/{alarm.id}/accept", headers=auth_headers(tech))).status_code == 200
         assert (await client.post(f"/api/v1/alarms/{alarm.id}/resolve", headers=auth_headers(tech))).status_code == 200
 
     events = [call.args[3] for call in push.await_args_list]

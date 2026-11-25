@@ -44,7 +44,9 @@ import androidx.compose.material.icons.outlined.Kitchen
 import androidx.compose.material.icons.outlined.Hvac
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.ViewInAr
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -145,6 +147,7 @@ fun HomeScreen(
     var chart by rememberSaveable { mutableStateOf<String?>(null) }
     val openChart = { objectId: String, sensorId: String -> chart = "$objectId/$sensorId" }
     var menuOpen by remember { mutableStateOf(false) }
+    var confirmLogout by remember { mutableStateOf(false) }
     // The device group shown (receivers, aggregates, meters) — kept across tabs and object picks.
     var devicesPage by rememberSaveable { mutableStateOf(0) }
 
@@ -277,12 +280,33 @@ fun HomeScreen(
                 menuOpen = false
                 navController.switchTab(HomeRoutes.OBJECTS)
             }
+            // Kept apart from "Obiekty" and confirmed: a stray tap here used to
+            // sign the phone out, and a signed-out phone gets no alarms.
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider(color = FrigoOutline)
             MenuItem(Icons.AutoMirrored.Filled.Logout, "Wyloguj") {
                 menuOpen = false
-                viewModel.logout(onLoggedOut)
+                confirmLogout = true
             }
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    if (confirmLogout) {
+        AlertDialog(
+            onDismissRequest = { confirmLogout = false },
+            title = { Text("Wylogować się?") },
+            text = { Text("Po wylogowaniu ten telefon nie będzie dostawać powiadomień o alarmach.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmLogout = false
+                    viewModel.logout(onLoggedOut)
+                }) { Text("Wyloguj") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLogout = false }) { Text("Anuluj") }
+            },
+        )
     }
 }
 

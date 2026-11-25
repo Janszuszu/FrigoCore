@@ -7,11 +7,11 @@ import type { AlarmItem, SensorItem } from "@/types";
 import noAlarmsMascot from "@/assets/no-alarms-mascot.png";
 const alarmsStore=useAlarmsStore(),objectsStore=useObjectsStore(),tab=ref<"active"|"history">("active");
 const activeAlarms=computed(()=>alarmsStore.alarms.filter(a=>["triggered","pending"].includes(a.status)));
-const historyAlarms=computed(()=>alarmsStore.alarms.filter(a=>["acknowledged","resolved"].includes(a.status)));
+const historyAlarms=computed(()=>alarmsStore.alarms.filter(a=>["acknowledged","en_route","resolved"].includes(a.status)));
 const alarms=computed(()=>tab.value==="active"?activeAlarms.value:historyAlarms.value);
 const activeCount=computed(()=>activeAlarms.value.length);
 const acknowledgeCount=computed(()=>alarmsStore.alarms.filter(a=>a.status==="triggered").length);
-function object(id:string){return objectsStore.objects.find(x=>x.id===id)?.name||id.slice(0,8)} function type(x:string){return ({offline:"DEVICE OFFLINE",high_temperature:"HIGH TEMPERATURE",low_temperature:"LOW TEMPERATURE"} as Record<string,string>)[x]||x.replaceAll("_"," ").toUpperCase()} function date(x:string|null){return x?new Date(x).toLocaleString("pl-PL"):"N/A"} function duration(x:string){const h=Math.max(0,Math.floor((Date.now()-new Date(x).getTime())/3600000));return `${h}h ${Math.floor((Date.now()-new Date(x).getTime())/60000)%60}m`}
+function object(id:string){return objectsStore.objects.find(x=>x.id===id)?.name||id.slice(0,8)} function type(x:string){return ({offline:"DEVICE OFFLINE",high_temperature:"HIGH TEMPERATURE",low_temperature:"LOW TEMPERATURE",test:"ALARM TESTOWY"} as Record<string,string>)[x]||x.replaceAll("_"," ").toUpperCase()} function date(x:string|null){return x?new Date(x).toLocaleString("pl-PL"):"N/A"} function duration(x:string){const h=Math.max(0,Math.floor((Date.now()-new Date(x).getTime())/3600000));return `${h}h ${Math.floor((Date.now()-new Date(x).getTime())/60000)%60}m`}
 async function resetAll(){for(const a of activeAlarms.value.filter(x=>x.status==="triggered"))await alarmsStore.acknowledgeAlarm(a.id)}
 onMounted(()=>{alarmsStore.fetchAlarms();objectsStore.fetchObjects();});
 

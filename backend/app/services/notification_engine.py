@@ -190,8 +190,8 @@ class NotificationEngine:
             return
 
         payload = _build_alarm_payload(alarm)
-        payload["subject"] = "FrigoCore — Serwis w drodze"
-        payload["message"] = "Serwis został wysłany i jest w drodze na obiekt."
+        payload["subject"] = "FrigoCore — Serwis w trakcie realizacji"
+        payload["message"] = "Serwis przyjął zgłoszenie i zajmuje się alarmem."
 
         for endpoint in endpoints:
             if not endpoint.is_enabled:
@@ -374,7 +374,7 @@ def build_service_alarm_payload(
         "site_name": obj.name,
         "alarm_type": alarm_type.upper(),
         "severity": "CRITICAL",
-        "title": "ALARM KRYTYCZNY",
+        "title": "ALARM TESTOWY" if alarm_type == AlarmType.TEST.value else "ALARM KRYTYCZNY",
         "message": alarm.description,
         "sensor_name": alarm.sensor_name,
         "requires_action": True,
@@ -403,6 +403,8 @@ def _alarm_reason(alarm: Alarm, spoken: bool) -> str:
     elif alarm_type == AlarmType.OFFLINE.value:
         reason = "Brak komunikacji z czujnikiem"
         value = None
+    elif alarm_type == AlarmType.TEST.value:
+        return "Alarm testowy, sprawdzenie powiadomień"
     else:
         reason = "Alarm"
     if info.states is not None:
@@ -416,14 +418,15 @@ def _alarm_reason(alarm: Alarm, spoken: bool) -> str:
 def build_client_alarm_payload(alarm: Alarm, obj: "Object", event: str) -> dict[str, Any]:
     """Build the informational CLIENT_ALARM push for object owners."""
     sensor = f"{alarm.sensor_name}: " if alarm.sensor_name else ""
+    test = _enum_value(alarm.alarm_type) == AlarmType.TEST.value
     if event == CLIENT_ALARM_EVENT_EN_ROUTE:
-        title = "Serwis w drodze"
-        message = "Serwisant jedzie na obiekt."
+        title = "Serwis w trakcie realizacji"
+        message = "Serwis przyjął zgłoszenie i zajmuje się alarmem."
     elif event == CLIENT_ALARM_EVENT_RESOLVED:
         title = "Alarm zakończony"
-        message = f"{sensor}sytuacja wróciła do normy."
+        message = "Alarm testowy zakończony." if test else f"{sensor}sytuacja wróciła do normy."
     else:
-        title = "Alarm"
+        title = "Alarm testowy" if test else "Alarm"
         message = sensor + _alarm_reason(alarm, spoken=False)
     return {
         "type": "CLIENT_ALARM",

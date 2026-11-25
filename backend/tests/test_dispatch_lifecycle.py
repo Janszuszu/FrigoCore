@@ -63,13 +63,11 @@ async def test_normal_lifecycle(client, db_session, make_user):
 
     await engine.run_once()
 
+    # One "PRZYJĄŁEM" button: accept goes straight to EN_ROUTE.
     resp = await client.post(f"/api/v1/alarms/{alarm.id}/accept", headers=auth_headers(jan))
     assert resp.status_code == 200, resp.text
-    assert resp.json()["status"] == AlarmStatus.ACKNOWLEDGED.value
-
-    resp = await client.post(f"/api/v1/alarms/{alarm.id}/en-route", headers=auth_headers(jan))
-    assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == AlarmStatus.EN_ROUTE.value
+    assert resp.json()["acknowledged_at"] is not None
     assert resp.json()["en_route_at"] is not None
 
     resp = await client.post(f"/api/v1/alarms/{alarm.id}/resolve", headers=auth_headers(jan))
@@ -296,7 +294,6 @@ async def test_events_recorded_for_every_transition(client, db_session, make_use
     await engine.run_once()
 
     await client.post(f"/api/v1/alarms/{alarm.id}/accept", headers=auth_headers(jan))
-    await client.post(f"/api/v1/alarms/{alarm.id}/en-route", headers=auth_headers(jan))
     await client.post(f"/api/v1/alarms/{alarm.id}/resolve", headers=auth_headers(jan))
 
     events = await _events(alarm.id)
@@ -327,14 +324,12 @@ async def test_events_recorded_for_every_transition(client, db_session, make_use
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_acknowledged_does_not_notify_client(client, db_session, make_user):
+async def test_triggered_does_not_notify_client_of_service(client, db_session, make_user):
     jan = await make_user(UserRole.SERWISANT)
     obj = await make_object(db_session)
     await make_policy(db_session, [{"timeout_seconds": 60, "target_user_id": jan.id}], object_id=obj.id)
     alarm = await make_triggered_alarm(db_session, obj.id)
     await engine.run_once()
-
-    await client.post(f"/api/v1/alarms/{alarm.id}/accept", headers=auth_headers(jan))
 
     event_types = {e.event_type for e in await _events(alarm.id)}
     assert AlarmEventType.CLIENT_NOTIFIED not in event_types
@@ -342,15 +337,14 @@ async def test_acknowledged_does_not_notify_client(client, db_session, make_user
 
 
 @pytest.mark.asyncio
-async def test_en_route_notifies_client(client, db_session, make_user):
+async def test_accept_notifies_client(client, db_session, make_user):
     jan = await make_user(UserRole.SERWISANT)
     obj = await make_object(db_session)
     await make_policy(db_session, [{"timeout_seconds": 60, "target_user_id": jan.id}], object_id=obj.id)
     alarm = await make_triggered_alarm(db_session, obj.id)
     await engine.run_once()
 
-    await client.post(f"/api/v1/alarms/{alarm.id}/accept", headers=auth_headers(jan))
-    resp = await client.post(f"/api/v1/alarms/{alarm.id}/en-route", headers=auth_headers(jan))
+    resp = await client.post(f"/api/v1/alarms/{alarm.id}/accept", headers=auth_headers(jan))
     assert resp.status_code == 200
 
     event_types = [e.event_type for e in await _events(alarm.id)]
@@ -422,12 +416,12 @@ async def test_repeated_en_route_does_not_duplicate_client_notification(client, 
     alarm = await make_triggered_alarm(db_session, obj.id)
     await engine.run_once()
 
-    await client.post(f"/api/v1/alarms/{alarm.id}/accept", headers=auth_headers(jan))
-    first = await client.post(f"/api/v1/alarms/{alarm.id}/en-route", headers=auth_headers(jan))
+    first = await client.post(f"/api/v1/alarms/{alarm.id}/accept", headers=auth_headers(jan))
     assert first.status_code == 200, first.text
 
-    # Second en-route call: alarm is no longer ACKNOWLEDGED, so it must be
-    # rejected rather than emitting a second CLIENT_NOTIFIED event.
+    # An older app still sends en-route after accepting: the alarm is no
+    # longer ACKNOWLEDGED, so it must be rejected rather than emitting a
+    # second CLIENT_NOTIFIED event.
     second = await client.post(f"/api/v1/alarms/{alarm.id}/en-route", headers=auth_headers(jan))
     assert second.status_code == 400, second.text
 

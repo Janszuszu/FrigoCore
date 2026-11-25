@@ -7,7 +7,7 @@
  * can be assigned to several objects; admin/serwisant see all of them by role.
  */
 import { computed, onMounted, ref } from "vue";
-import { apiNotifications, apiObjectUsers, apiUsers } from "@/api";
+import { apiNotifications, apiObjects, apiObjectUsers, apiUsers } from "@/api";
 import { useObjectsStore } from "@/stores/objects";
 import type {
   NotificationChannel,
@@ -22,11 +22,12 @@ const emit = defineEmits<{ close: []; saved: []; deleted: [] }>();
 
 const objectsStore = useObjectsStore();
 
-type Section = "general" | "users" | "notifications" | "danger";
+type Section = "general" | "users" | "notifications" | "test" | "danger";
 const SECTIONS: { key: Section; label: string }[] = [
   { key: "general", label: "Ogólne" },
   { key: "users", label: "Użytkownicy" },
   { key: "notifications", label: "Powiadomienia" },
+  { key: "test", label: "Test alarmu" },
   { key: "danger", label: "Usuń obiekt" },
 ];
 const section = ref<Section>("general");
@@ -200,6 +201,26 @@ async function removeEndpoint(endpoint: NotificationEndpointItem) {
     endpoints.value = await apiNotifications.listEndpoints(props.object.id);
   } catch (e) {
     notifError.value = e instanceof Error ? e.message : "Nie udało się usunąć kanału";
+  }
+}
+
+// ─── Test alarm ───────────────────────────────────────────────────
+const testSending = ref(false);
+const testResult = ref("");
+const testError = ref("");
+
+async function sendTestAlarm() {
+  if (!confirm(`Wysłać alarm testowy dla obiektu „${props.object.name}”? Dostanie go serwis i klienci obiektu.`)) return;
+  testSending.value = true;
+  testResult.value = "";
+  testError.value = "";
+  try {
+    const alarm = await apiObjects.testAlarm(props.object.id);
+    testResult.value = `Alarm testowy wysłany o ${new Date(alarm.detected_at).toLocaleTimeString("pl-PL")}.`;
+  } catch (e) {
+    testError.value = e instanceof Error ? e.message : "Nie udało się wysłać alarmu testowego";
+  } finally {
+    testSending.value = false;
   }
 }
 
@@ -417,6 +438,26 @@ onMounted(() => {
               </div>
               <p v-if="notifError" class="error-inline">{{ notifError }}</p>
             </template>
+          </section>
+
+          <!-- TEST ALARM -->
+          <section v-else-if="section === 'test'">
+            <p class="pane-hint">
+              Wysyła prawdziwy alarm oznaczony jako testowy, tą samą drogą co
+              alarm z czujnika. Serwisanci dostają powiadomienie z przyciskiem
+              „Przyjąłem” (także połączenia głosowe, jeśli są ustawione), a
+              klienci obiektu dostają informację o alarmie.
+            </p>
+            <p class="pane-hint">
+              Po przyjęciu klient dostaje status „Serwis w trakcie realizacji”,
+              a minutę później „Alarm zakończony”. Alarm, którego nikt nie
+              przyjmie, zamyka się sam po 30 minutach.
+            </p>
+            <button type="button" class="secondary" :disabled="testSending" @click="sendTestAlarm">
+              {{ testSending ? "Wysyłanie…" : "Wyślij alarm testowy" }}
+            </button>
+            <p v-if="testResult" class="ok-inline">{{ testResult }}</p>
+            <p v-if="testError" class="error-inline">{{ testError }}</p>
           </section>
 
           <!-- DANGER -->
@@ -793,6 +834,11 @@ header .close {
 .muted.small {
   font-size: 12px;
   margin: 0 0 4px;
+}
+
+.ok-inline {
+  color: #00e08a;
+  font-size: 13px;
 }
 
 .error,

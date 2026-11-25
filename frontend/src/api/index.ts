@@ -47,6 +47,18 @@ export function setUnauthorizedHandler(handler: () => void) {
   onUnauthorized = handler;
 }
 
+/** FastAPI answers errors as {"detail": "..."}; show just the sentence.
+ * Validation errors (a list) and non-JSON bodies are passed through as-is. */
+function errorDetail(body: string): string {
+  try {
+    const detail = JSON.parse(body)?.detail;
+    if (typeof detail === "string") return detail;
+  } catch {
+    // not JSON — fall through to the raw text
+  }
+  return body;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
@@ -59,7 +71,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(err || `${res.status} ${res.statusText}`);
+    throw new Error(errorDetail(err) || `${res.status} ${res.statusText}`);
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -93,6 +105,9 @@ export const apiObjects = {
     }),
   delete: (id: string) =>
     request<void>(`/objects/${id}`, { method: "DELETE" }),
+  /** Raises a test alarm sent to the service and the object's owners. */
+  testAlarm: (id: string) =>
+    request<AlarmItem>(`/objects/${id}/test-alarm`, { method: "POST" }),
 };
 
 // ─── Sensors ───────────────────────────────────────────────────────

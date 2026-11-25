@@ -54,7 +54,9 @@ class FormattersTest {
     fun `alarm labels are Polish`() {
         assertEquals("Wysoka temperatura", Formatters.alarmType("high_temperature"))
         assertEquals("Wysoka temperatura", Formatters.alarmType("HIGH_TEMPERATURE"))
-        assertEquals("Serwis w drodze", Formatters.alarmStatus("en_route"))
+        assertEquals("Serwis w trakcie realizacji", Formatters.alarmStatus("en_route"))
+        assertEquals("Alarm testowy", Formatters.alarmType("test"))
+        assertEquals("Alarm testowy", Formatters.alarmType("TEST"))
     }
 
     @Test

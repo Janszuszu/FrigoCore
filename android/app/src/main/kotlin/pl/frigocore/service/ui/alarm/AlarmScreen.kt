@@ -19,7 +19,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -37,15 +36,11 @@ import pl.frigocore.service.data.model.AlarmType
 import pl.frigocore.service.ui.common.Formatters
 import pl.frigocore.service.ui.theme.FrigoCritical
 import pl.frigocore.service.ui.theme.FrigoOk
-import pl.frigocore.service.ui.theme.FrigoWarning
 
 @Composable
 fun AlarmScreen(
     uiState: AlarmUiState,
     onAccept: () -> Unit,
-    onDecline: () -> Unit,
-    onEnRoute: () -> Unit,
-    onResolve: () -> Unit,
     onDismissError: () -> Unit,
     /** False for object owners: they see the alarm, technicians act on it. */
     canAct: Boolean = true,
@@ -93,64 +88,29 @@ fun AlarmScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        if (!canAct) {
-            Text(
-                text = when (uiState.effectiveStatus) {
-                    AlarmStatus.RESOLVED, AlarmStatus.ARCHIVED -> "Alarm zakończony"
-                    AlarmStatus.EN_ROUTE -> "Serwisant jest w drodze na obiekt."
-                    AlarmStatus.ACKNOWLEDGED -> "Serwis przyjął zgłoszenie."
-                    else -> "Serwis został powiadomiony."
-                },
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-            )
+        // One button only: PRZYJĄŁEM. After it the alarm is "serwis w
+        // trakcie realizacji" for everyone and closes by itself once the
+        // reading is back to normal.
+        if (canAct && uiState.effectiveStatus == AlarmStatus.TRIGGERED) {
+            Button(
+                onClick = onAccept,
+                enabled = !actionInProgress,
+                colors = ButtonDefaults.buttonColors(containerColor = FrigoOk),
+                modifier = Modifier.fillMaxWidth().height(64.dp),
+            ) { ActionLabel(stringResource(R.string.action_accept), actionInProgress) }
             return@Column
         }
 
-        when (uiState.effectiveStatus) {
-            AlarmStatus.TRIGGERED -> {
-                Button(
-                    onClick = onAccept,
-                    enabled = !actionInProgress,
-                    colors = ButtonDefaults.buttonColors(containerColor = FrigoOk),
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                ) { ActionLabel(stringResource(R.string.action_accept), actionInProgress && uiState.actionInFlight == AlarmActionInFlight.ACCEPT) }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedButton(
-                    onClick = onDecline,
-                    enabled = !actionInProgress,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                ) { ActionLabel(stringResource(R.string.action_decline), actionInProgress && uiState.actionInFlight == AlarmActionInFlight.DECLINE, color = Color.White) }
-            }
-
-            AlarmStatus.ACKNOWLEDGED -> {
-                Button(
-                    onClick = onEnRoute,
-                    enabled = !actionInProgress,
-                    colors = ButtonDefaults.buttonColors(containerColor = FrigoWarning),
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                ) { ActionLabel(stringResource(R.string.action_en_route), actionInProgress && uiState.actionInFlight == AlarmActionInFlight.EN_ROUTE) }
-            }
-
-            AlarmStatus.EN_ROUTE -> {
-                Button(
-                    onClick = onResolve,
-                    enabled = !actionInProgress,
-                    colors = ButtonDefaults.buttonColors(containerColor = FrigoOk),
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                ) { ActionLabel(stringResource(R.string.action_resolve), actionInProgress && uiState.actionInFlight == AlarmActionInFlight.RESOLVE) }
-            }
-
-            AlarmStatus.RESOLVED, AlarmStatus.ARCHIVED -> {
-                Text(
-                    text = "Alarm zakończony",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
-        }
+        Text(
+            text = when (uiState.effectiveStatus) {
+                AlarmStatus.RESOLVED, AlarmStatus.ARCHIVED -> "Alarm zakończony."
+                AlarmStatus.EN_ROUTE, AlarmStatus.ACKNOWLEDGED ->
+                    "Serwis w trakcie realizacji. Alarm zamknie się sam, gdy odczyt wróci do normy."
+                else -> "Serwis został powiadomiony."
+            },
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium,
+        )
     }
 }
 

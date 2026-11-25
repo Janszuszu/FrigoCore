@@ -105,13 +105,10 @@ class AlarmNotificationHelperTest {
     }
 
     @Test
-    fun `accept and decline actions are both present`() {
+    fun `the only action is PRZYJĄŁEM`() {
         val notification = shownNotification("alarm-1")
         val actionTitles = notification.actions.map { it.title.toString() }
-        assertThat(actionTitles).containsExactly(
-            context.getString(R.string.action_accept),
-            context.getString(R.string.action_decline),
-        )
+        assertThat(actionTitles).containsExactly(context.getString(R.string.action_accept))
     }
 
     @Test

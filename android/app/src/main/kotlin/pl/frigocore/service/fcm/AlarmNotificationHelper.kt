@@ -53,14 +53,6 @@ class AlarmNotificationHelper @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val declineIntent = AlarmActionReceiver.newIntent(context, payload, AlarmActionReceiver.ACTION_OPEN_DECLINE)
-        val declinePendingIntent = PendingIntent.getBroadcast(
-            context,
-            notificationId(payload.alarmId) + 3,
-            declineIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-
         val notification = NotificationCompat.Builder(context, context.getString(R.string.notification_channel_alarms_id))
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(payload.title)
@@ -74,7 +66,6 @@ class AlarmNotificationHelper @Inject constructor(
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(contentPendingIntent)
             .addAction(0, context.getString(R.string.action_accept), acceptPendingIntent)
-            .addAction(0, context.getString(R.string.action_decline), declinePendingIntent)
             .build()
             .apply { flags = flags or Notification.FLAG_INSISTENT }
 

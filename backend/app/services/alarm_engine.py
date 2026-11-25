@@ -44,6 +44,21 @@ logger = logging.getLogger(__name__)
 # Interval between alarm evaluation cycles (seconds)
 EVALUATION_INTERVAL_SECONDS = 10
 
+# Alarms not yet closed: one per sensor + type, and all of them close
+# themselves once the reading is back to normal.
+OPEN_STATUSES = [
+    AlarmStatus.PENDING,
+    AlarmStatus.TRIGGERED,
+    AlarmStatus.ACKNOWLEDGED,
+    AlarmStatus.EN_ROUTE,
+]
+
+# A test alarm closes this long after the service accepted it, so the owner
+# also gets the "Alarm zakończony" push and the whole chain is exercised.
+TEST_ALARM_CLOSE_AFTER_ACCEPT_SECONDS = 60
+# ...and this long after it was raised if nobody accepted it at all.
+TEST_ALARM_MAX_AGE_SECONDS = 30 * 60
+
 
 def _alarm_type_str(alarm: Alarm) -> str:
     """Return alarm_type as a plain string, regardless of SQL dialect storage."""
@@ -122,11 +137,14 @@ class AlarmEngine:
                 if not config.is_enabled:
                     continue
 
+                # An alarm the service has taken on stays the one alarm for
+                # this condition until it clears — no fresh alarm every
+                # trigger delay while the technician is working on it.
                 existing = await session.scalar(
                     select(Alarm).where(
                         Alarm.sensor_id == sensor.id,
                         Alarm.alarm_type == config.alarm_type,
-                        Alarm.status.in_([AlarmStatus.PENDING, AlarmStatus.TRIGGERED]),
+                        Alarm.status.in_(OPEN_STATUSES),
                     )
                 )
                 if existing is not None:
@@ -241,17 +259,20 @@ class AlarmEngine:
     async def _auto_resolve_alarms(session: AsyncSession) -> None:
         now = datetime.now(timezone.utc)
         alarms = await session.execute(
-            select(Alarm).where(
-                Alarm.status.in_([AlarmStatus.PENDING, AlarmStatus.TRIGGERED]),
-            )
+            select(Alarm).where(Alarm.status.in_(OPEN_STATUSES))
         )
         for alarm in alarms.scalars().all():
+            alarm_type_str = _alarm_type_str(alarm)
+            if alarm_type_str == AlarmType.TEST.value:
+                if _test_alarm_done(alarm, now):
+                    await _resolve(session, alarm, now, "Alarm testowy zakończony", alarm_type_str, "test")
+                continue
+
             await session.refresh(alarm, attribute_names=["sensor"])
             sensor = alarm.sensor
             if sensor is None:
                 continue
 
-            alarm_type_str = _alarm_type_str(alarm)
             await session.refresh(sensor, attribute_names=["alarm_configs"])
             config = next(
                 (c for c in sensor.alarm_configs if c.alarm_type == alarm.alarm_type), None
@@ -275,18 +296,57 @@ class AlarmEngine:
                         resolved = True
 
             if resolved:
-                was_triggered = alarm.status == AlarmStatus.TRIGGERED
-                alarm.status = AlarmStatus.RESOLVED
-                alarm.resolved_at = now
-                session.add(alarm)
-                await session.flush()  # persist updated_at before broadcasting
-                logger.info("Alarm RESOLVED — type=%s sensor=%s", alarm_type_str, sensor.name)
-                await ws_manager.broadcast("alarm.resolved", _alarm_payload(alarm))
-                await record_event(session, alarm.id, AlarmEventType.ALARM_RESOLVED, message="Condition auto-cleared")
-                # A PENDING alarm that clears inside its delay was never
-                # announced to the owner, so there is nothing to close out.
-                if was_triggered:
-                    await notify_object_owners(session, alarm, CLIENT_ALARM_EVENT_RESOLVED)
+                await _resolve(session, alarm, now, "Condition auto-cleared", alarm_type_str, sensor.name)
+
+
+def _test_alarm_done(alarm: Alarm, now: datetime) -> bool:
+    if alarm.en_route_at is not None:
+        return (now - _ensure_utc(alarm.en_route_at)).total_seconds() >= TEST_ALARM_CLOSE_AFTER_ACCEPT_SECONDS
+    return (now - _ensure_utc(alarm.detected_at)).total_seconds() >= TEST_ALARM_MAX_AGE_SECONDS
+
+
+async def _resolve(
+    session: AsyncSession, alarm: Alarm, now: datetime, message: str, alarm_type_str: str, label: str
+) -> None:
+    # A PENDING alarm that clears inside its delay was never announced to
+    # the owner, so there is nothing to close out.
+    was_announced = alarm.status != AlarmStatus.PENDING
+    alarm.status = AlarmStatus.RESOLVED
+    alarm.resolved_at = now
+    session.add(alarm)
+    await session.flush()  # persist updated_at before broadcasting
+    logger.info("Alarm RESOLVED — type=%s sensor=%s", alarm_type_str, label)
+    await ws_manager.broadcast("alarm.resolved", _alarm_payload(alarm))
+    await record_event(session, alarm.id, AlarmEventType.ALARM_RESOLVED, message=message)
+    if was_announced:
+        await notify_object_owners(session, alarm, CLIENT_ALARM_EVENT_RESOLVED)
+
+
+async def raise_test_alarm(session: AsyncSession, object_id) -> Alarm:
+    """A TRIGGERED test alarm for the object, sent down exactly the path a
+    real one takes: the object's notification channels (incl. voice calls)
+    and its owners now, the technicians via the EscalationEngine's next
+    cycle. The caller commits."""
+    now = datetime.now(timezone.utc)
+    alarm = Alarm(
+        alarm_type=AlarmType.TEST,
+        status=AlarmStatus.TRIGGERED,
+        detected_at=now,
+        triggered_at=now,
+        object_id=object_id,
+        sensor_id=None,
+        description="Alarm testowy — sprawdzenie powiadomień",
+    )
+    session.add(alarm)
+    await session.flush()
+    await record_event(session, alarm.id, AlarmEventType.ALARM_TRIGGERED, message="Alarm testowy z panelu")
+    await ws_manager.broadcast("alarm.triggered", _alarm_payload(alarm))
+    try:
+        await _send_triggered_notification(session, alarm)
+    except Exception:
+        logger.exception("Failed to dispatch notification for test alarm %s", alarm.id)
+    await notify_object_owners(session, alarm, CLIENT_ALARM_EVENT_TRIGGERED)
+    return alarm
 
 
 def _topic_slug(topic: str) -> str:

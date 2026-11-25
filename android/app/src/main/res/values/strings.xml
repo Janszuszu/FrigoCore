@@ -6,16 +6,13 @@
     <string name="notification_channel_alarms_description">Krytyczne alarmy wymagające natychmiastowej reakcji technika</string>
     <string name="notification_channel_owner_id">object_alarms</string>
     <string name="notification_channel_owner_name">Alarmy obiektów</string>
-    <string name="notification_channel_owner_description">Informacje o alarmach na Twoich obiektach i przyjeździe serwisu</string>
+    <string name="notification_channel_owner_description">Informacje o alarmach na Twoich obiektach i działaniach serwisu</string>
 
-    <string name="action_accept">PRZYJMUJĘ</string>
-    <string name="action_decline">ODRZUCAM</string>
-    <string name="action_en_route">W DRODZE</string>
-    <string name="action_resolve">ZAKOŃCZ</string>
+    <string name="action_accept">PRZYJĄŁEM</string>
 
     <string name="status_triggered">AKTYWNY</string>
     <string name="status_acknowledged">PRZYJĘTY</string>
-    <string name="status_en_route">W DRODZE</string>
+    <string name="status_en_route">W TRAKCIE REALIZACJI</string>
     <string name="status_resolved">ZAKOŃCZONY</string>
     <string name="status_archived">ZARCHIWIZOWANY</string>
 
@@ -31,7 +28,7 @@
     <string name="dashboard_title">Alarmy serwisowe</string>
     <string name="dashboard_section_active">Aktywne</string>
     <string name="dashboard_section_acknowledged">Przyjęte</string>
-    <string name="dashboard_section_en_route">W drodze</string>
+    <string name="dashboard_section_en_route">W trakcie realizacji</string>
     <string name="dashboard_section_recent">Ostatnie</string>
     <string name="dashboard_empty">Brak alarmów</string>
     <string name="dashboard_clear_history">Wyczyść</string>

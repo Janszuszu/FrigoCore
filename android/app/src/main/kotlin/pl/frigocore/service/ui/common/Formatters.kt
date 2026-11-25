@@ -95,6 +95,7 @@ object Formatters {
             AlarmType.HIGH_TEMPERATURE -> true
             AlarmType.LOW_TEMPERATURE -> false
             AlarmType.OFFLINE -> return "Brak komunikacji"
+            AlarmType.TEST -> return "Alarm testowy"
             else -> return type.ifBlank { "Alarm" }
         }
         return when (kind) {
@@ -112,7 +113,7 @@ object Formatters {
         AlarmStatus.PENDING -> "Oczekuje"
         AlarmStatus.TRIGGERED -> "Aktywny"
         AlarmStatus.ACKNOWLEDGED -> "Przyjęty"
-        AlarmStatus.EN_ROUTE -> "Serwis w drodze"
+        AlarmStatus.EN_ROUTE -> "Serwis w trakcie realizacji"
         AlarmStatus.RESOLVED -> "Zakończony"
         AlarmStatus.ARCHIVED -> "Zarchiwizowany"
         else -> status

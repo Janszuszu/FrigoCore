@@ -46,6 +46,8 @@ object AlarmType {
     const val HIGH_TEMPERATURE = "high_temperature"
     const val LOW_TEMPERATURE = "low_temperature"
     const val OFFLINE = "offline"
+    /** Raised by hand from the web panel to check the notification chain. */
+    const val TEST = "test"
 }
 
 @Serializable

@@ -52,7 +52,7 @@ class AlarmActivity : ComponentActivity() {
         getSystemService<KeyguardManager>()?.requestDismissKeyguard(this, null)
 
         val payload = intent.getAlarmPayloadExtra()
-        val pendingAction = intent.getStringExtra(EXTRA_PENDING_ACTION)?.let { PendingAction.valueOf(it) }
+        val pendingAction = intent.getStringExtra(EXTRA_PENDING_ACTION)?.let { name -> PendingAction.entries.firstOrNull { it.name == name } }
         if (payload != null) {
             viewModel.initialize(payload, pendingAction)
         }
@@ -63,9 +63,6 @@ class AlarmActivity : ComponentActivity() {
                 AlarmScreen(
                     uiState = uiState,
                     onAccept = viewModel::accept,
-                    onDecline = viewModel::decline,
-                    onEnRoute = viewModel::markEnRoute,
-                    onResolve = viewModel::resolve,
                     onDismissError = viewModel::dismissError,
                     canAct = authRepository.currentUser?.role != UserRole.USER,
                 )
@@ -77,7 +74,7 @@ class AlarmActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         val payload = intent.getAlarmPayloadExtra() ?: return
-        val pendingAction = intent.getStringExtra(EXTRA_PENDING_ACTION)?.let { PendingAction.valueOf(it) }
+        val pendingAction = intent.getStringExtra(EXTRA_PENDING_ACTION)?.let { name -> PendingAction.entries.firstOrNull { it.name == name } }
         viewModel.initialize(payload, pendingAction)
     }
 
