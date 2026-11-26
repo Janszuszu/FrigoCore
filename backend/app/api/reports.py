@@ -109,6 +109,8 @@ async def receiver_day_reports(
                 max_temp=r.max_temp,
                 defrosts=r.defrosts,
                 off_periods=r.off_periods,
+                door_open_count=r.door_open_count,
+                door_open_seconds=r.door_open_seconds,
             )
             for r, name in rows
         ],

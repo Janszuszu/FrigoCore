@@ -646,6 +646,9 @@ class ReceiverDayReportResponse(BaseModel):
     max_temp: float | None
     defrosts: list[DefrostEntry]
     off_periods: list[OffPeriodEntry]
+    # None when the chamber has no door sensor.
+    door_open_count: int | None = None
+    door_open_seconds: int | None = None
 
 
 class AggregateDayReportResponse(BaseModel):

@@ -201,6 +201,13 @@ private fun ReceiverReportCard(report: ReceiverDayReportResponse) {
             ReportRow("Temperatura min.", Formatters.temperature(report.min_temp), FrigoAccent)
             ReportRow("Temperatura średnia", Formatters.temperature(report.avg_temp), FrigoAccent)
             ReportRow("Temperatura maks.", Formatters.temperature(report.max_temp), FrigoAccent)
+            val doorCount = report.door_open_count
+            if (doorCount != null) {
+                Section(FrigoAccent)
+                ReportRow("Otwarcia drzwi", "$doorCount", strong = true)
+                ReportRow("Drzwi otwarte łącznie", duration(report.door_open_seconds ?: 0L))
+                ReportRow("Średnio na otwarcie", average(report.door_open_seconds ?: 0L, doorCount))
+            }
             Section(FrigoAccent)
             Defrosts(report)
             report.off_periods.forEach { off ->

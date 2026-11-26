@@ -50,6 +50,9 @@ data class ReceiverDayReportResponse(
     val max_temp: Double? = null,
     val defrosts: List<DefrostEntry> = emptyList(),
     val off_periods: List<OffPeriodEntry> = emptyList(),
+    /** Null when the chamber has no door sensor. */
+    val door_open_count: Int? = null,
+    val door_open_seconds: Long? = null,
 )
 
 @Serializable

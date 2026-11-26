@@ -23,7 +23,9 @@ from app.models.aggregate_day_report import AggregateDayReport
 from app.models.measurement import Measurement
 from app.models.receiver import Receiver
 from app.models.receiver_day_report import ReceiverDayReport
+from app.models.sensor import Sensor
 from app.services.daily_cycles import MAX_GAP, DayAnalysis, analyze_day
+from app.services.door_stats import analyze_door, door_sensor_for
 from app.services.energy import ENERGY_TIMEZONE, local_today
 from app.services.power_cycles import analyze_power
 from app.services.receiver_state import Point
@@ -100,7 +102,23 @@ async def build_report(db: AsyncSession, receiver: Receiver, day: date) -> Recei
     analysis = await asyncio.to_thread(
         analyze_day, chamber, evaporator or None, start, end, receiver.cut_in, receiver.cut_out
     )
-    return to_report(receiver.id, day, analysis)
+    report = to_report(receiver.id, day, analysis)
+    await _add_door(db, receiver, report)
+    return report
+
+
+async def _add_door(db: AsyncSession, receiver: Receiver, report: ReceiverDayReport) -> bool:
+    """Fills in the chamber door's openings and open time for the report's
+    day. False when the chamber has no door sensor."""
+    chamber = await db.get(Sensor, receiver.chamber_sensor_id) if receiver.chamber_sensor_id else None
+    door = await door_sensor_for(db, chamber)
+    if door is None:
+        return False
+    start, end = day_bounds(report.day)
+    d = analyze_door(await _readings(db, door.id, start, end), start, end)
+    report.door_open_count = d.openings
+    report.door_open_seconds = d.open_seconds
+    return True
 
 
 def power_sensor(aggregate: Aggregate):
@@ -166,6 +184,19 @@ async def run_pending(db: AsyncSession, today: date | None = None) -> int:
             db.add(await build_report(db, receiver, day))
             await db.commit()
             written += 1
+
+    # Reports stored before the door was counted (or before the chamber got
+    # a door sensor) get its figures once.
+    by_id = {r.id: r for r in receivers}
+    without_door = (await db.scalars(
+        select(ReceiverDayReport).where(
+            ReceiverDayReport.day >= days[0], ReceiverDayReport.door_open_count.is_(None)
+        )
+    )).all()
+    for report in without_door:
+        receiver = by_id.get(report.receiver_id)
+        if receiver is not None and await _add_door(db, receiver, report):
+            await db.commit()
 
     aggregates = (await db.scalars(select(Aggregate).where(Aggregate.is_active.is_(True)))).all()
     done_aggregates = {

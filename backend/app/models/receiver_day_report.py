@@ -35,6 +35,9 @@ class ReceiverDayReport(Base, UUIDMixin, TimestampMixin):
     min_temp: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     avg_temp: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     max_temp: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # The chamber's door, when it has a door sensor (None otherwise).
+    door_open_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    door_open_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # [{"start", "end", "peak", "recovery_seconds"}], ISO times in UTC.
     defrosts: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
