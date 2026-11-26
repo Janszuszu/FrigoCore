@@ -54,10 +54,15 @@ const existing = ref<Record<AlarmKey, AlarmConfigItem | null>>({
 });
 type AlarmKey = "high_temperature" | "low_temperature" | "offline";
 
+// A door sensor reads 0/1: its "high" alarm is "door open too long" — the
+// threshold is fixed at 0.5 and only the delay is the administrator's.
+const isDoor = computed(() => props.sensor.kind === "door");
+const DOOR_THRESHOLD = 0.5;
+
 const alarms = ref({
   high_enabled: false,
   high_temperature: null as number | null,
-  high_delay: 300,
+  high_delay: props.sensor.kind === "door" ? 600 : 300,
   low_enabled: false,
   low_temperature: null as number | null,
   low_delay: 300,
@@ -151,7 +156,7 @@ async function save() {
     await Promise.all([
       upsertAlarm("high_temperature", {
         is_enabled: alarms.value.high_enabled,
-        threshold_value: alarms.value.high_temperature,
+        threshold_value: isDoor.value ? DOOR_THRESHOLD : alarms.value.high_temperature,
         trigger_delay_seconds: alarms.value.high_delay,
       }),
       upsertAlarm("low_temperature", {
@@ -275,7 +280,20 @@ async function remove() {
 
           <!-- ALARMS -->
           <section v-else-if="section === 'alarms'" class="alarm-sections">
-            <fieldset>
+            <fieldset v-if="isDoor">
+              <legend>Drzwi otwarte za długo</legend>
+              <label class="toggle">
+                <input v-model="alarms.high_enabled" type="checkbox" class="switch" />
+                <span>Włączony</span>
+              </label>
+              <label class="field narrow">
+                <span>Alarm po [s] otwartych drzwi</span>
+                <input v-model.number="alarms.high_delay" type="number" step="60" min="0" :disabled="!alarms.high_enabled" />
+              </label>
+              <small>np. 600 = 10 minut. Alarm kończy się sam po zamknięciu drzwi.</small>
+            </fieldset>
+
+            <fieldset v-else>
               <legend>Wysoka temperatura</legend>
               <label class="toggle">
                 <input v-model="alarms.high_enabled" type="checkbox" class="switch" />
@@ -291,7 +309,7 @@ async function remove() {
               </label>
             </fieldset>
 
-            <fieldset>
+            <fieldset v-if="!isDoor">
               <legend>Niska temperatura</legend>
               <label class="toggle">
                 <input v-model="alarms.low_enabled" type="checkbox" class="switch" />
