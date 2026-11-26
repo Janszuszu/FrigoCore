@@ -33,8 +33,8 @@ import pl.frigocore.service.ui.theme.FrigoTextMuted
 private val DeviceGroups = listOf("ODBIORNIKI", "AGREGATY", "LICZNIKI")
 
 /** Urządzenia: receivers, aggregates and meters side by side — a swipe
- * left or right changes the group (the receivers' own pages swipe first,
- * the group changes past their last one). The names on top show where you
+ * left or right changes the group (receivers scroll up and down inside
+ * theirs). The names on top show where you
  * are and jump there on a tap. [page] / [onPage] keep the group across
  * tab switches. */
 @OptIn(ExperimentalFoundationApi::class)

@@ -6,10 +6,11 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,9 +18,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
@@ -70,14 +72,17 @@ import pl.frigocore.service.ui.theme.FrigoTextMuted
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
-/** Receivers on one page. */
-private const val PER_PAGE = 3
+/** Receivers that fit on one screen; the rest are a scroll down away. */
+private const val PER_SCREEN = 2
 
-/** Urządzenia → Odbiorniki: three receivers to a page, more a swipe away
- * with dots for where you are. Each card is the chamber — name, state,
- * temperature, its 24 h chart and MIN / ŚREDNIA / MAX — plus the
+private val Gap = 12.dp
+private val EdgeV = 10.dp
+
+/** Urządzenia → Odbiorniki: two receivers to a screen, the rest below —
+ * scrolling down stops on a whole card. Each card is the chamber — name,
+ * state, temperature, its 24 h chart and MIN / ŚREDNIA / MAX — plus the
  * evaporator's reading. Tapping the chart opens the chamber full screen,
- * tapping PAROWNIK the evaporator. */
+ * tapping PAROWNIK the evaporator. A lone receiver fills the screen. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ReceiversScreen(
@@ -92,54 +97,28 @@ fun ReceiversScreen(
         uiState.isLoading && uiState.cards.isEmpty() -> LoadingState()
         // Nothing configured for this object yet — keep showing its sensors.
         uiState.cards.isEmpty() -> fallback()
-        // Another object starts again on its first page.
+        // Another object starts again at the top.
         else -> key(uiState.objectId) {
-            val pages = uiState.cards.chunked(PER_PAGE)
-            val pagerState = rememberPagerState { pages.size }
-            Column(Modifier.fillMaxSize()) {
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    pageSpacing = 12.dp,
-                ) { page ->
-                    val group = pages.getOrNull(page) ?: return@HorizontalPager
-                    Column(
-                        Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        group.forEach { card ->
-                            ReceiverCardView(
-                                card,
-                                onOpenChart = { sensorId, name -> onOpenChart(card.receiver.object_id, sensorId, name) },
-                                modifier = Modifier.weight(1f).fillMaxWidth(),
-                            )
-                        }
-                        // A short last page keeps the cards the size they are on the others.
-                        if (pages.size > 1 && group.size < PER_PAGE) {
-                            Spacer(Modifier.weight((PER_PAGE - group.size).toFloat()))
-                        }
+            val listState = rememberLazyListState()
+            val perScreen = if (uiState.cards.size == 1) 1 else PER_SCREEN
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val cardHeight = (maxHeight - EdgeV * 2 - Gap * (perScreen - 1)) / perScreen
+                LazyColumn(
+                    state = listState,
+                    flingBehavior = rememberSnapFlingBehavior(listState),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = EdgeV),
+                    verticalArrangement = Arrangement.spacedBy(Gap),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(uiState.cards, key = { it.receiver.id }) { card ->
+                        ReceiverCardView(
+                            card,
+                            onOpenChart = { sensorId, name -> onOpenChart(card.receiver.object_id, sensorId, name) },
+                            modifier = Modifier.height(cardHeight).fillMaxWidth(),
+                        )
                     }
                 }
-                if (pages.size > 1) PageDots(pages.size, pagerState.currentPage)
             }
-        }
-    }
-}
-
-@Composable
-private fun PageDots(count: Int, current: Int) {
-    Row(
-        Modifier.fillMaxWidth().padding(bottom = 8.dp),
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        repeat(count) { i ->
-            Box(
-                Modifier
-                    .padding(horizontal = 4.dp)
-                    .size(if (i == current) 8.dp else 6.dp)
-                    .clip(CircleShape)
-                    .background(if (i == current) FrigoAccent else FrigoTextMuted.copy(alpha = 0.5f)),
-            )
         }
     }
 }
